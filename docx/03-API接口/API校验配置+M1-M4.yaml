@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # 本项目只提供 localhost/Compose 演示环境，不声明虚构生产域名。
+  no-server-example.com: off
+  # Health 接口是无参数探针，不人为添加没有业务意义的 4XX。
+  operation-4xx-response: off
