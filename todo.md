@@ -173,6 +173,12 @@
   - 成功写入 `user.roles.replace` 审计并返回共享安全用户摘要；before/after 仅包含用户、版本和角色信息，不暴露密码、Token 或内部异常。
   - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `173 passed`。
+- [x] [#35 M4：实现用户资料与状态更新接口](https://github.com/Doggod727/CampusPilot/issues/35)（2026-07-14）
+  - `PATCH /api/v1/users/{user_id}` 由 `user:write` 保护，支持 display_name、email、department 和 active/disabled 状态更新，使用乐观锁 `version`。
+  - active 会清除锁定时间并重置登录失败次数；disabled 会在同一事务内撤销全部 Refresh Token，并阻止禁用最后一个 active super_admin。
+  - 用户不存在、版本冲突、重复邮箱分别返回 `404 USER_NOT_FOUND`、`409 RESOURCE_VERSION_CONFLICT`、`409 DUPLICATE_RESOURCE`；更新写入脱敏 `user.update` 审计。
+  - 契约差异：OpenAPI 的 UserUpdateRequest 允许 status=locked，但管理接口禁止手工设置，返回 `409 STATUS_CHANGE_NOT_ALLOWED`；locked 仅由登录失败策略产生，M4 收尾时同步修订 OpenAPI/详细设计。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `180 passed`。
 
 ## 待办
 

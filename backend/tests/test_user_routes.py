@@ -16,7 +16,9 @@ from app.modules.platform.user_routes import (
     get_user_admin_service,
     get_user_repository,
     get_user_role_service,
+    get_user_update_service,
 )
+from app.modules.platform.user_update import UserUpdateService, StatusChangeNotAllowed
 
 
 def _authenticated_user(*permissions: str) -> AuthenticatedUser:
@@ -66,6 +68,7 @@ def _client(
     current_user: AuthenticatedUser | None = None,
     service: MagicMock | None = None,
     role_service: MagicMock | None = None,
+    update_service: MagicMock | None = None,
 ) -> TestClient:
     application = create_app()
     application.dependency_overrides[get_user_repository] = lambda: repository
@@ -73,6 +76,8 @@ def _client(
         application.dependency_overrides[get_user_admin_service] = lambda: service
     if role_service is not None:
         application.dependency_overrides[get_user_role_service] = lambda: role_service
+    if update_service is not None:
+        application.dependency_overrides[get_user_update_service] = lambda: update_service
     if current_user is not None:
         application.dependency_overrides[get_authenticated_user] = lambda: current_user
     return TestClient(application, raise_server_exceptions=False)
@@ -394,3 +399,67 @@ def test_replace_user_roles_requires_permission_and_validates_payload() -> None:
     assert invalid.status_code == 422
     assert invalid.json()["code"] == "VALIDATION_ERROR"
     role_service.replace_user_roles.assert_not_called()
+
+
+def test_update_user_returns_summary_and_forwards_changes() -> None:
+    repository = MagicMock()
+    update_service = MagicMock(spec=UserUpdateService)
+    user, role = _listed_user()
+    update_service.update_user = AsyncMock(
+        return_value=UserListItem(user=user, roles=(role,))
+    )
+    actor = _authenticated_user("user:write")
+    client = _client(repository, actor, update_service=update_service)
+
+    response = client.patch(
+        f"/api/v1/users/{user.id}",
+        json={"display_name": "更新名称", "version": user.version},
+        headers={"X-Request-Id": "update-user-request-123"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["request_id"] == "update-user-request-123"
+    kwargs = update_service.update_user.await_args.kwargs
+    assert kwargs["actor"] is actor
+    assert kwargs["changes"] == {"display_name": "更新名称"}
+    assert "password_hash" not in response.text
+
+
+def test_update_user_requires_permission_and_validates_patch() -> None:
+    repository = MagicMock()
+    update_service = MagicMock(spec=UserUpdateService)
+    client = _client(repository, _authenticated_user("user:read"), update_service=update_service)
+
+    forbidden = client.patch(
+        f"/api/v1/users/{uuid4()}",
+        json={"display_name": "名称", "version": 1},
+    )
+    assert forbidden.status_code == 403
+    update_service.update_user.assert_not_called()
+
+    validation_client = _client(
+        repository,
+        _authenticated_user("user:write"),
+        update_service=update_service,
+    )
+    invalid = validation_client.patch(
+        f"/api/v1/users/{uuid4()}",
+        json={"version": 1},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_update_user_maps_manual_lock_to_safe_conflict() -> None:
+    repository = MagicMock()
+    update_service = MagicMock(spec=UserUpdateService)
+    update_service.update_user = AsyncMock(side_effect=StatusChangeNotAllowed())
+    client = _client(repository, _authenticated_user("user:write"), update_service=update_service)
+
+    response = client.patch(
+        f"/api/v1/users/{uuid4()}",
+        json={"status": "locked", "version": 1},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "STATUS_CHANGE_NOT_ALLOWED"

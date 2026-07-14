@@ -151,6 +151,40 @@ class UserRepository:
         )
         return result.rowcount
 
+    async def update_if_version(
+        self,
+        user_id: UUID,
+        expected_version: int,
+        updates: dict[str, object],
+        updated_at: datetime,
+    ) -> bool:
+        values = dict(updates)
+        values.update(version=User.version + 1, updated_at=updated_at)
+        result = await self._session.execute(
+            update(User)
+            .where(
+                User.id == user_id,
+                User.version == expected_version,
+                User.deleted_at.is_(None),
+            )
+            .values(**values)
+        )
+        return result.rowcount == 1
+
+    async def count_active_super_admins(self) -> int:
+        result = await self._session.execute(
+            select(func.count(User.id))
+            .select_from(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                User.status == "active",
+                User.deleted_at.is_(None),
+                Role.code == "super_admin",
+            )
+        )
+        return result.scalar_one()
+
     async def get_summary_by_id(self, user_id: UUID) -> UserListItem | None:
         user = await self.get_by_id(user_id)
         if user is None:

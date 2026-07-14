@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
@@ -26,6 +26,10 @@ from app.modules.platform.user_roles import (
     UserNotFound,
     UserRoleService,
     user_role_service_context,
+)
+from app.modules.platform.user_update import (
+    UserUpdateService,
+    user_update_service_context,
 )
 from app.modules.platform.user_schemas import (
     PageMetaData,
@@ -80,6 +84,45 @@ class UserRoleAssignmentRequest(BaseModel):
             raise ValueError("role_ids must be unique")
         return value
 
+
+class UserUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=50)
+    email: str | None = Field(default=None, max_length=254)
+    department: str | None = Field(default=None, max_length=100)
+    status: UserStatus | None = None
+    version: int = Field(ge=1)
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("display_name cannot be null")
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: UserStatus | None) -> UserStatus:
+        if value is None:
+            raise ValueError("status cannot be null")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        if value is not None and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise ValueError("value is not a valid email address")
+        return value
+
+    @model_validator(mode="after")
+    def require_update_field(self) -> "UserUpdateRequest":
+        if not self.model_fields_set.intersection(
+            {"display_name", "email", "department", "status"}
+        ):
+            raise ValueError("at least one user field must be provided")
+        return self
+
 async def get_user_repository() -> AsyncIterator[UserRepository]:
     database = Database.from_settings(get_settings())
     try:
@@ -96,6 +139,11 @@ async def get_user_admin_service() -> AsyncIterator[UserAdminService]:
 
 async def get_user_role_service() -> AsyncIterator[UserRoleService]:
     async with user_role_service_context(get_settings()) as service:
+        yield service
+
+
+async def get_user_update_service() -> AsyncIterator[UserUpdateService]:
+    async with user_update_service_context(get_settings()) as service:
         yield service
 
 
@@ -184,6 +232,39 @@ async def get_user(
     result = await repository.get_summary_by_id(user_id)
     if result is None:
         raise UserNotFound()
+    return SuccessResponse(
+        data=_user_summary(result),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
+@router.patch(
+    "/{user_id}",
+    operation_id="updateUser",
+    response_model=UserResponse,
+)
+async def update_user(
+    user_id: UUID,
+    payload: UserUpdateRequest,
+    request: Request,
+    current_user: Annotated[
+        AuthenticatedUser,
+        Depends(require_permissions("user:write")),
+    ],
+    service: Annotated[UserUpdateService, Depends(get_user_update_service)],
+) -> SuccessResponse[UserSummaryData]:
+    changes = payload.model_dump(
+        exclude_unset=True,
+        exclude={"version"},
+    )
+    result = await service.update_user(
+        actor=current_user,
+        user_id=user_id,
+        expected_version=payload.version,
+        changes=changes,
+        request_id=request.state.request_id,
+    )
     return SuccessResponse(
         data=_user_summary(result),
         request_id=request.state.request_id,
