@@ -57,6 +57,13 @@ class UserListPage:
     total: int
 
 
+@dataclass(frozen=True)
+class RoleListItem:
+    role: Role
+    permissions: tuple[Permission, ...]
+    user_count: int
+
+
 class UserRepository:
     """Persistence queries for platform users within a caller-owned session."""
 
@@ -185,6 +192,7 @@ class UserRepository:
         )
         return result.scalar_one()
 
+
     async def get_summary_by_id(self, user_id: UUID) -> UserListItem | None:
         user = await self.get_by_id(user_id)
         if user is None:
@@ -271,6 +279,59 @@ class UserRepository:
             ),
         }
         return orders[sort]
+
+
+class RbacReadRepository:
+    """Read-only role and permission catalog queries."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list_roles(self) -> tuple[RoleListItem, ...]:
+        roles_result = await self._session.execute(
+            select(Role).order_by(Role.code)
+        )
+        roles = list(roles_result.scalars().all())
+        if not roles:
+            return ()
+
+        role_ids = [role.id for role in roles]
+        permissions_result = await self._session.execute(
+            select(RolePermission.role_id, Permission)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(RolePermission.role_id.in_(role_ids))
+            .order_by(RolePermission.role_id, Permission.code)
+        )
+        permissions_by_role: dict[UUID, list[Permission]] = {
+            role_id: [] for role_id in role_ids
+        }
+        for role_id, permission in permissions_result.all():
+            permissions_by_role[role_id].append(permission)
+
+        counts_result = await self._session.execute(
+            select(UserRole.role_id, func.count(UserRole.user_id))
+            .join(User, User.id == UserRole.user_id)
+            .where(User.deleted_at.is_(None))
+            .group_by(UserRole.role_id)
+        )
+        user_counts = {role_id: count for role_id, count in counts_result.all()}
+        return tuple(
+            RoleListItem(
+                role=role,
+                permissions=tuple(permissions_by_role[role.id]),
+                user_count=user_counts.get(role.id, 0),
+            )
+            for role in roles
+        )
+
+    async def list_permissions(self, module: str | None = None) -> list[Permission]:
+        statement = select(Permission)
+        if module is not None:
+            statement = statement.where(Permission.module == module)
+        result = await self._session.execute(
+            statement.order_by(Permission.module, Permission.code)
+        )
+        return list(result.scalars().all())
 
 
 class AuthPolicyRepository:

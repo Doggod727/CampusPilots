@@ -179,6 +179,11 @@
   - 用户不存在、版本冲突、重复邮箱分别返回 `404 USER_NOT_FOUND`、`409 RESOURCE_VERSION_CONFLICT`、`409 DUPLICATE_RESOURCE`；更新写入脱敏 `user.update` 审计。
   - 契约差异：OpenAPI 的 UserUpdateRequest 允许 status=locked，但管理接口禁止手工设置，返回 `409 STATUS_CHANGE_NOT_ALLOWED`；locked 仅由登录失败策略产生，M4 收尾时同步修订 OpenAPI/详细设计。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `180 passed`。
+- [x] [#36 M4：实现角色与权限只读查询接口](https://github.com/Doggod727/CampusPilot/issues/36)（2026-07-14）
+  - `GET /api/v1/roles` 和 `GET /api/v1/permissions` 均由 `role:read` 保护，返回统一成功信封、稳定排序及 Request-Id。
+  - 角色查询批量加载权限和未软删除用户数，避免逐角色 N+1；权限查询支持 module 过滤，不暴露内部写字段或 Session 信息。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `184 passed`。
 
 ## 待办
 

@@ -5,6 +5,7 @@ from app.core.request_id import RequestIdMiddleware
 from app.modules.platform.auth_routes import router as auth_router
 from app.modules.platform.health import router as health_router
 from app.modules.platform.user_routes import router as user_router
+from app.modules.platform.rbac_routes import router as rbac_router
 
 
 def create_app() -> FastAPI:
@@ -17,6 +18,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router)
     application.include_router(auth_router)
     application.include_router(user_router)
+    application.include_router(rbac_router)
     return application
 
 
