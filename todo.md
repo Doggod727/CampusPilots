@@ -17,7 +17,7 @@
 
 ## 契约与设计差异
 
-- 暂无。出现差异时记录来源、实际实现、受影响模块与后续文档更新项。
+- 认证登录临时锁定：M4 详细设计第 4.2 节和错误码表写为 429，但 OpenAPI `/api/v1/auth/login` 定义 `423 Locked` 及 `Retry-After`。后续实现固定使用 `423 ACCOUNT_LOCKED`，429 仅用于限流；影响依赖认证的前端与 M1/M2/M3。M4 收尾时修订详细设计对应章节，OpenAPI 保持现有定义。
 
 ## 已完成
 
@@ -101,6 +101,11 @@
   - AuditLogRepository 只向调用方 Session 追加事件，不提供修改、删除或事务生命周期操作。
   - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `70 passed`。
+- [x] [#19 M4：实现审计服务与敏感字段脱敏](https://github.com/Doggod727/CampusPilot/issues/19)（2026-07-14）
+  - AuditService 在调用方事务内写入成功/失败事件，并在写入前递归复制和脱敏审计快照。
+  - password、token、authorization、cookie、api_key、secret 的命名变体均替换为 `***`，原始入参保持不变。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `74 passed`。
 
 ## 待办
 
