@@ -230,6 +230,10 @@
   - 新增 `ModerationTargetHandler` 协议和按 `target_module/target_type` 注册解析的 Registry，支持 approve/reject/escalate。
   - 未注册目标统一返回 `409 MODERATION_HANDLER_UNAVAILABLE`，不回显目标标识；不导入或修改 M1/M2/M3 业务 ORM。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `218 passed`（11 条既有 httpx 弃用警告）通过；无 HTTP 契约差异。
+- [x] [#47 M4：实现审核扫描与建案应用服务](https://github.com/Doggod727/CampusPilot/issues/47)（2026-07-14）
+  - 新增内部 `ModerationService.scan/submit_case`；allow/mask 不建案，review/block 建立 pending 案件。
+  - 案件仅保存 500 字内容摘要和规则 UUID/动作，写入脱敏 `moderation.case.submit` 审计；目标模块校验失败返回 `422 INVALID_MODERATION_TARGET`。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `221 passed`（11 条既有 httpx 弃用警告）通过；无公共 HTTP 契约差异。
 
 ## 待办
 
