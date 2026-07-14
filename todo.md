@@ -270,8 +270,12 @@
   - 配置 FastAPI CORS，仅允许 `FRONTEND_ORIGIN`（兼容末尾 `/`），开启 credentials，显式允许 API 方法及 Authorization/Content-Type/X-Request-Id/Idempotency-Key 请求头。
   - CORS 预检和普通响应均保留 Request-Id；刷新/登出的专用 Origin 校验保持不变，未放宽 Cookie 会话边界。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `246 passed`（11 条既有 httpx 弃用警告）通过；未新增契约差异。
+- [x] [#57 M4：契约与平台文档统一收尾](https://github.com/Doggod727/CampusPilot/issues/57)（2026-07-14）
+  - 同步 OpenAPI：登录禁用 403、锁定 423+Retry-After、Refresh/Logout Origin 403、幂等登出 200、角色保护/引用冲突、敏感词/审核/配置稳定错误码及 `/health/ready` 503 错误信封；operationId 共 103 个且唯一。
+  - 更新 M4 详细设计版本 V0.11、统一扁平响应示例、认证/审核/配置/就绪/CORS 差异台账；README 增加就绪、CORS、管理接口和真实依赖限制说明。
+  - OpenAPI YAML 解析、Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `246 passed`（11 条既有 httpx 弃用警告）通过。
 
 ## 待办
 
-- [ ] 下一项为 M4 契约与文档统一收尾（Issue #57）。
+- [ ] 下一项为 M4 最终验收与 PR 收尾（Issue #58）。
 - [ ] Docker/PostgreSQL 可用后，在真实空库执行 `alembic upgrade head` 与 `alembic downgrade base`。
