@@ -190,6 +190,11 @@
   - 缺失权限返回 `404 PERMISSION_NOT_FOUND`；响应仅包含安全角色、权限摘要和 user_count，不暴露 Session 或内部异常。
   - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `187 passed`。
+- [x] [#38 M4：实现角色基本信息更新接口](https://github.com/Doggod727/CampusPilot/issues/38)（2026-07-14）
+  - `PATCH /api/v1/roles/{role_id}` 由 `role:write` 保护，支持 name/description 更新和乐观锁 `version`，角色权限、系统标记和 code 不可由此修改。
+  - 角色不存在返回 `404 ROLE_NOT_FOUND`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`；成功写入脱敏 `role.update` 审计并返回完整角色权限摘要。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `190 passed`。
 
 ## 待办
 

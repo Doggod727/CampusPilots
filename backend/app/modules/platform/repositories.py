@@ -333,6 +333,33 @@ class RbacReadRepository:
         )
         return list(result.scalars().all())
 
+    async def get_role(self, role_id: UUID) -> RoleListItem | None:
+        role_result = await self._session.execute(
+            select(Role).where(Role.id == role_id)
+        )
+        role = role_result.scalar_one_or_none()
+        if role is None:
+            return None
+        permissions_result = await self._session.execute(
+            select(Permission)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role.id)
+            .order_by(Permission.code)
+        )
+        counts_result = await self._session.execute(
+            select(func.count(UserRole.user_id))
+            .join(User, User.id == UserRole.user_id)
+            .where(
+                UserRole.role_id == role.id,
+                User.deleted_at.is_(None),
+            )
+        )
+        return RoleListItem(
+            role=role,
+            permissions=tuple(permissions_result.scalars().all()),
+            user_count=counts_result.scalar_one(),
+        )
+
 
 class RbacWriteRepository(RbacReadRepository):
     """Role catalog writes within a caller-owned transaction."""
@@ -362,6 +389,20 @@ class RbacWriteRepository(RbacReadRepository):
             self._session.add(
                 RolePermission(role_id=role_id, permission_id=permission_id)
             )
+
+    async def update_role_if_version(
+        self,
+        role_id: UUID,
+        expected_version: int,
+        updates: dict[str, object],
+        updated_at: datetime,
+    ) -> bool:
+        result = await self._session.execute(
+            update(Role)
+            .where(Role.id == role_id, Role.version == expected_version)
+            .values(**updates, version=Role.version + 1, updated_at=updated_at)
+        )
+        return result.rowcount == 1
 
 
 class AuthPolicyRepository:
