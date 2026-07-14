@@ -134,3 +134,81 @@ def test_list_users_validates_query_before_repository() -> None:
     assert response.status_code == 422
     assert response.json()["code"] == "VALIDATION_ERROR"
     repository.list_page.assert_not_called()
+
+
+def test_get_user_returns_openapi_summary_and_no_sensitive_fields() -> None:
+    user, role = _listed_user()
+    repository = MagicMock()
+    repository.get_summary_by_id = AsyncMock(
+        return_value=UserListItem(user=user, roles=(role,))
+    )
+    client = _client(repository, _authenticated_user("user:read"))
+
+    response = client.get(
+        f"/api/v1/users/{user.id}",
+        headers={"X-Request-Id": "get-user-request-123"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["code"] == "OK"
+    assert payload["request_id"] == "get-user-request-123"
+    assert payload["data"]["id"] == str(user.id)
+    assert payload["data"]["roles"] == [
+        {"id": str(role.id), "code": "student", "name": "普通学生"}
+    ]
+    assert "password_hash" not in payload["data"]
+    assert "failed_login_count" not in payload["data"]
+    repository.get_summary_by_id.assert_awaited_once_with(user.id)
+
+
+def test_get_user_rejects_missing_permission() -> None:
+    repository = MagicMock()
+    repository.get_summary_by_id = AsyncMock()
+    client = _client(repository, _authenticated_user("role:read"))
+
+    response = client.get(f"/api/v1/users/{uuid4()}")
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "AUTH_FORBIDDEN"
+    repository.get_summary_by_id.assert_not_called()
+
+
+def test_get_user_rejects_missing_bearer_before_repository() -> None:
+    repository = MagicMock()
+    repository.get_summary_by_id = AsyncMock()
+    client = _client(repository)
+
+    response = client.get(f"/api/v1/users/{uuid4()}")
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "AUTH_UNAUTHORIZED"
+    repository.get_summary_by_id.assert_not_called()
+
+
+def test_get_user_returns_not_found_for_missing_or_soft_deleted_user() -> None:
+    repository = MagicMock()
+    repository.get_summary_by_id = AsyncMock(return_value=None)
+    client = _client(repository, _authenticated_user("user:read"))
+
+    response = client.get(
+        f"/api/v1/users/{uuid4()}",
+        headers={"X-Request-Id": "missing-user-request-123"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "USER_NOT_FOUND"
+    assert response.headers["X-Request-Id"] == "missing-user-request-123"
+    repository.get_summary_by_id.assert_awaited_once()
+
+
+def test_get_user_validates_uuid_before_repository() -> None:
+    repository = MagicMock()
+    repository.get_summary_by_id = AsyncMock()
+    client = _client(repository, _authenticated_user("user:read"))
+
+    response = client.get("/api/v1/users/not-a-uuid")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    repository.get_summary_by_id.assert_not_called()

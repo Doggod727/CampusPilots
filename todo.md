@@ -144,6 +144,10 @@
   - `GET /api/v1/users` 支持未软删除用户的用户名/显示名/邮箱模糊查询、状态和角色筛选，以及六种稳定排序与分页总数。
   - 响应只映射用户摘要和批量加载的角色摘要；路由由 `user:read` 权限保护，不暴露密码哈希、登录失败状态或 Token 数据。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `138 passed`。
+- [x] [#29 M4：实现用户详情查询接口](https://github.com/Doggod727/CampusPilot/issues/29)（2026-07-14）
+  - `GET /api/v1/users/{user_id}` 查询未软删除用户及按角色 code 稳定排序的角色摘要，复用用户列表的安全响应字段。
+  - 路由由 `user:read` 权限保护；不存在或软删除用户统一返回 `404 USER_NOT_FOUND`，不访问权限、Refresh Token 或敏感登录状态字段。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `145 passed`。
 
 ## 待办
 

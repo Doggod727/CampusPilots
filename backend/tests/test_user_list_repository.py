@@ -37,6 +37,25 @@ class _RolesResult:
         return self._rows
 
 
+class _UserResult:
+    def __init__(self, user: User | None) -> None:
+        self._user = user
+
+    def scalar_one_or_none(self) -> User | None:
+        return self._user
+
+
+class _RoleEntitiesResult:
+    def __init__(self, roles: list[Role]) -> None:
+        self._roles = roles
+
+    def scalars(self) -> "_RoleEntitiesResult":
+        return self
+
+    def all(self) -> list[Role]:
+        return self._roles
+
+
 def _user(**overrides: object) -> User:
     values: dict[str, object] = {
         "id": uuid4(),
@@ -158,3 +177,41 @@ def test_list_page_treats_blank_query_as_no_search_filter() -> None:
     )
 
     assert "ILIKE" not in _sql(session, 0)
+
+
+def test_get_summary_by_id_returns_active_user_and_sorted_roles() -> None:
+    user = _user()
+    roles = [
+        Role(id=uuid4(), code="community_operator", name="社区运营"),
+        Role(id=uuid4(), code="student", name="普通学生"),
+    ]
+    repository, session = _repository(
+        _UserResult(user),
+        _RoleEntitiesResult(roles),
+    )
+
+    result = asyncio.run(repository.get_summary_by_id(user.id))
+
+    assert result is not None
+    assert result.user is user
+    assert result.roles == tuple(roles)
+    assert session.execute.await_count == 2
+    user_sql = _sql(session, 0)
+    roles_sql = _sql(session, 1)
+    assert "platform.users.deleted_at IS NULL" in user_sql
+    assert f"platform.users.id = '{user.id}'" in user_sql
+    assert "JOIN platform.user_roles" in roles_sql
+    assert "ORDER BY platform.roles.code" in roles_sql
+    session.commit.assert_not_called()
+    session.flush.assert_not_called()
+    session.rollback.assert_not_called()
+    session.close.assert_not_called()
+
+
+def test_get_summary_by_id_does_not_query_roles_when_user_is_missing() -> None:
+    repository, session = _repository(_UserResult(None))
+
+    result = asyncio.run(repository.get_summary_by_id(uuid4()))
+
+    assert result is None
+    assert session.execute.await_count == 1

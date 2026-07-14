@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict
 
 from app.core.config import get_settings
+from app.core.errors import AppError
 from app.infrastructure.database import Database
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
@@ -72,6 +73,15 @@ class UserPageData(BaseModel):
     pagination: PageMetaData
 
 
+class UserNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=404,
+            code="USER_NOT_FOUND",
+            message="用户不存在",
+        )
+
+
 async def get_user_repository() -> AsyncIterator[UserRepository]:
     database = Database.from_settings(get_settings())
     try:
@@ -109,6 +119,27 @@ async def list_users(
     )
     return SuccessResponse(
         data=_page_data(result, page=page, page_size=page_size),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
+@router.get(
+    "/{user_id}",
+    operation_id="getUser",
+    response_model=SuccessResponse[UserSummaryData],
+)
+async def get_user(
+    user_id: UUID,
+    request: Request,
+    _: Annotated[AuthenticatedUser, Depends(require_permissions("user:read"))],
+    repository: Annotated[UserRepository, Depends(get_user_repository)],
+) -> SuccessResponse[UserSummaryData]:
+    result = await repository.get_summary_by_id(user_id)
+    if result is None:
+        raise UserNotFound()
+    return SuccessResponse(
+        data=_user_summary(result),
         request_id=request.state.request_id,
         timestamp=datetime.now(UTC),
     )

@@ -78,6 +78,19 @@ class UserRepository:
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def get_summary_by_id(self, user_id: UUID) -> UserListItem | None:
+        user = await self.get_by_id(user_id)
+        if user is None:
+            return None
+
+        roles_result = await self._session.execute(
+            select(Role)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user.id)
+            .order_by(Role.code)
+        )
+        return UserListItem(user=user, roles=tuple(roles_result.scalars().all()))
+
     async def list_page(self, query: UserListQuery) -> UserListPage:
         predicates = self._list_predicates(query)
         count_result = await self._session.execute(
