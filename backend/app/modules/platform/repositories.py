@@ -465,6 +465,40 @@ class AuthPolicyRepository:
         )
 
 
+class ConfigRepository:
+    """Business configuration persistence within a caller-owned session."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list(self, namespace: str | None = None) -> list[AppConfig]:
+        statement = select(AppConfig).order_by(AppConfig.namespace, AppConfig.key)
+        if namespace is not None:
+            statement = statement.where(AppConfig.namespace == namespace)
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())
+
+    async def get_by_key(self, key: str) -> AppConfig | None:
+        result = await self._session.execute(select(AppConfig).where(AppConfig.key == key))
+        return result.scalar_one_or_none()
+
+    async def update_if_version(
+        self,
+        *,
+        key: str,
+        expected_version: int,
+        value: object,
+        updated_by: UUID,
+        updated_at: datetime,
+    ) -> bool:
+        result = await self._session.execute(
+            update(AppConfig)
+            .where(AppConfig.key == key, AppConfig.version == expected_version, AppConfig.editable.is_(True))
+            .values(value=value, updated_by=updated_by, updated_at=updated_at, version=AppConfig.version + 1)
+        )
+        return result.rowcount == 1
+
+
 class AuditLogRepository:
     """Read and append audit events within a caller-owned session."""
 

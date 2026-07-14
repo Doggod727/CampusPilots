@@ -250,6 +250,10 @@
   - 新增 `GET /api/v1/audit-logs` 与 `GET /api/v1/audit-logs/{audit_id}`，由 `audit:read` 保护，支持 OpenAPI 过滤和分页。
   - 不存在返回 `404 AUDIT_LOG_NOT_FOUND`；before/after 快照再次脱敏，响应不暴露密码、Token、密钥或内部异常。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `232 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#52 M4：实现配置仓储与 ConfigService](https://github.com/Doggod727/CampusPilot/issues/52)（2026-07-14）
+  - `ConfigRepository` 支持 namespace/key 读取和 editable+version 条件更新；`ConfigService` 严格校验 string/integer/number/boolean/json 类型。
+  - 不可编辑返回 `403 CONFIG_NOT_EDITABLE`，缺失返回 `404 CONFIG_NOT_FOUND`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`；环境密钥相关 key 不暴露或更新，写入 `config.update` 审计。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `234 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
 
 ## 待办
 
