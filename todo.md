@@ -25,6 +25,11 @@
   - 使用 SecretStr 保护 JWT 与 DeepSeek 密钥，Token 时长限制为正整数。
   - 添加根目录 `.env.example` 和本地配置说明。
   - 保持 `/health/live` 不依赖配置或外部服务；全部自动化测试 `8 passed`。
+- [x] [#3 M4：统一异常响应信封](https://github.com/Doggod727/CampusPilot/issues/3)（2026-07-14）
+  - 增加领域 AppError 与 OpenAPI 扁平错误响应模型。
+  - 统一处理领域异常、请求校验、HTTP 错误和未知异常。
+  - 错误响应统一回传 Request-Id，且不泄露原始校验输入或内部异常文本。
+  - 全部自动化测试 `12 passed`，Python 编译检查通过。
 
 ## 待办
 
