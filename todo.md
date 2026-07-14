@@ -266,8 +266,12 @@
   - 新增显式 PostgreSQL、Redis 探针和可替换 Chroma 探针；模块导入、`/health/live` 不创建连接，缺少配置或依赖不可用统一返回 `503 SERVICE_NOT_READY`。
   - 就绪响应包含 OpenAPI 要求的 postgres/redis/chroma 状态及安全延迟信息，不回显连接串或异常文本；Chroma 当前无适配器时标记 `up/not configured`，待 M1 接入真实探针。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `243 passed`（11 条既有 httpx 弃用警告）通过；真实 PostgreSQL/Redis 集成仍受本机环境限制。
+- [x] [#56 M4：实现全局 CORS 策略](https://github.com/Doggod727/CampusPilot/issues/56)（2026-07-14）
+  - 配置 FastAPI CORS，仅允许 `FRONTEND_ORIGIN`（兼容末尾 `/`），开启 credentials，显式允许 API 方法及 Authorization/Content-Type/X-Request-Id/Idempotency-Key 请求头。
+  - CORS 预检和普通响应均保留 Request-Id；刷新/登出的专用 Origin 校验保持不变，未放宽 Cookie 会话边界。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `246 passed`（11 条既有 httpx 弃用警告）通过；未新增契约差异。
 
 ## 待办
 
-- [ ] 下一项为全局 CORS 中间件（Issue #56）。
+- [ ] 下一项为 M4 契约与文档统一收尾（Issue #57）。
 - [ ] Docker/PostgreSQL 可用后，在真实空库执行 `alembic upgrade head` 与 `alembic downgrade base`。

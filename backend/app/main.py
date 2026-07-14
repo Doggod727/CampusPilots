@@ -1,4 +1,7 @@
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.errors import register_exception_handlers
 from app.core.request_id import RequestIdMiddleware
@@ -19,6 +22,22 @@ def create_app() -> FastAPI:
         title="学生生活一站式社区 AI 助手 API",
         version="0.4.0",
     )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            os.getenv("FRONTEND_ORIGIN", "http://localhost:5173").rstrip("/")
+        ],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Request-Id",
+            "Idempotency-Key",
+        ],
+    )
+    # Add Request-Id after CORS so preflight responses receive the same
+    # correlation header as normal and error responses.
     application.add_middleware(RequestIdMiddleware)
     register_exception_handlers(application)
     application.include_router(health_router)
