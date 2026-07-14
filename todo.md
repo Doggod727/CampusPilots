@@ -6,7 +6,8 @@
 - 每次完成任务并验证通过后，在本文档标记完成情况。
 - 开发模块前，先创建并推送对应名称的远端分支，例如 M3 使用 `m3`。
 - 严格按当前任务范围实现，不做需求外扩展或过度兜底。
-- 每个小型任务使用 GitHub Issue 记录问题、范围和验收标准，并在提交中关联。
+- 每个小型任务使用 GitHub Issue 记录问题、范围和验收标准，并在提交中关联；验证并推送后主动关闭 Issue。
+- 每个模块使用同一个 Pull Request 持续交付；模块未完成时保持 Draft，完整验收后转为 Ready。
 
 ## 当前模块
 
@@ -40,6 +41,11 @@
   - 映射 users、roles、permissions 及两张关联表，与首版迁移的类型、约束和索引一致。
   - 保持 Alembic target_metadata 未注册，避免未映射治理表被误删。
   - PostgreSQL 方言离线编译、迁移回归及全部自动化测试 `21 passed`。
+- [x] [#7 M4：建立异步数据库会话基础设施](https://github.com/Doggod727/CampusPilot/issues/7)（2026-07-14）
+  - Database 显式持有 AsyncEngine 与 async_sessionmaker，不在导入或应用启动时连接数据库。
+  - Session 不自动提交，异常退出执行 rollback，所有路径均关闭 Session。
+  - `/health/live` 保持不读取数据库配置或访问 PostgreSQL。
+  - Alembic 离线升降级、Python 编译检查及全部自动化测试 `27 passed`。
 
 ## 待办
 
