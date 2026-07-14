@@ -765,6 +765,17 @@ class SensitiveWordRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_enabled_for_scope(self, scope: str) -> list[SensitiveWord]:
+        result = await self._session.execute(
+            select(SensitiveWord)
+            .where(
+                SensitiveWord.enabled.is_(True),
+                SensitiveWord.scope.in_((scope, "all")),
+            )
+            .order_by(SensitiveWord.created_at, SensitiveWord.id)
+        )
+        return list(result.scalars().all())
+
     def add(self, rule: SensitiveWord) -> None:
         self._session.add(rule)
 

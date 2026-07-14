@@ -214,6 +214,10 @@
   - 映射既有 `platform.sensitive_words`，保留四项检查约束、大小写不敏感规则唯一索引、scope/enabled 索引及 `created_by ON DELETE SET NULL`。
   - `SensitiveWordRepository` 支持分页筛选、规则查找、按 ID 查找、追加和删除；不管理事务或 Session 生命周期。
   - PostgreSQL 方言建表/索引、Python 编译、Alembic 单 head/离线 upgrade/downgrade 通过；全量测试 `204 passed`（11 条既有 httpx 弃用警告）。未发现契约差异。
+- [x] [#43 M4：实现敏感词扫描服务](https://github.com/Doggod727/CampusPilot/issues/43)（2026-07-14）
+  - 新增 exact/contains/regex 扫描，规则动作按 `block > review > mask > allow` 确定性聚合，风险等级映射为 low/medium/high/critical。
+  - mask 仅修改 sanitized_text；命中摘要只保存规则 UUID 和动作，matched_text 不回显原始敏感词；非法正则返回安全的 `422 INVALID_SENSITIVE_WORD_RULE`。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `208 passed`（11 条既有 httpx 弃用警告）通过；本任务无 HTTP 契约差异。
 
 ## 待办
 
