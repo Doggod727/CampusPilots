@@ -20,6 +20,11 @@
   - 实现 Request-Id 生成、校验和响应回传。
   - 实现匿名 `GET /health/live` 及 OpenAPI 规定的统一响应。
   - 添加启动说明与自动化测试；`3 passed`。
+- [x] [#2 M4：建立环境配置基线](https://github.com/Doggod727/CampusPilot/issues/2)（2026-07-14）
+  - 使用 Pydantic Settings 统一读取并校验环境变量。
+  - 使用 SecretStr 保护 JWT 与 DeepSeek 密钥，Token 时长限制为正整数。
+  - 添加根目录 `.env.example` 和本地配置说明。
+  - 保持 `/health/live` 不依赖配置或外部服务；全部自动化测试 `8 passed`。
 
 ## 待办
 
