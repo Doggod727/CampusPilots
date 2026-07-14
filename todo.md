@@ -222,6 +222,10 @@
   - 新增 `GET/POST /api/v1/sensitive-words` 与 `DELETE /api/v1/sensitive-words/{word_id}`，分别使用 `sensitive_word:read/write`，严格校验分页、scope、规则类型和 mask replacement。
   - 重复规则返回 `409 DUPLICATE_RESOURCE`，不存在返回 `404 SENSITIVE_WORD_NOT_FOUND`；写操作追加脱敏审计，响应不包含创建者内部信息。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `212 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#45 M4：实现审核案件 ORM 与仓储](https://github.com/Doggod727/CampusPilot/issues/45)（2026-07-14）
+  - 映射 `platform.moderation_cases`，保留目标/风险/状态/决策/版本约束、JSONB rule_hits 及队列、目标和 GIN 索引。
+  - `ModerationCaseRepository` 支持分页筛选、普通/行锁读取、追加和 pending+version 条件决策更新；不建立跨 Schema 外键或管理事务。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `215 passed`（11 条既有 httpx 弃用警告）通过；未发现契约差异。
 
 ## 待办
 

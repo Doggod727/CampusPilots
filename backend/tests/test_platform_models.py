@@ -8,6 +8,7 @@ from app.modules.platform.models import (
     AppConfig,
     AuditLog,
     IdempotencyRecord,
+    ModerationCase,
     Permission,
     RefreshToken,
     Role,
@@ -28,6 +29,7 @@ EXPECTED_TABLES = {
     "platform.idempotency_records",
     "platform.audit_logs",
     "platform.sensitive_words",
+    "platform.moderation_cases",
 }
 EXPECTED_COLUMNS = {
     "platform.users": {
@@ -123,6 +125,11 @@ EXPECTED_COLUMNS = {
     "platform.sensitive_words": {
         "id", "word", "match_type", "action", "replacement", "scope",
         "enabled", "created_by", "created_at", "updated_at",
+    },
+    "platform.moderation_cases": {
+        "id", "target_module", "target_type", "target_id", "content_excerpt",
+        "risk_level", "rule_hits", "status", "submitted_by", "reviewer_id",
+        "decision_reason", "reviewed_at", "version", "created_at", "updated_at",
     },
 }
 
@@ -378,6 +385,26 @@ def test_sensitive_word_mapping_matches_platform_migration() -> None:
     assert "lower(word)" in indexes["uq_sensitive_words_rule"]
 
 
+def test_moderation_case_mapping_matches_platform_migration() -> None:
+    table = ModerationCase.__table__
+    assert isinstance(table.c.rule_hits.type, JSONB)
+    assert table.c.rule_hits.server_default is not None
+    assert constraint_names(ModerationCase) == {
+        "ck_moderation_cases_target_module",
+        "ck_moderation_cases_risk_level",
+        "ck_moderation_cases_status",
+        "ck_moderation_cases_rule_hits",
+        "ck_moderation_cases_decision",
+        "ck_moderation_cases_version",
+    }
+    indexes = index_sql(ModerationCase)
+    assert set(indexes) == {
+        "ix_moderation_cases_queue", "ix_moderation_cases_target",
+        "ix_moderation_cases_rule_hits_gin",
+    }
+    assert "USING gin" in indexes["ix_moderation_cases_rule_hits_gin"]
+
+
 def test_all_identity_tables_compile_for_postgresql() -> None:
     dialect = postgresql.dialect()
 
@@ -394,6 +421,7 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
             IdempotencyRecord,
             AuditLog,
             SensitiveWord,
+            ModerationCase,
         )
     )
 
@@ -415,6 +443,8 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
     assert "ck_audit_logs_before_object" in compiled_tables
     assert "CREATE TABLE platform.sensitive_words" in compiled_tables
     assert "ck_sensitive_words_replacement" in compiled_tables
+    assert "CREATE TABLE platform.moderation_cases" in compiled_tables
+    assert "ck_moderation_cases_decision" in compiled_tables
 
 
 def test_user_repr_does_not_expose_password_hash() -> None:

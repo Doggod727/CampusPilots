@@ -9,6 +9,7 @@ from app.modules.platform.models import (
     AppConfig,
     AuditLog,
     IdempotencyRecord,
+    ModerationCase,
     Permission,
     RefreshToken,
     Role,
@@ -782,5 +783,88 @@ class SensitiveWordRepository:
     async def delete(self, word_id: UUID) -> bool:
         result = await self._session.execute(
             delete(SensitiveWord).where(SensitiveWord.id == word_id)
+        )
+        return result.rowcount == 1
+
+
+class ModerationCaseRepository:
+    """Moderation case persistence within a caller-owned session."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        status: str | None = None,
+        risk_level: str | None = None,
+        target_module: str | None = None,
+        sort: str = "-created_at",
+    ) -> tuple[list[ModerationCase], int]:
+        predicates = []
+        if status is not None:
+            predicates.append(ModerationCase.status == status)
+        if risk_level is not None:
+            predicates.append(ModerationCase.risk_level == risk_level)
+        if target_module is not None:
+            predicates.append(ModerationCase.target_module == target_module)
+        sort_column = {
+            "created_at": ModerationCase.created_at,
+            "-created_at": ModerationCase.created_at.desc(),
+            "risk_level": ModerationCase.risk_level,
+            "-risk_level": ModerationCase.risk_level.desc(),
+        }[sort]
+        count_result = await self._session.execute(
+            select(func.count(ModerationCase.id)).where(*predicates)
+        )
+        rows_result = await self._session.execute(
+            select(ModerationCase)
+            .where(*predicates)
+            .order_by(sort_column, ModerationCase.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(rows_result.scalars().all()), int(count_result.scalar_one())
+
+    async def get_by_id(self, case_id: UUID) -> ModerationCase | None:
+        result = await self._session.execute(
+            select(ModerationCase).where(ModerationCase.id == case_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id_for_update(self, case_id: UUID) -> ModerationCase | None:
+        result = await self._session.execute(
+            select(ModerationCase).where(ModerationCase.id == case_id).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    def add(self, case: ModerationCase) -> None:
+        self._session.add(case)
+
+    async def decide_if_version(
+        self,
+        *,
+        case_id: UUID,
+        expected_version: int,
+        status: str,
+        reviewer_id: UUID,
+        decision_reason: str,
+        reviewed_at: datetime,
+        updated_at: datetime,
+    ) -> bool:
+        result = await self._session.execute(
+            update(ModerationCase)
+            .where(
+                ModerationCase.id == case_id,
+                ModerationCase.version == expected_version,
+                ModerationCase.status == "pending",
+            )
+            .values(
+                status=status, reviewer_id=reviewer_id,
+                decision_reason=decision_reason, reviewed_at=reviewed_at,
+                updated_at=updated_at, version=ModerationCase.version + 1,
+            )
         )
         return result.rowcount == 1

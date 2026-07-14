@@ -313,6 +313,80 @@ Index(
 Index("ix_sensitive_words_enabled_scope", SensitiveWord.scope, SensitiveWord.enabled)
 
 
+class ModerationCase(Base):
+    __tablename__ = "moderation_cases"
+    __table_args__ = (
+        CheckConstraint(
+            "target_module IN ('ai_knowledge', 'campus_service', 'community')",
+            name="ck_moderation_cases_target_module",
+        ),
+        CheckConstraint(
+            "risk_level IN ('low', 'medium', 'high', 'critical')",
+            name="ck_moderation_cases_risk_level",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'escalated')",
+            name="ck_moderation_cases_status",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(rule_hits) = 'array'",
+            name="ck_moderation_cases_rule_hits",
+        ),
+        CheckConstraint(
+            "((status = 'pending' AND reviewer_id IS NULL AND reviewed_at IS NULL) "
+            "OR (status <> 'pending' AND reviewer_id IS NOT NULL "
+            "AND reviewed_at IS NOT NULL AND decision_reason IS NOT NULL))",
+            name="ck_moderation_cases_decision",
+        ),
+        CheckConstraint("version >= 1", name="ck_moderation_cases_version"),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    target_module: Mapped[str] = mapped_column(String(30))
+    target_type: Mapped[str] = mapped_column(String(50))
+    target_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    content_excerpt: Mapped[str] = mapped_column(String(500))
+    risk_level: Mapped[str] = mapped_column(String(16))
+    rule_hits: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB(), server_default=text("'[]'::jsonb")
+    )
+    status: Mapped[str] = mapped_column(String(16), server_default=text("'pending'"))
+    submitted_by: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("platform.users.id", ondelete="SET NULL")
+    )
+    reviewer_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("platform.users.id", ondelete="SET NULL")
+    )
+    decision_reason: Mapped[str | None] = mapped_column(String(500))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer(), server_default=text("1"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+Index(
+    "ix_moderation_cases_queue",
+    ModerationCase.status, ModerationCase.risk_level, ModerationCase.created_at.desc(),
+)
+Index(
+    "ix_moderation_cases_target",
+    ModerationCase.target_module, ModerationCase.target_type, ModerationCase.target_id,
+)
+Index(
+    "ix_moderation_cases_rule_hits_gin",
+    ModerationCase.rule_hits,
+    postgresql_using="gin",
+)
+
+
 class AppConfig(Base):
     __tablename__ = "app_configs"
     __table_args__ = (
