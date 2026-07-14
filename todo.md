@@ -238,6 +238,10 @@
   - 新增 `GET /api/v1/moderation/cases` 与 `GET /api/v1/moderation/cases/{case_id}`，由 `moderation:read` 保护，支持分页、状态/风险/目标模块和四种排序。
   - 空结果返回 200；不存在返回 `404 MODERATION_CASE_NOT_FOUND`；rule_hits 的 matched_text 始终置空，不回显敏感词原文。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `224 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#49 M4：实现审核决策 API 与幂等处理](https://github.com/Doggod727/CampusPilot/issues/49)（2026-07-14）
+  - `POST /api/v1/moderation/cases/{case_id}/decision` 使用 `moderation:decide` 和必填 `Idempotency-Key`，在事务内执行行锁、pending/版本校验、目标处理器回调、状态更新、审计和幂等完成。
+  - 终态案件返回 `409 MODERATION_CASE_ALREADY_DECIDED`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`，处理器缺失返回 `409 MODERATION_HANDLER_UNAVAILABLE`；同 Key 同哈希原样重放。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `228 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
 
 ## 待办
 

@@ -9,6 +9,8 @@ from app.modules.platform.auth import AuthenticatedRole, AuthenticatedUser
 from app.modules.platform.auth_dependencies import get_authenticated_user
 from app.modules.platform.models import ModerationCase
 from app.modules.platform.moderation_routes import get_repository
+from app.modules.platform.moderation_routes import get_decision_service
+from app.modules.platform.moderation_decision import ModerationDecisionResult, ModerationDecisionService
 from app.modules.platform.repositories import ModerationCaseRepository
 
 NOW = datetime(2026, 7, 14, 8, 0, tzinfo=UTC)
@@ -74,3 +76,31 @@ def test_moderation_route_validates_uuid() -> None:
         "/api/v1/moderation/cases/not-a-uuid"
     )
     assert response.status_code == 422
+
+
+def test_moderation_decision_route_returns_idempotent_success_and_validates_permission() -> None:
+    case = _case()
+    service = MagicMock(spec=ModerationDecisionService)
+    service.decide = AsyncMock(return_value=ModerationDecisionResult(
+        status_code=200,
+        request_id="decision-request",
+        body={"code": "OK", "message": "success", "data": {"id": str(case.id)}, "request_id": "decision-request", "timestamp": NOW.isoformat()},
+    ))
+    app = create_app()
+    app.dependency_overrides[get_decision_service] = lambda: service
+    app.dependency_overrides[get_authenticated_user] = lambda: _actor("moderation:decide")
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        f"/api/v1/moderation/cases/{case.id}/decision",
+        json={"decision": "approved", "reason": "通过", "version": 1},
+        headers={"Idempotency-Key": "decision-123456", "X-Request-Id": "decision-request"},
+    )
+    assert response.status_code == 200
+    assert response.headers["X-Request-Id"] == "decision-request"
+    service.decide.assert_awaited_once()
+
+    invalid = client.post(
+        f"/api/v1/moderation/cases/{case.id}/decision",
+        json={"decision": "approved", "reason": "通过", "version": 1},
+    )
+    assert invalid.status_code == 422

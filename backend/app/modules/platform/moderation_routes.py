@@ -1,13 +1,13 @@
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from math import ceil
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
+from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.core.errors import AppError
 from app.infrastructure.database import Database
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
@@ -23,14 +23,24 @@ from app.modules.platform.moderation_schemas import (
     moderation_case_data,
 )
 from app.modules.platform.repositories import ModerationCaseRepository
+from app.core.request_id import REQUEST_ID_HEADER
+from app.modules.platform.moderation_decision import (
+    ModerationCaseNotFound,
+    ModerationDecisionResult,
+    ModerationDecisionService,
+    moderation_decision_service_context,
+)
+from pydantic import BaseModel, ConfigDict, Field
 from app.shared.responses import SuccessResponse
 
 router = APIRouter(prefix="/api/v1/moderation/cases", tags=["Moderation"])
 
 
-class ModerationCaseNotFound(AppError):
-    def __init__(self) -> None:
-        super().__init__(status_code=404, code="MODERATION_CASE_NOT_FOUND", message="审核案件不存在")
+class ModerationDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["approved", "rejected", "escalated"]
+    reason: str = Field(min_length=2, max_length=500)
+    version: int = Field(ge=1)
 
 
 async def get_repository() -> AsyncIterator[ModerationCaseRepository]:
@@ -40,6 +50,11 @@ async def get_repository() -> AsyncIterator[ModerationCaseRepository]:
             yield ModerationCaseRepository(session)
     finally:
         await database.dispose()
+
+
+async def get_decision_service() -> AsyncIterator[ModerationDecisionService]:
+    async with moderation_decision_service_context(get_settings()) as service:
+        yield service
 
 
 @router.get("", operation_id="listModerationCases", response_model=ModerationCasePageResponse)
@@ -82,4 +97,25 @@ async def get_moderation_case(
     return SuccessResponse(
         data=moderation_case_data(case), request_id=request.state.request_id,
         timestamp=datetime.now(UTC),
+    )
+
+
+@router.post("/{case_id}/decision", operation_id="decideModerationCase", response_model=ModerationCaseResponse)
+async def decide_moderation_case(
+    case_id: UUID,
+    payload: ModerationDecisionRequest,
+    request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("moderation:decide"))],
+    service: Annotated[ModerationDecisionService, Depends(get_decision_service)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=128)],
+) -> JSONResponse:
+    result = await service.decide(
+        actor=actor, case_id=case_id, decision=payload.decision,
+        reason=payload.reason, expected_version=payload.version,
+        idempotency_key=idempotency_key, request_id=request.state.request_id,
+        request_body=payload.model_dump(mode="json"),
+    )
+    return JSONResponse(
+        status_code=result.status_code, content=result.body,
+        headers={REQUEST_ID_HEADER: result.request_id},
     )
