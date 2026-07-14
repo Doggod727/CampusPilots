@@ -136,6 +136,10 @@
   - 增加可复用的 Bearer Access Token 认证依赖；JWT 无效时不创建数据库上下文，用户软删除、禁用、锁定或用户名 Claim 不匹配统一返回 `401 AUTH_UNAUTHORIZED`。
   - `GET /api/v1/auth/me` 返回数据库当前用户资料、角色与权限；Access Token 权限 Claim 不作为该响应的事实来源。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `119 passed`。
+- [x] [#27 M4：实现 RBAC 权限依赖工厂](https://github.com/Doggod727/CampusPilot/issues/27)（2026-07-14）
+  - 新增 `require_permissions(...)`；多权限采用全部具备的最小权限语义，拒绝统一返回 `403 AUTH_FORBIDDEN`，不泄露缺失权限。
+  - 依赖复用当前数据库认证上下文，不追加数据库查询、审计或 Session 生命周期操作，供后续 `x-permissions` 路由显式挂载。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `126 passed`。
 
 ## 待办
 

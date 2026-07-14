@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -8,7 +8,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.core.config import Settings, get_settings
 from app.infrastructure.database import Database
 from app.modules.platform.audit import AuditService
-from app.modules.platform.auth import AuthService, AuthenticatedUser, AuthenticationRequired
+from app.modules.platform.auth import (
+    AuthService,
+    AuthenticatedUser,
+    AuthenticationRequired,
+    PermissionDenied,
+)
 from app.modules.platform.passwords import PasswordHasher
 from app.modules.platform.repositories import (
     AuditLogRepository,
@@ -69,3 +74,30 @@ async def get_authenticated_user(
     settings = get_settings()
     async with auth_service_context(settings) as service:
         return await service.get_current_user(claims)
+
+
+def require_permissions(
+    *permission_codes: str,
+) -> Callable[..., Awaitable[AuthenticatedUser]]:
+    """Require every declared permission from the current database-backed user."""
+
+    if (
+        not permission_codes
+        or any(
+            not isinstance(code, str) or not code or code != code.strip()
+            for code in permission_codes
+        )
+        or len(set(permission_codes)) != len(permission_codes)
+    ):
+        raise ValueError("Permission declarations must be unique non-empty strings.")
+
+    required_permissions = frozenset(permission_codes)
+
+    async def dependency(
+        user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
+    ) -> AuthenticatedUser:
+        if not required_permissions.issubset(user.permissions):
+            raise PermissionDenied()
+        return user
+
+    return dependency

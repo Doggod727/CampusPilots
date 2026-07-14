@@ -80,6 +80,15 @@ class AuthenticationRequired(AppError):
         )
 
 
+class PermissionDenied(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=403,
+            code="AUTH_FORBIDDEN",
+            message="没有执行该操作的权限",
+        )
+
+
 @dataclass(frozen=True)
 class AuthenticatedRole:
     role_id: UUID
