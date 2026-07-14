@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.modules.platform.auth import AuthenticatedRole, AuthenticatedUser
 from app.modules.platform.auth_dependencies import get_authenticated_user
+from app.modules.platform.idempotency import IdempotencyConflict
 from app.modules.platform.models import Role, User
 from app.modules.platform.repositories import UserListItem, UserListPage
-from app.modules.platform.user_routes import get_user_repository
+from app.modules.platform.user_admin import CreateUserResult
+from app.modules.platform.user_routes import get_user_admin_service, get_user_repository
 
 
 def _authenticated_user(*permissions: str) -> AuthenticatedUser:
@@ -57,9 +59,12 @@ def _listed_user() -> tuple[User, Role]:
 def _client(
     repository: MagicMock,
     current_user: AuthenticatedUser | None = None,
+    service: MagicMock | None = None,
 ) -> TestClient:
     application = create_app()
     application.dependency_overrides[get_user_repository] = lambda: repository
+    if service is not None:
+        application.dependency_overrides[get_user_admin_service] = lambda: service
     if current_user is not None:
         application.dependency_overrides[get_authenticated_user] = lambda: current_user
     return TestClient(application, raise_server_exceptions=False)
@@ -212,3 +217,119 @@ def test_get_user_validates_uuid_before_repository() -> None:
     assert response.status_code == 422
     assert response.json()["code"] == "VALIDATION_ERROR"
     repository.get_summary_by_id.assert_not_called()
+
+
+def _create_payload(role_id: object | None = None) -> dict[str, object]:
+    return {
+        "username": "student02",
+        "password": "DemoPass123!",
+        "display_name": "李同学",
+        "email": "student02@example.edu",
+        "department": "计算机学院",
+        "role_ids": [str(role_id or uuid4())],
+    }
+
+
+def test_create_user_returns_201_and_forwards_actor_and_idempotency_key() -> None:
+    repository = MagicMock()
+    service = MagicMock()
+    service.create_user = AsyncMock(
+        return_value=CreateUserResult(
+            status_code=201,
+            request_id="create-user-request-123",
+            body={
+                "code": "OK",
+                "message": "success",
+                "data": {"id": str(uuid4())},
+                "request_id": "create-user-request-123",
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        )
+    )
+    current_user = _authenticated_user("user:write")
+    client = _client(repository, current_user, service)
+    payload = _create_payload()
+
+    response = client.post(
+        "/api/v1/users",
+        json=payload,
+        headers={
+            "Idempotency-Key": "create-user-key",
+            "X-Request-Id": "create-user-request-123",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.headers["X-Request-Id"] == "create-user-request-123"
+    assert response.json()["data"]["id"]
+    kwargs = service.create_user.await_args.kwargs
+    assert kwargs["actor"] is current_user
+    assert kwargs["idempotency_key"] == "create-user-key"
+    assert kwargs["request_body"]["username"] == "student02"
+
+
+def test_create_user_replays_service_response_and_preserves_request_id() -> None:
+    repository = MagicMock()
+    service = MagicMock()
+    body = {
+        "code": "OK",
+        "message": "success",
+        "data": {"id": str(uuid4())},
+        "request_id": "first-request-123",
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+    service.create_user = AsyncMock(
+        return_value=CreateUserResult(
+            status_code=201,
+            request_id="first-request-123",
+            body=body,
+        )
+    )
+    client = _client(repository, _authenticated_user("user:write"), service)
+
+    response = client.post(
+        "/api/v1/users",
+        json=_create_payload(),
+        headers={"Idempotency-Key": "create-user-key"},
+    )
+
+    assert response.status_code == 201
+    assert response.json() == body
+    assert response.headers["X-Request-Id"] == "first-request-123"
+
+
+def test_create_user_maps_idempotency_conflict_to_409() -> None:
+    repository = MagicMock()
+    service = MagicMock()
+    service.create_user = AsyncMock(side_effect=IdempotencyConflict())
+    client = _client(repository, _authenticated_user("user:write"), service)
+
+    response = client.post(
+        "/api/v1/users",
+        json=_create_payload(),
+        headers={"Idempotency-Key": "create-user-key"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_create_user_requires_write_permission_and_key_validation() -> None:
+    repository = MagicMock()
+    service = MagicMock()
+    service.create_user = AsyncMock()
+    client = _client(repository, _authenticated_user("user:read"), service)
+
+    forbidden = client.post("/api/v1/users", json=_create_payload())
+    assert forbidden.status_code == 403
+    assert forbidden.json()["code"] == "AUTH_FORBIDDEN"
+    service.create_user.assert_not_called()
+
+    validation_client = _client(repository, _authenticated_user("user:write"), service)
+    invalid = validation_client.post(
+        "/api/v1/users",
+        json={**_create_payload(), "password": "short"},
+        headers={"Idempotency-Key": "short"},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["code"] == "VALIDATION_ERROR"

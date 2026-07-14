@@ -1,14 +1,17 @@
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from math import ceil
-from typing import Annotated, Literal
+import re
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, Header, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.core.request_id import REQUEST_ID_HEADER
 from app.infrastructure.database import Database
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
@@ -19,58 +22,45 @@ from app.modules.platform.repositories import (
     UserListQuery,
     UserRepository,
 )
+from app.modules.platform.user_admin import UserAdminService, user_admin_service_context
+from app.modules.platform.user_schemas import (
+    PageMetaData,
+    RoleSummaryData,
+    UserPageData,
+    UserResponse,
+    UserSort,
+    UserStatus,
+    UserSummaryData,
+    role_summary,
+    user_summary,
+)
 from app.shared.responses import SuccessResponse
 
 router = APIRouter(prefix="/api/v1/users", tags=["Users"])
 
-UserStatus = Literal["active", "disabled", "locked"]
-UserSort = Literal[
-    "created_at",
-    "-created_at",
-    "username",
-    "-username",
-    "last_login_at",
-    "-last_login_at",
-]
-
-
-class RoleSummaryData(BaseModel):
+class UserCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: UUID
-    code: str
-    name: str
+    username: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_.-]{2,49}$")
+    password: str = Field(min_length=10, max_length=128)
+    display_name: str = Field(min_length=1, max_length=50)
+    email: str | None = Field(default=None, max_length=254)
+    department: str | None = Field(default=None, max_length=100)
+    role_ids: list[UUID] = Field(min_length=1)
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        if value is not None and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise ValueError("value is not a valid email address")
+        return value
 
-class UserSummaryData(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    username: str
-    display_name: str
-    email: str | None
-    department: str | None
-    status: UserStatus
-    roles: list[RoleSummaryData]
-    last_login_at: datetime | None
-    created_at: datetime
-    version: int
-
-
-class PageMetaData(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    page: int
-    page_size: int
-    total: int
-    total_pages: int
-
-
-class UserPageData(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    items: list[UserSummaryData]
-    pagination: PageMetaData
+    @field_validator("role_ids")
+    @classmethod
+    def validate_unique_roles(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("role_ids must be unique")
+        return value
 
 
 class UserNotFound(AppError):
@@ -89,6 +79,11 @@ async def get_user_repository() -> AsyncIterator[UserRepository]:
             yield UserRepository(session)
     finally:
         await database.dispose()
+
+
+async def get_user_admin_service() -> AsyncIterator[UserAdminService]:
+    async with user_admin_service_context(get_settings()) as service:
+        yield service
 
 
 @router.get(
@@ -121,6 +116,44 @@ async def list_users(
         data=_page_data(result, page=page, page_size=page_size),
         request_id=request.state.request_id,
         timestamp=datetime.now(UTC),
+    )
+
+
+@router.post(
+    "",
+    operation_id="createUser",
+    status_code=201,
+    response_model=UserResponse,
+)
+async def create_user(
+    payload: UserCreateRequest,
+    request: Request,
+    current_user: Annotated[
+        AuthenticatedUser,
+        Depends(require_permissions("user:write")),
+    ],
+    service: Annotated[UserAdminService, Depends(get_user_admin_service)],
+    idempotency_key: Annotated[
+        str,
+        Header(alias="Idempotency-Key", min_length=8, max_length=128),
+    ],
+) -> JSONResponse:
+    result = await service.create_user(
+        actor=current_user,
+        username=payload.username,
+        password=payload.password,
+        display_name=payload.display_name,
+        email=payload.email,
+        department=payload.department,
+        role_ids=payload.role_ids,
+        idempotency_key=idempotency_key,
+        request_id=request.state.request_id,
+        request_body=payload.model_dump(mode="json"),
+    )
+    return JSONResponse(
+        status_code=result.status_code,
+        content=result.body,
+        headers={REQUEST_ID_HEADER: result.request_id},
     )
 
 
@@ -158,19 +191,8 @@ def _page_data(result: UserListPage, *, page: int, page_size: int) -> UserPageDa
 
 
 def _user_summary(item: UserListItem) -> UserSummaryData:
-    return UserSummaryData(
-        id=item.user.id,
-        username=item.user.username,
-        display_name=item.user.display_name,
-        email=item.user.email,
-        department=item.user.department,
-        status=item.user.status,
-        roles=[_role_summary(role) for role in item.roles],
-        last_login_at=item.user.last_login_at,
-        created_at=item.user.created_at,
-        version=item.user.version,
-    )
+    return user_summary(item)
 
 
 def _role_summary(role: Role) -> RoleSummaryData:
-    return RoleSummaryData(id=role.id, code=role.code, name=role.name)
+    return role_summary(role)

@@ -161,6 +161,12 @@
   - 通过事务嵌套保存点处理并发唯一约束竞争，记录默认 24 小时有效；服务不保存原始请求体、不提交事务或管理 Session 生命周期。
   - pending 仅为内部结果，后续业务接口自行决定等待或冲突映射；本任务未新增 HTTP 契约差异。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `158 passed`。
+- [x] [#33 M4：实现用户创建接口](https://github.com/Doggod727/CampusPilot/issues/33)（2026-07-14）
+  - `POST /api/v1/users` 由 `user:write` 保护，严格校验用户名、密码、邮箱和唯一角色 UUID，并要求 `Idempotency-Key`。
+  - 在单一调用方事务内完成幂等记录、角色存在性校验、Argon2id 密码哈希、用户与角色绑定、成功审计及首次响应保存。
+  - 成功返回 `201 UserResponse`；同哈希请求原样重放首次响应与 Request-Id，不同哈希或 pending 安全返回 `409 IDEMPOTENCY_CONFLICT`；重复身份返回 `409 DUPLICATE_RESOURCE`，缺失角色返回 `404 ROLE_NOT_FOUND`。
+  - 响应、审计、幂等快照均不包含明文密码、密码哈希、请求体或数据库异常；新增共享用户摘要 DTO，列表/详情/创建接口字段保持一致。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `168 passed`。
 
 ## 待办
 

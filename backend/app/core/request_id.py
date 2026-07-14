@@ -28,5 +28,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         request.state.request_id = request_id
 
         response = await call_next(request)
-        response.headers[REQUEST_ID_HEADER] = request_id
+        # Internal replay responses may intentionally preserve the original
+        # request id stored with the idempotent result.  Keep that value;
+        # otherwise attach the id generated for this request.
+        if REQUEST_ID_HEADER not in response.headers:
+            response.headers[REQUEST_ID_HEADER] = request_id
         return response

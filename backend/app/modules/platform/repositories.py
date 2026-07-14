@@ -71,6 +71,38 @@ class UserRepository:
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def get_by_email(self, email: str) -> User | None:
+        statement = select(User).where(
+            User.email == email,
+            User.deleted_at.is_(None),
+        )
+        result = await self._session.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def get_roles_by_ids(self, role_ids: list[UUID]) -> list[Role]:
+        result = await self._session.execute(
+            select(Role).where(Role.id.in_(role_ids)).order_by(Role.code)
+        )
+        return list(result.scalars().all())
+
+    def add(self, user: User) -> None:
+        self._session.add(user)
+
+    def add_roles(
+        self,
+        user_id: UUID,
+        role_ids: list[UUID],
+        assigned_by: UUID,
+    ) -> None:
+        for role_id in role_ids:
+            self._session.add(
+                UserRole(
+                    user_id=user_id,
+                    role_id=role_id,
+                    assigned_by=assigned_by,
+                )
+            )
+
     async def get_by_id(self, user_id: UUID) -> User | None:
         statement = select(User).where(
             User.id == user_id,
