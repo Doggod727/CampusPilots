@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database import Database
 from app.modules.platform.models import (
+    AppConfig,
     Permission,
     Role,
     RolePermission,
@@ -139,6 +140,11 @@ DEMO_ACCOUNTS = (
     DemoAccount("student02", "李同学", "student02@example.edu", "计算机学院", "student"),
 )
 
+AUTH_CONFIGS = (
+    ("auth.max_failed_logins", "auth", 5, "integer", "触发临时锁定的连续失败次数"),
+    ("auth.lock_minutes", "auth", 15, "integer", "登录锁定分钟数"),
+)
+
 
 def require_demo_seed_password(environ: Mapping[str, str] | None = None) -> str:
     password = (environ if environ is not None else os.environ).get(
@@ -189,6 +195,32 @@ def _role_upsert_statement():
             "name": statement.excluded.name,
             "description": statement.excluded.description,
             "is_system": statement.excluded.is_system,
+        },
+    )
+
+
+def _auth_config_upsert_statement():
+    statement = insert(AppConfig).values(
+        [
+            {
+                "key": key,
+                "namespace": namespace,
+                "value": value,
+                "value_type": value_type,
+                "description": description,
+                "editable": True,
+            }
+            for key, namespace, value, value_type, description in AUTH_CONFIGS
+        ]
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[AppConfig.key],
+        set_={
+            "namespace": statement.excluded.namespace,
+            "value": statement.excluded.value,
+            "value_type": statement.excluded.value_type,
+            "description": statement.excluded.description,
+            "editable": statement.excluded.editable,
         },
     )
 
@@ -285,6 +317,7 @@ async def seed_demo(
     async with session.begin():
         await session.execute(_permission_upsert_statement())
         await session.execute(_role_upsert_statement())
+        await session.execute(_auth_config_upsert_statement())
         await session.execute(_clear_role_permissions_statement(role_codes))
         for role_code, permission_codes in ROLE_PERMISSION_CODES.items():
             await session.execute(

@@ -1,10 +1,11 @@
 from sqlalchemy import CHAR, CheckConstraint
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID
+from sqlalchemy.dialects.postgresql import CITEXT, INET, JSONB, UUID
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app.infrastructure.database import Base
 from app.modules.platform.models import (
+    AppConfig,
     Permission,
     RefreshToken,
     Role,
@@ -20,6 +21,7 @@ EXPECTED_TABLES = {
     "platform.user_roles",
     "platform.role_permissions",
     "platform.refresh_tokens",
+    "platform.app_configs",
 }
 EXPECTED_COLUMNS = {
     "platform.users": {
@@ -70,6 +72,18 @@ EXPECTED_COLUMNS = {
         "created_ip",
         "user_agent",
         "created_at",
+    },
+    "platform.app_configs": {
+        "key",
+        "namespace",
+        "value",
+        "value_type",
+        "description",
+        "editable",
+        "version",
+        "updated_by",
+        "created_at",
+        "updated_at",
     },
 }
 
@@ -211,6 +225,28 @@ def test_refresh_token_mapping_matches_platform_migration() -> None:
     assert "WHERE revoked_at IS NULL" in indexes["ix_refresh_tokens_expiry"]
 
 
+def test_app_config_mapping_matches_platform_migration() -> None:
+    table = AppConfig.__table__
+
+    assert isinstance(table.c.value.type, JSONB)
+    assert table.c.key.primary_key is True
+    assert table.c.editable.server_default is not None
+    assert table.c.version.server_default is not None
+    assert table.c.created_at.type.timezone is True
+    assert table.c.updated_at.type.timezone is True
+    assert constraint_names(AppConfig) == {
+        "ck_app_configs_key",
+        "ck_app_configs_value_type",
+        "ck_app_configs_version",
+    }
+    foreign_keys = {
+        foreign_key.parent.name: (foreign_key.target_fullname, foreign_key.ondelete)
+        for foreign_key in table.foreign_keys
+    }
+    assert foreign_keys == {"updated_by": ("platform.users.id", "SET NULL")}
+    assert "(namespace, key)" in index_sql(AppConfig)["ix_app_configs_namespace"]
+
+
 def test_all_identity_tables_compile_for_postgresql() -> None:
     dialect = postgresql.dialect()
 
@@ -223,6 +259,7 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
             UserRole,
             RolePermission,
             RefreshToken,
+            AppConfig,
         )
     )
 
@@ -235,6 +272,8 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
     assert "CHAR(64)" in compiled_tables
     assert "INET" in compiled_tables
     assert "ck_refresh_tokens_replacement" in compiled_tables
+    assert "CREATE TABLE platform.app_configs" in compiled_tables
+    assert "JSONB" in compiled_tables
 
 
 def test_user_repr_does_not_expose_password_hash() -> None:

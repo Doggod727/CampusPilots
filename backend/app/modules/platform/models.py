@@ -13,7 +13,12 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID as PostgreSQLUUID
+from sqlalchemy.dialects.postgresql import (
+    CITEXT,
+    INET,
+    JSONB,
+    UUID as PostgreSQLUUID,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.database import Base
@@ -249,3 +254,42 @@ Index(
     RefreshToken.expires_at,
     postgresql_where=text("revoked_at IS NULL"),
 )
+
+
+class AppConfig(Base):
+    __tablename__ = "app_configs"
+    __table_args__ = (
+        CheckConstraint(
+            "key ~ '^[a-z][a-z0-9_.-]{2,99}$'",
+            name="ck_app_configs_key",
+        ),
+        CheckConstraint(
+            "value_type IN ('string', 'integer', 'number', 'boolean', 'json')",
+            name="ck_app_configs_value_type",
+        ),
+        CheckConstraint("version >= 1", name="ck_app_configs_version"),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    namespace: Mapped[str] = mapped_column(String(50))
+    value: Mapped[object] = mapped_column(JSONB())
+    value_type: Mapped[str] = mapped_column(String(16))
+    description: Mapped[str | None] = mapped_column(String(500))
+    editable: Mapped[bool] = mapped_column(Boolean(), server_default=text("true"))
+    version: Mapped[int] = mapped_column(Integer(), server_default=text("1"))
+    updated_by: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("platform.users.id", ondelete="SET NULL"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("now()"),
+    )
+
+
+Index("ix_app_configs_namespace", AppConfig.namespace, AppConfig.key)

@@ -6,6 +6,7 @@ from sqlalchemy import case, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.platform.models import (
+    AppConfig,
     Permission,
     RefreshToken,
     Role,
@@ -13,6 +14,23 @@ from app.modules.platform.models import (
     User,
     UserRole,
 )
+
+AUTH_MAX_FAILED_LOGINS_KEY = "auth.max_failed_logins"
+AUTH_LOCK_MINUTES_KEY = "auth.lock_minutes"
+AUTH_POLICY_KEYS = (AUTH_MAX_FAILED_LOGINS_KEY, AUTH_LOCK_MINUTES_KEY)
+
+
+class InvalidAuthPolicy(Exception):
+    """Raised when the persisted authentication policy is unsafe to use."""
+
+    def __init__(self) -> None:
+        super().__init__("Authentication policy configuration is invalid.")
+
+
+@dataclass(frozen=True)
+class AuthLoginPolicy:
+    max_failed_logins: int
+    lock_minutes: int
 
 
 class UserRepository:
@@ -37,6 +55,41 @@ class UserRepository:
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
+
+class AuthPolicyRepository:
+    """Read the persisted login-lock policy within a caller-owned session."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_login_policy(self) -> AuthLoginPolicy:
+        statement = select(
+            AppConfig.key,
+            AppConfig.value,
+            AppConfig.value_type,
+        ).where(AppConfig.key.in_(AUTH_POLICY_KEYS))
+        result = await self._session.execute(statement)
+        rows = result.all()
+        values: dict[str, object] = {}
+        for key, value, value_type in rows:
+            if (
+                key not in AUTH_POLICY_KEYS
+                or key in values
+                or value_type != "integer"
+                or isinstance(value, bool)
+                or not isinstance(value, int)
+                or value <= 0
+            ):
+                raise InvalidAuthPolicy
+            values[key] = value
+
+        if set(values) != set(AUTH_POLICY_KEYS):
+            raise InvalidAuthPolicy
+
+        return AuthLoginPolicy(
+            max_failed_logins=values[AUTH_MAX_FAILED_LOGINS_KEY],
+            lock_minutes=values[AUTH_LOCK_MINUTES_KEY],
+        )
 
 @dataclass(frozen=True)
 class LoginFailureState:

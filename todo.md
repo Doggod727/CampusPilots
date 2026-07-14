@@ -86,6 +86,11 @@
   - 更新排除软删除和禁用用户，不更新 version，且不管理调用方 Session 生命周期。
   - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `60 passed`。
+- [x] [#17 M4：实现认证锁定策略配置读取](https://github.com/Doggod727/CampusPilot/issues/17)（2026-07-14）
+  - 映射 app_configs，并以单条只读查询严格加载认证失败阈值与锁定分钟数。
+  - 缺失、重复、非整数或非正策略均安全拒绝；演示种子幂等写入 5 次失败和 15 分钟锁定配置。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `68 passed`。
 
 ## 待办
 

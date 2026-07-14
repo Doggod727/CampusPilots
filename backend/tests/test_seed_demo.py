@@ -55,6 +55,16 @@ def test_seed_constants_match_the_m4_identity_baseline() -> None:
     assert "community:anonymous_identity:read" not in seed_demo.ROLE_PERMISSION_CODES[
         "community_operator"
     ]
+    assert seed_demo.AUTH_CONFIGS == (
+        (
+            "auth.max_failed_logins",
+            "auth",
+            5,
+            "integer",
+            "触发临时锁定的连续失败次数",
+        ),
+        ("auth.lock_minutes", "auth", 15, "integer", "登录锁定分钟数"),
+    )
 
 
 def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
@@ -66,12 +76,17 @@ def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
     assert usernames == tuple(account.username for account in seed_demo.DEMO_ACCOUNTS)
     assert hasher.passwords == ["local-password"] * len(seed_demo.DEMO_ACCOUNTS)
     session.begin.assert_called_once_with()
-    assert session.execute.await_count == 21
+    assert session.execute.await_count == 22
 
 
 def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
     permission_sql = _compiled_postgresql(seed_demo._permission_upsert_statement())
     role_sql = _compiled_postgresql(seed_demo._role_upsert_statement())
+    config_sql = str(
+        seed_demo._auth_config_upsert_statement().compile(
+            dialect=postgresql.dialect(),
+        )
+    )
     user_sql = _compiled_postgresql(
         seed_demo._user_upsert_statement(seed_demo.DEMO_ACCOUNTS[0], "argon2id-hash")
     )
@@ -96,6 +111,8 @@ def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
 
     assert "ON CONFLICT (code) DO UPDATE" in permission_sql
     assert "ON CONFLICT (code) DO UPDATE" in role_sql
+    assert "ON CONFLICT (key) DO UPDATE" in config_sql
+    assert "platform.app_configs" in config_sql
     assert "ON CONFLICT (username) DO UPDATE" in user_sql
     assert "argon2id-hash" in user_sql
     assert "ON CONFLICT DO NOTHING" in role_mapping_sql
