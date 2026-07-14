@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
+    CHAR,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -12,7 +13,7 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, UUID as PostgreSQLUUID
+from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.database import Base
@@ -198,4 +199,53 @@ Index(
     "ix_role_permissions_permission_id",
     RolePermission.permission_id,
     RolePermission.role_id,
+)
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_refresh_tokens_expiry",
+        ),
+        CheckConstraint(
+            "replaced_by_jti IS NULL OR replaced_by_jti <> jti",
+            name="ck_refresh_tokens_replacement",
+        ),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    jti: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), unique=True)
+    user_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("platform.users.id", ondelete="CASCADE"),
+    )
+    token_hash: Mapped[str] = mapped_column(CHAR(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replaced_by_jti: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    created_ip: Mapped[str | None] = mapped_column(INET())
+    user_agent: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("now()"),
+    )
+
+
+Index(
+    "ix_refresh_tokens_user_active",
+    RefreshToken.user_id,
+    RefreshToken.expires_at.desc(),
+    postgresql_where=text("revoked_at IS NULL"),
+)
+Index(
+    "ix_refresh_tokens_expiry",
+    RefreshToken.expires_at,
+    postgresql_where=text("revoked_at IS NULL"),
 )

@@ -66,6 +66,11 @@
   - 种子密码只从运行时 `DEMO_SEED_PASSWORD` 读取，并使用 Argon2id 哈希；命令输出不包含密码。
   - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `41 passed`；真实空库执行仍待 PostgreSQL 环境可用后完成。
+- [x] [#13 M4：映射 Refresh Token ORM 模型](https://github.com/Doggod727/CampusPilot/issues/13)（2026-07-14）
+  - 映射既有 refresh_tokens 的 UUID、SHA-256 哈希、时区、INET、约束和部分索引元数据。
+  - 不保存原始 Refresh Token，且实体表示不泄露 token_hash。
+  - PostgreSQL 方言编译、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `43 passed`。
 
 ## 待办
 

@@ -1,11 +1,12 @@
-from sqlalchemy import CheckConstraint
+from sqlalchemy import CHAR, CheckConstraint
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects.postgresql import CITEXT, UUID
+from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app.infrastructure.database import Base
 from app.modules.platform.models import (
     Permission,
+    RefreshToken,
     Role,
     RolePermission,
     User,
@@ -18,6 +19,7 @@ EXPECTED_TABLES = {
     "platform.permissions",
     "platform.user_roles",
     "platform.role_permissions",
+    "platform.refresh_tokens",
 }
 EXPECTED_COLUMNS = {
     "platform.users": {
@@ -57,6 +59,18 @@ EXPECTED_COLUMNS = {
     },
     "platform.user_roles": {"user_id", "role_id", "assigned_by", "assigned_at"},
     "platform.role_permissions": {"role_id", "permission_id", "granted_at"},
+    "platform.refresh_tokens": {
+        "id",
+        "jti",
+        "user_id",
+        "token_hash",
+        "expires_at",
+        "revoked_at",
+        "replaced_by_jti",
+        "created_ip",
+        "user_agent",
+        "created_at",
+    },
 }
 
 
@@ -158,12 +172,58 @@ def test_association_primary_keys_and_foreign_key_actions_match_migration() -> N
     }
 
 
+def test_refresh_token_mapping_matches_platform_migration() -> None:
+    table = RefreshToken.__table__
+
+    assert isinstance(table.c.id.type, UUID)
+    assert isinstance(table.c.jti.type, UUID)
+    assert isinstance(table.c.token_hash.type, CHAR)
+    assert table.c.token_hash.type.length == 64
+    assert isinstance(table.c.created_ip.type, INET)
+    assert table.c.user_agent.type.length == 500
+    assert table.c.jti.unique is True
+    assert table.c.token_hash.unique is True
+    assert table.c.token_hash.nullable is False
+    assert table.c.revoked_at.nullable is True
+    assert table.c.replaced_by_jti.nullable is True
+    assert table.c.expires_at.type.timezone is True
+    assert table.c.created_at.type.timezone is True
+    assert table.c.id.server_default is not None
+    assert table.c.created_at.server_default is not None
+    assert constraint_names(RefreshToken) == {
+        "ck_refresh_tokens_expiry",
+        "ck_refresh_tokens_replacement",
+    }
+
+    foreign_keys = {
+        foreign_key.parent.name: (foreign_key.target_fullname, foreign_key.ondelete)
+        for foreign_key in table.foreign_keys
+    }
+    assert foreign_keys == {"user_id": ("platform.users.id", "CASCADE")}
+
+    indexes = index_sql(RefreshToken)
+    assert set(indexes) == {
+        "ix_refresh_tokens_user_active",
+        "ix_refresh_tokens_expiry",
+    }
+    assert "(user_id, expires_at DESC)" in indexes["ix_refresh_tokens_user_active"]
+    assert "WHERE revoked_at IS NULL" in indexes["ix_refresh_tokens_user_active"]
+    assert "WHERE revoked_at IS NULL" in indexes["ix_refresh_tokens_expiry"]
+
+
 def test_all_identity_tables_compile_for_postgresql() -> None:
     dialect = postgresql.dialect()
 
     compiled_tables = "\n".join(
         str(CreateTable(model.__table__).compile(dialect=dialect))
-        for model in (User, Role, Permission, UserRole, RolePermission)
+        for model in (
+            User,
+            Role,
+            Permission,
+            UserRole,
+            RolePermission,
+            RefreshToken,
+        )
     )
 
     assert "CREATE TABLE platform.users" in compiled_tables
@@ -171,6 +231,10 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
     assert "UUID DEFAULT gen_random_uuid()" in compiled_tables
     assert "PRIMARY KEY (user_id, role_id)" in compiled_tables
     assert "ON DELETE SET NULL" in compiled_tables
+    assert "CREATE TABLE platform.refresh_tokens" in compiled_tables
+    assert "CHAR(64)" in compiled_tables
+    assert "INET" in compiled_tables
+    assert "ck_refresh_tokens_replacement" in compiled_tables
 
 
 def test_user_repr_does_not_expose_password_hash() -> None:
@@ -182,3 +246,15 @@ def test_user_repr_does_not_expose_password_hash() -> None:
     )
 
     assert password_hash not in repr(user)
+
+
+def test_refresh_token_repr_does_not_expose_token_hash() -> None:
+    token_hash = "a" * 64
+    refresh_token = RefreshToken(
+        jti="f8e22491-4fab-437d-8409-7b340c84423b",
+        user_id="1f762d59-a3ea-4018-95fd-1e657149977e",
+        token_hash=token_hash,
+        expires_at="2026-07-21T00:00:00+00:00",
+    )
+
+    assert token_hash not in repr(refresh_token)
