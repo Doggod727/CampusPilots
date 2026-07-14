@@ -140,6 +140,10 @@
   - 新增 `require_permissions(...)`；多权限采用全部具备的最小权限语义，拒绝统一返回 `403 AUTH_FORBIDDEN`，不泄露缺失权限。
   - 依赖复用当前数据库认证上下文，不追加数据库查询、审计或 Session 生命周期操作，供后续 `x-permissions` 路由显式挂载。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `126 passed`。
+- [x] [#28 M4：实现用户分页查询接口](https://github.com/Doggod727/CampusPilot/issues/28)（2026-07-14）
+  - `GET /api/v1/users` 支持未软删除用户的用户名/显示名/邮箱模糊查询、状态和角色筛选，以及六种稳定排序与分页总数。
+  - 响应只映射用户摘要和批量加载的角色摘要；路由由 `user:read` 权限保护，不暴露密码哈希、登录失败状态或 Token 数据。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `138 passed`。
 
 ## 待办
 

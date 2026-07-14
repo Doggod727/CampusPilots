@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import case, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.platform.models import (
@@ -34,6 +34,28 @@ class AuthLoginPolicy:
     lock_minutes: int
 
 
+@dataclass(frozen=True)
+class UserListQuery:
+    page: int
+    page_size: int
+    q: str | None = None
+    status: str | None = None
+    role_id: UUID | None = None
+    sort: str = "-created_at"
+
+
+@dataclass(frozen=True)
+class UserListItem:
+    user: User
+    roles: tuple[Role, ...]
+
+
+@dataclass(frozen=True)
+class UserListPage:
+    items: tuple[UserListItem, ...]
+    total: int
+
+
 class UserRepository:
     """Persistence queries for platform users within a caller-owned session."""
 
@@ -55,6 +77,80 @@ class UserRepository:
         )
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
+
+    async def list_page(self, query: UserListQuery) -> UserListPage:
+        predicates = self._list_predicates(query)
+        count_result = await self._session.execute(
+            select(func.count()).select_from(User).where(*predicates)
+        )
+        total = count_result.scalar_one()
+
+        users_result = await self._session.execute(
+            select(User)
+            .where(*predicates)
+            .order_by(*self._list_order(query.sort))
+            .limit(query.page_size)
+            .offset((query.page - 1) * query.page_size)
+        )
+        users = list(users_result.scalars().all())
+        if not users:
+            return UserListPage(items=(), total=total)
+
+        user_ids = [user.id for user in users]
+        roles_result = await self._session.execute(
+            select(UserRole.user_id, Role)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(UserRole.user_id.in_(user_ids))
+            .order_by(UserRole.user_id, Role.code)
+        )
+        roles_by_user: dict[UUID, list[Role]] = {user.id: [] for user in users}
+        for user_id, role in roles_result.all():
+            roles_by_user[user_id].append(role)
+
+        return UserListPage(
+            items=tuple(
+                UserListItem(user=user, roles=tuple(roles_by_user[user.id]))
+                for user in users
+            ),
+            total=total,
+        )
+
+    @staticmethod
+    def _list_predicates(query: UserListQuery) -> list[object]:
+        predicates: list[object] = [User.deleted_at.is_(None)]
+        if query.q is not None and query.q.strip():
+            pattern = f"%{query.q.strip()}%"
+            predicates.append(
+                or_(
+                    User.username.ilike(pattern),
+                    User.display_name.ilike(pattern),
+                    User.email.ilike(pattern),
+                )
+            )
+        if query.status is not None:
+            predicates.append(User.status == query.status)
+        if query.role_id is not None:
+            predicates.append(
+                User.id.in_(
+                    select(UserRole.user_id).where(UserRole.role_id == query.role_id)
+                )
+            )
+        return predicates
+
+    @staticmethod
+    def _list_order(sort: str) -> tuple[object, object]:
+        orders: dict[str, tuple[object, object]] = {
+            "created_at": (User.created_at.asc(), User.id.asc()),
+            "-created_at": (User.created_at.desc(), User.id.asc()),
+            "username": (User.username.asc(), User.id.asc()),
+            "-username": (User.username.desc(), User.id.asc()),
+            "last_login_at": (User.last_login_at.asc().nulls_last(), User.id.asc()),
+            "-last_login_at": (
+                User.last_login_at.desc().nulls_last(),
+                User.id.asc(),
+            ),
+        }
+        return orders[sort]
 
 
 class AuthPolicyRepository:
