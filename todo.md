@@ -35,6 +35,11 @@
   - 首版 Revision 覆盖 M4 平台 Schema、11 张表、约束、索引、函数、触发器和注释。
   - upgrade SQL 与原始 M4 DDL 共 51 条语句逐条一致；downgrade 保留共享扩展。
   - Alembic 离线升降级、单 head、全部自动化测试 `15 passed`，Python 编译检查通过。
+- [x] [#5 M4：建立身份与权限 ORM 模型](https://github.com/Doggod727/CampusPilot/issues/5)（2026-07-14）
+  - 建立共享 SQLAlchemy DeclarativeBase。
+  - 映射 users、roles、permissions 及两张关联表，与首版迁移的类型、约束和索引一致。
+  - 保持 Alembic target_metadata 未注册，避免未映射治理表被误删。
+  - PostgreSQL 方言离线编译、迁移回归及全部自动化测试 `21 passed`。
 
 ## 待办
 
