@@ -21,6 +21,7 @@ from app.modules.platform.auth_routes import (
     get_frontend_origin,
     get_refresh_cookie_secure,
 )
+from app.modules.platform.auth_dependencies import get_authenticated_user
 from app.modules.platform.tokens import IssuedAccessToken, IssuedRefreshToken
 
 
@@ -107,11 +108,14 @@ def _client(
     *,
     secure: bool = False,
     frontend_origin: str = "http://localhost:5173",
+    current_user: AuthenticatedUser | None = None,
 ) -> TestClient:
     application = create_app()
     application.dependency_overrides[get_auth_service] = lambda: service
     application.dependency_overrides[get_refresh_cookie_secure] = lambda: secure
     application.dependency_overrides[get_frontend_origin] = lambda: frontend_origin
+    if current_user is not None:
+        application.dependency_overrides[get_authenticated_user] = lambda: current_user
     return TestClient(application, raise_server_exceptions=False)
 
 
@@ -393,4 +397,39 @@ def test_logout_rejects_untrusted_origin_without_resolving_service(
 
     assert response.status_code == 403
     assert response.json()["code"] == "AUTH_FORBIDDEN"
+    assert service.calls == []
+
+
+def test_get_current_user_returns_openapi_context_from_bearer_dependency() -> None:
+    login_result = _login_result()
+    client = _client(
+        StubAuthService(login_result),
+        current_user=login_result.user,
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"X-Request-Id": "current-user-request-123"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["code"] == "OK"
+    assert payload["request_id"] == "current-user-request-123"
+    assert payload["data"]["id"] == str(login_result.user.user_id)
+    assert payload["data"]["roles"][0]["code"] == "student"
+    assert payload["data"]["permissions"] == ["community:read"]
+    assert "password_hash" not in payload["data"]
+    assert "token" not in payload["data"]
+
+
+def test_get_current_user_rejects_missing_bearer_without_auth_service() -> None:
+    service = StubAuthService(_login_result())
+    client = _client(service)
+
+    response = client.get("/api/v1/auth/me")
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "AUTH_UNAUTHORIZED"
+    assert response.headers["X-Request-Id"] == response.json()["request_id"]
     assert service.calls == []

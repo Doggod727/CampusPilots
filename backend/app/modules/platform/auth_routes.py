@@ -1,4 +1,3 @@
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from math import ceil
 from typing import Annotated, Literal
@@ -8,19 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import get_settings
-from app.infrastructure.database import Database
-from app.modules.platform.audit import AuditService
-from app.modules.platform.auth import AuthService, LoginResult, RefreshResult
-from app.modules.platform.passwords import PasswordHasher
-from app.modules.platform.repositories import (
-    AuditLogRepository,
-    AuthPolicyRepository,
-    RbacRepository,
-    RefreshTokenRepository,
-    UserAuthRepository,
-    UserRepository,
+from app.modules.platform.auth import AuthService, AuthenticatedUser, LoginResult, RefreshResult
+from app.modules.platform.auth_dependencies import (
+    get_authenticated_user,
+    get_auth_service,
 )
-from app.modules.platform.tokens import IssuedAccessToken, IssuedRefreshToken, TokenService
+from app.modules.platform.tokens import IssuedAccessToken, IssuedRefreshToken
 from app.shared.responses import SuccessResponse
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
@@ -52,7 +44,7 @@ class CurrentUserData(BaseModel):
     status: str
     roles: list[RoleData]
     permissions: list[str]
-    last_login_at: datetime
+    last_login_at: datetime | None
     created_at: datetime
     version: int
 
@@ -73,26 +65,6 @@ class LoginData(TokenData):
     model_config = ConfigDict(extra="forbid")
 
     user: CurrentUserData
-
-
-async def get_auth_service() -> AsyncIterator[AuthService]:
-    settings = get_settings()
-    database = Database.from_settings(settings)
-    try:
-        async with database.session() as session:
-            yield AuthService(
-                session=session,
-                user_repository=UserRepository(session),
-                user_auth_repository=UserAuthRepository(session),
-                rbac_repository=RbacRepository(session),
-                refresh_token_repository=RefreshTokenRepository(session),
-                auth_policy_repository=AuthPolicyRepository(session),
-                audit_service=AuditService(AuditLogRepository(session)),
-                password_hasher=PasswordHasher(),
-                token_service=TokenService(settings),
-            )
-    finally:
-        await database.dispose()
 
 
 def get_refresh_cookie_secure() -> bool:
@@ -198,6 +170,22 @@ async def logout(
     )
 
 
+@router.get(
+    "/me",
+    operation_id="getCurrentUser",
+    response_model=SuccessResponse[CurrentUserData],
+)
+async def get_current_user(
+    request: Request,
+    user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
+) -> SuccessResponse[CurrentUserData]:
+    return SuccessResponse(
+        data=_current_user_data(user),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
 def _set_refresh_cookie(
     response: Response,
     refresh_token: IssuedRefreshToken,
@@ -230,22 +218,26 @@ def _login_data(result: LoginResult) -> LoginData:
     return LoginData(
         access_token=token_data.access_token,
         expires_in=token_data.expires_in,
-        user=CurrentUserData(
-            id=result.user.user_id,
-            username=result.user.username,
-            display_name=result.user.display_name,
-            email=result.user.email,
-            department=result.user.department,
-            status=result.user.status,
-            roles=[
-                RoleData(id=role.role_id, code=role.code, name=role.name)
-                for role in result.user.roles
-            ],
-            permissions=list(result.user.permissions),
-            last_login_at=result.user.last_login_at,
-            created_at=result.user.created_at,
-            version=result.user.version,
-        ),
+        user=_current_user_data(result.user),
+    )
+
+
+def _current_user_data(user: AuthenticatedUser) -> CurrentUserData:
+    return CurrentUserData(
+        id=user.user_id,
+        username=user.username,
+        display_name=user.display_name,
+        email=user.email,
+        department=user.department,
+        status=user.status,
+        roles=[
+            RoleData(id=role.role_id, code=role.code, name=role.name)
+            for role in user.roles
+        ],
+        permissions=list(user.permissions),
+        last_login_at=user.last_login_at,
+        created_at=user.created_at,
+        version=user.version,
     )
 
 

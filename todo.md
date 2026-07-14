@@ -132,6 +132,10 @@
   - `AuthService.logout` 在单一事务中锁定并撤销有效 Refresh Token；未知和已撤销 Token 同样幂等完成，审计不保存原始 Token 或哈希。
   - `POST /api/v1/auth/logout` 复用 Cookie Origin 校验，统一返回空数据成功信封并以原 Path/安全属性清除 Refresh Cookie。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `107 passed`。
+- [x] [#26 M4：实现 Bearer 认证依赖与当前用户接口](https://github.com/Doggod727/CampusPilot/issues/26)（2026-07-14）
+  - 增加可复用的 Bearer Access Token 认证依赖；JWT 无效时不创建数据库上下文，用户软删除、禁用、锁定或用户名 Claim 不匹配统一返回 `401 AUTH_UNAUTHORIZED`。
+  - `GET /api/v1/auth/me` 返回数据库当前用户资料、角色与权限；Access Token 权限 Claim 不作为该响应的事实来源。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `119 passed`。
 
 ## 待办
 

@@ -11,13 +11,14 @@ from app.modules.platform.auth import (
     AccountDisabled,
     AccountLocked,
     AuthService,
+    AuthenticationRequired,
     InvalidCredentials,
     InvalidRefreshToken,
     RefreshTokenReused,
 )
 from app.modules.platform.models import RefreshToken, Role, User
 from app.modules.platform.repositories import AuthLoginPolicy, LoginFailureState
-from app.modules.platform.tokens import IssuedAccessToken, IssuedRefreshToken
+from app.modules.platform.tokens import AccessClaims, IssuedAccessToken, IssuedRefreshToken
 
 FIXED_NOW = datetime(2026, 7, 14, 8, 0, tzinfo=UTC)
 
@@ -545,3 +546,59 @@ def test_logout_is_idempotent_for_unknown_or_already_revoked_token(
     assert audit_arguments["after_data"] == {
         "status": "not_found" if stored_token is None else "already_revoked"
     }
+
+
+def _access_claims(user: User) -> AccessClaims:
+    return AccessClaims(
+        user_id=user.id,
+        username=user.username,
+        roles=("stale-role",),
+        permissions=("stale:permission",),
+        issued_at=FIXED_NOW - timedelta(minutes=1),
+        expires_at=FIXED_NOW + timedelta(minutes=14),
+        jti=uuid4(),
+    )
+
+
+def test_get_current_user_uses_active_database_identity_and_current_rbac() -> None:
+    user = _user(last_login_at=None)
+    service, dependencies, _, _ = _service(user=user, password_matches=True)
+    role = Role(id=uuid4(), code="student", name="普通学生", description=None)
+    dependencies["rbac"].list_roles_for_user = AsyncMock(return_value=[role])
+    dependencies["rbac"].list_permission_codes_for_user = AsyncMock(
+        return_value=["community:read"]
+    )
+
+    result = asyncio.run(service.get_current_user(_access_claims(user)))
+
+    assert result.user_id == user.id
+    assert result.last_login_at is None
+    assert tuple(role.code for role in result.roles) == ("student",)
+    assert result.permissions == ("community:read",)
+    dependencies["user"].get_by_id.assert_awaited_once_with(user.id)
+    dependencies["rbac"].list_roles_for_user.assert_awaited_once_with(user.id)
+    dependencies["rbac"].list_permission_codes_for_user.assert_awaited_once_with(user.id)
+    dependencies["session"].begin.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "user",
+    [
+        None,
+        _user(status="disabled"),
+        _user(status="locked"),
+        _user(username="renamed-student"),
+    ],
+)
+def test_get_current_user_rejects_nonactive_missing_or_mismatched_identity(
+    user: User | None,
+) -> None:
+    claimed_user = _user()
+    service, dependencies, _, _ = _service(user=user, password_matches=True)
+
+    with pytest.raises(AuthenticationRequired) as error:
+        asyncio.run(service.get_current_user(_access_claims(claimed_user)))
+
+    assert error.value.status_code == 401
+    assert error.value.code == "AUTH_UNAUTHORIZED"
+    dependencies["rbac"].list_roles_for_user.assert_not_awaited()

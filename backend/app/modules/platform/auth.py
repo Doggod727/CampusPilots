@@ -17,7 +17,12 @@ from app.modules.platform.repositories import (
     UserAuthRepository,
     UserRepository,
 )
-from app.modules.platform.tokens import IssuedAccessToken, IssuedRefreshToken, TokenService
+from app.modules.platform.tokens import (
+    AccessClaims,
+    IssuedAccessToken,
+    IssuedRefreshToken,
+    TokenService,
+)
 
 
 class InvalidCredentials(AppError):
@@ -66,6 +71,15 @@ class RefreshTokenReused(AppError):
         )
 
 
+class AuthenticationRequired(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=401,
+            code="AUTH_UNAUTHORIZED",
+            message="登录状态无效，请重新登录",
+        )
+
+
 @dataclass(frozen=True)
 class AuthenticatedRole:
     role_id: UUID
@@ -83,7 +97,7 @@ class AuthenticatedUser:
     status: str
     roles: tuple[AuthenticatedRole, ...]
     permissions: tuple[str, ...]
-    last_login_at: datetime
+    last_login_at: datetime | None
     created_at: datetime
     version: int
 
@@ -426,6 +440,40 @@ class AuthService:
                     "status": "revoked" if revoked else "already_revoked",
                 },
             )
+
+    async def get_current_user(self, claims: AccessClaims) -> AuthenticatedUser:
+        """Return current database-backed identity data for a valid Access Token."""
+
+        user = await self._user_repository.get_by_id(claims.user_id)
+        if (
+            user is None
+            or user.status != "active"
+            or user.username != claims.username
+        ):
+            raise AuthenticationRequired()
+
+        roles = await self._rbac_repository.list_roles_for_user(user.id)
+        permissions = await self._rbac_repository.list_permission_codes_for_user(user.id)
+        return AuthenticatedUser(
+            user_id=user.id,
+            username=user.username,
+            display_name=user.display_name,
+            email=user.email,
+            department=user.department,
+            status=user.status,
+            roles=tuple(
+                AuthenticatedRole(
+                    role_id=role.id,
+                    code=role.code,
+                    name=role.name,
+                )
+                for role in roles
+            ),
+            permissions=tuple(permissions),
+            last_login_at=user.last_login_at,
+            created_at=user.created_at,
+            version=user.version,
+        )
 
     def _record_login_failure(
         self,
