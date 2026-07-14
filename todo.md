@@ -274,8 +274,12 @@
   - 同步 OpenAPI：登录禁用 403、锁定 423+Retry-After、Refresh/Logout Origin 403、幂等登出 200、角色保护/引用冲突、敏感词/审核/配置稳定错误码及 `/health/ready` 503 错误信封；operationId 共 103 个且唯一。
   - 更新 M4 详细设计版本 V0.11、统一扁平响应示例、认证/审核/配置/就绪/CORS 差异台账；README 增加就绪、CORS、管理接口和真实依赖限制说明。
   - OpenAPI YAML 解析、Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `246 passed`（11 条既有 httpx 弃用警告）通过。
+- [x] [#58 M4：最终验收与 PR 收尾](https://github.com/Doggod727/CampusPilot/issues/58)（2026-07-14）
+  - 全量 pytest `246 passed`（11 条既有 httpx 弃用警告）、`python -m compileall -q app`、`alembic heads` 单一 `0001_platform_schema`、离线 upgrade/downgrade SQL 和 OpenAPI YAML 解析通过。
+  - OpenAPI 共 103 个 operationId 且唯一；当前应用已实现的 M4 29 个 operationId 与契约逐项匹配；统一错误信封、Request-Id 和敏感字段脱敏回归通过。
+  - Issue #41–#57 均已关闭；Draft PR #8 汇总全部提交并在本任务后转 Ready。真实 PostgreSQL/Redis/Chroma 集成仍保留为环境可用后的独立待办。
 
 ## 待办
 
-- [ ] 下一项为 M4 最终验收与 PR 收尾（Issue #58）。
-- [ ] Docker/PostgreSQL 可用后，在真实空库执行 `alembic upgrade head` 与 `alembic downgrade base`。
+- [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
+- [ ] 前端、Docker Compose 和跨模块 M1/M2/M3 handler 联调不属于本仓库本次 M4 后端交付范围。
