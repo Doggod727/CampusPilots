@@ -76,6 +76,11 @@
   - 高熵 Refresh Token 仅输出运行时原值、UUID 与 SHA-256 哈希；敏感值不参与 repr 或异常信息。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `51 passed`。
+- [x] [#15 M4：实现 Refresh Token 持久化仓储](https://github.com/Doggod727/CampusPilot/issues/15)（2026-07-14）
+  - RefreshTokenRepository 支持新增、哈希精确行锁读取、轮换标记、单 Token 撤销及用户全部 Token 撤销。
+  - 所有写操作只更新尚未撤销记录；仓储不管理调用方 Session 的事务或生命周期。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `56 passed`。
 
 ## 待办
 
