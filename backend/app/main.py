@@ -4,6 +4,7 @@ from app.core.errors import register_exception_handlers
 from app.core.request_id import RequestIdMiddleware
 from app.modules.platform.auth_routes import router as auth_router
 from app.modules.platform.health import router as health_router
+from app.modules.platform.readiness import router as readiness_router
 from app.modules.platform.user_routes import router as user_router
 from app.modules.platform.rbac_routes import router as rbac_router
 from app.modules.platform.sensitive_word_routes import router as sensitive_word_router
@@ -21,6 +22,7 @@ def create_app() -> FastAPI:
     application.add_middleware(RequestIdMiddleware)
     register_exception_handlers(application)
     application.include_router(health_router)
+    application.include_router(readiness_router)
     application.include_router(auth_router)
     application.include_router(user_router)
     application.include_router(rbac_router)

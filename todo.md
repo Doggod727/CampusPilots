@@ -262,8 +262,12 @@
   - 新增 `GET /api/v1/dashboard/metrics`，由 `dashboard:read` 保护，支持 from/to 日期和 day/week 粒度。
   - M4 查询 active users、pending moderation 等自有指标；M1/M2/M3 指标通过可注入 Provider，未注册时返回 0，不访问不存在的业务表。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `239 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#55 M4：实现 `/health/ready` 就绪检查](https://github.com/Doggod727/CampusPilot/issues/55)（2026-07-14）
+  - 新增显式 PostgreSQL、Redis 探针和可替换 Chroma 探针；模块导入、`/health/live` 不创建连接，缺少配置或依赖不可用统一返回 `503 SERVICE_NOT_READY`。
+  - 就绪响应包含 OpenAPI 要求的 postgres/redis/chroma 状态及安全延迟信息，不回显连接串或异常文本；Chroma 当前无适配器时标记 `up/not configured`，待 M1 接入真实探针。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `243 passed`（11 条既有 httpx 弃用警告）通过；真实 PostgreSQL/Redis 集成仍受本机环境限制。
 
 ## 待办
 
-- [ ] 下一项小型任务尚未选择。
+- [ ] 下一项为全局 CORS 中间件（Issue #56）。
 - [ ] Docker/PostgreSQL 可用后，在真实空库执行 `alembic upgrade head` 与 `alembic downgrade base`。
