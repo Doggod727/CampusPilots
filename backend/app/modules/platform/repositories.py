@@ -404,6 +404,12 @@ class RbacWriteRepository(RbacReadRepository):
         )
         return result.rowcount == 1
 
+    async def clear_role_permissions(self, role_id: UUID) -> int:
+        result = await self._session.execute(
+            delete(RolePermission).where(RolePermission.role_id == role_id)
+        )
+        return result.rowcount
+
 
 class AuthPolicyRepository:
     """Read the persisted login-lock policy within a caller-owned session."""

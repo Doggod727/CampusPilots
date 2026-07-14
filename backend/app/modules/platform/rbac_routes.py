@@ -16,6 +16,10 @@ from app.modules.platform.rbac_update import (
     RoleUpdateService,
     role_update_service_context,
 )
+from app.modules.platform.rbac_permissions import (
+    RolePermissionService,
+    role_permission_service_context,
+)
 from app.modules.platform.rbac_schemas import (
     PermissionListData,
     RoleListData,
@@ -66,6 +70,20 @@ class RoleUpdateRequest(BaseModel):
         return self
 
 
+class RolePermissionAssignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    permission_ids: list[UUID]
+    version: int = Field(ge=1)
+
+    @field_validator("permission_ids")
+    @classmethod
+    def validate_unique_permissions(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("permission_ids must be unique")
+        return value
+
+
 async def get_rbac_repository() -> AsyncIterator[RbacReadRepository]:
     database = Database.from_settings(get_settings())
     try:
@@ -82,6 +100,11 @@ async def get_role_admin_service() -> AsyncIterator[RoleAdminService]:
 
 async def get_role_update_service() -> AsyncIterator[RoleUpdateService]:
     async with role_update_service_context(get_settings()) as service:
+        yield service
+
+
+async def get_role_permission_service() -> AsyncIterator[RolePermissionService]:
+    async with role_permission_service_context(get_settings()) as service:
         yield service
 
 
@@ -153,6 +176,35 @@ async def update_role(
         role_id=role_id,
         expected_version=payload.version,
         changes=payload.model_dump(exclude_unset=True, exclude={"version"}),
+        request_id=request.state.request_id,
+    )
+    return SuccessResponse(
+        data=role_data(result),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
+@router.put(
+    "/roles/{role_id}/permissions",
+    operation_id="replaceRolePermissions",
+    response_model=RoleResponse,
+)
+async def replace_role_permissions(
+    role_id: UUID,
+    payload: RolePermissionAssignmentRequest,
+    request: Request,
+    current_user: Annotated[
+        AuthenticatedUser,
+        Depends(require_permissions("role:permission:assign")),
+    ],
+    service: Annotated[RolePermissionService, Depends(get_role_permission_service)],
+) -> SuccessResponse:
+    result = await service.replace_permissions(
+        actor=current_user,
+        role_id=role_id,
+        expected_version=payload.version,
+        permission_ids=payload.permission_ids,
         request_id=request.state.request_id,
     )
     return SuccessResponse(

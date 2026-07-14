@@ -195,6 +195,12 @@
   - 角色不存在返回 `404 ROLE_NOT_FOUND`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`；成功写入脱敏 `role.update` 审计并返回完整角色权限摘要。
   - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `190 passed`。
+- [x] [#39 M4：实现角色权限全量替换接口](https://github.com/Doggod727/CampusPilot/issues/39)（2026-07-14）
+  - `PUT /api/v1/roles/{role_id}/permissions` 由 `role:permission:assign` 保护，严格校验唯一权限 UUID 集合和乐观锁 `version`。
+  - 在单事务内校验角色/权限、原子递增角色版本并全量重建 `role_permissions`；成功写入 `role.permissions.replace` 审计并返回完整角色摘要。
+  - 角色不存在、权限不存在和版本冲突分别返回 `404 ROLE_NOT_FOUND`、`404 PERMISSION_NOT_FOUND`、`409 RESOURCE_VERSION_CONFLICT`。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `193 passed`。
 
 ## 待办
 
