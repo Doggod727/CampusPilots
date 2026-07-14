@@ -226,6 +226,10 @@
   - 映射 `platform.moderation_cases`，保留目标/风险/状态/决策/版本约束、JSONB rule_hits 及队列、目标和 GIN 索引。
   - `ModerationCaseRepository` 支持分页筛选、普通/行锁读取、追加和 pending+version 条件决策更新；不建立跨 Schema 外键或管理事务。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `215 passed`（11 条既有 httpx 弃用警告）通过；未发现契约差异。
+- [x] [#46 M4：实现审核目标处理器协议与注册表](https://github.com/Doggod727/CampusPilot/issues/46)（2026-07-14）
+  - 新增 `ModerationTargetHandler` 协议和按 `target_module/target_type` 注册解析的 Registry，支持 approve/reject/escalate。
+  - 未注册目标统一返回 `409 MODERATION_HANDLER_UNAVAILABLE`，不回显目标标识；不导入或修改 M1/M2/M3 业务 ORM。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `218 passed`（11 条既有 httpx 弃用警告）通过；无 HTTP 契约差异。
 
 ## 待办
 
