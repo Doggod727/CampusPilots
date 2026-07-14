@@ -20,6 +20,7 @@
 - 认证登录临时锁定：M4 详细设计第 4.2 节和错误码表写为 429，但 OpenAPI `/api/v1/auth/login` 定义 `423 Locked` 及 `Retry-After`。后续实现固定使用 `423 ACCOUNT_LOCKED`，429 仅用于限流；影响依赖认证的前端与 M1/M2/M3。M4 收尾时修订详细设计对应章节，OpenAPI 保持现有定义。
 - 认证失败达到锁定阈值的当前请求：实现固定返回 `401 INVALID_CREDENTIALS`，从下一次请求开始返回 `423 ACCOUNT_LOCKED`；详细设计未规定该边界行为。影响依赖认证的前端与 M1/M2/M3；M4 收尾时在登录流程补充该规则。
 - 认证登录禁用账号：实现返回 `403 ACCOUNT_DISABLED`，与详细设计一致，但 OpenAPI `/api/v1/auth/login` 当前未声明 403。影响依赖认证的前端与 M1/M2/M3；M4 收尾时补充 OpenAPI 响应并校验生成客户端。
+- Refresh Cookie 的 Origin 校验：`POST /api/v1/auth/refresh` 对缺失或非 `FRONTEND_ORIGIN` 的 Origin 返回 `403 AUTH_FORBIDDEN`，且不执行刷新；当前 OpenAPI 只声明 401/429。影响前端刷新请求；M4 收尾时补充 403 响应与 Origin 要求，CORS 策略仍由后续独立任务实现。
 
 ## 已完成
 
@@ -122,6 +123,10 @@
   - AuthService 在单一事务中锁定有效 Refresh Token，签发 Access/替换 Refresh Token、标记旧 Token 已轮换，并只持久化新 Token 哈希。
   - 已轮换 Token 的复用会撤销该用户全部有效 Refresh Token，并返回 `401 REFRESH_TOKEN_REUSED`；缺失、过期、撤销及非 active 用户统一返回 `401 INVALID_REFRESH_TOKEN`，不泄露用户状态或原始 Token。
   - 审计事件不保存原始 Refresh Token 或哈希；Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `91 passed`。
+- [x] [#24 M4：实现 Refresh HTTP 接口与 Origin 校验](https://github.com/Doggod727/CampusPilot/issues/24)（2026-07-14）
+  - `POST /api/v1/auth/refresh` 从 Cookie 读取 Refresh Token，返回统一 TokenData 信封，并以相同安全属性覆盖轮换 Cookie。
+  - 刷新路由仅接受配置的前端 Origin（兼容配置末尾斜杠）；缺失或不匹配时在数据库依赖前返回 403。全局 CORS、注销、Bearer 认证依赖和限流保持后续独立任务。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `99 passed`。
 
 ## 待办
 

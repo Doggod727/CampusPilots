@@ -4,13 +4,13 @@ from math import ceil
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.platform.audit import AuditService
-from app.modules.platform.auth import AuthService, LoginResult
+from app.modules.platform.auth import AuthService, LoginResult, RefreshResult
 from app.modules.platform.passwords import PasswordHasher
 from app.modules.platform.repositories import (
     AuditLogRepository,
@@ -20,7 +20,7 @@ from app.modules.platform.repositories import (
     UserAuthRepository,
     UserRepository,
 )
-from app.modules.platform.tokens import TokenService
+from app.modules.platform.tokens import IssuedAccessToken, IssuedRefreshToken, TokenService
 from app.shared.responses import SuccessResponse
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
@@ -57,12 +57,17 @@ class CurrentUserData(BaseModel):
     version: int
 
 
-class LoginData(BaseModel):
+class TokenData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"
     expires_in: int
+
+
+class LoginData(TokenData):
+    model_config = ConfigDict(extra="forbid")
+
     user: CurrentUserData
 
 
@@ -90,6 +95,18 @@ def get_refresh_cookie_secure() -> bool:
     return get_settings().refresh_cookie_secure
 
 
+def get_frontend_origin() -> str:
+    return str(get_settings().frontend_origin).rstrip("/")
+
+
+def verify_refresh_origin(
+    request: Request,
+    frontend_origin: Annotated[str, Depends(get_frontend_origin)],
+) -> None:
+    if request.headers.get("Origin", "").rstrip("/") != frontend_origin.rstrip("/"):
+        raise HTTPException(status_code=403)
+
+
 @router.post(
     "/login",
     operation_id="login",
@@ -109,14 +126,10 @@ async def login(
         ip_address=request.client.host if request.client is not None else None,
         user_agent=request.headers.get("User-Agent"),
     )
-    response.set_cookie(
-        key="refresh_token",
-        value=result.refresh_token.token,
-        max_age=_refresh_cookie_max_age(result),
-        httponly=True,
+    _set_refresh_cookie(
+        response,
+        result.refresh_token,
         secure=refresh_cookie_secure,
-        samesite="lax",
-        path="/api/v1/auth",
     )
     return SuccessResponse(
         data=_login_data(result),
@@ -125,13 +138,58 @@ async def login(
     )
 
 
+@router.post(
+    "/refresh",
+    operation_id="refreshAccessToken",
+    response_model=SuccessResponse[TokenData],
+    dependencies=[Depends(verify_refresh_origin)],
+)
+async def refresh(
+    request: Request,
+    response: Response,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    refresh_cookie_secure: Annotated[bool, Depends(get_refresh_cookie_secure)],
+) -> SuccessResponse[TokenData]:
+    result = await auth_service.refresh(
+        refresh_token=request.cookies.get("refresh_token", ""),
+        request_id=request.state.request_id,
+        ip_address=request.client.host if request.client is not None else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    _set_refresh_cookie(
+        response,
+        result.refresh_token,
+        secure=refresh_cookie_secure,
+    )
+    return SuccessResponse(
+        data=_token_data(result.access_token),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
+def _set_refresh_cookie(
+    response: Response,
+    refresh_token: IssuedRefreshToken,
+    *,
+    secure: bool,
+) -> None:
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token.token,
+        max_age=_refresh_cookie_max_age(refresh_token),
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/api/v1/auth",
+    )
+
+
 def _login_data(result: LoginResult) -> LoginData:
+    token_data = _token_data(result.access_token)
     return LoginData(
-        access_token=result.access_token.token,
-        expires_in=max(
-            1,
-            ceil((result.access_token.expires_at - datetime.now(UTC)).total_seconds()),
-        ),
+        access_token=token_data.access_token,
+        expires_in=token_data.expires_in,
         user=CurrentUserData(
             id=result.user.user_id,
             username=result.user.username,
@@ -151,8 +209,18 @@ def _login_data(result: LoginResult) -> LoginData:
     )
 
 
-def _refresh_cookie_max_age(result: LoginResult) -> int:
+def _token_data(access_token: IssuedAccessToken) -> TokenData:
+    return TokenData(
+        access_token=access_token.token,
+        expires_in=max(
+            1,
+            ceil((access_token.expires_at - datetime.now(UTC)).total_seconds()),
+        ),
+    )
+
+
+def _refresh_cookie_max_age(refresh_token: IssuedRefreshToken) -> int:
     return max(
         1,
-        ceil((result.refresh_token.expires_at - datetime.now(UTC)).total_seconds()),
+        ceil((refresh_token.expires_at - datetime.now(UTC)).total_seconds()),
     )
