@@ -48,6 +48,24 @@ class AccountLocked(AppError):
         )
 
 
+class InvalidRefreshToken(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=401,
+            code="INVALID_REFRESH_TOKEN",
+            message="刷新登录状态无效，请重新登录",
+        )
+
+
+class RefreshTokenReused(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=401,
+            code="REFRESH_TOKEN_REUSED",
+            message="刷新登录状态已失效，请重新登录",
+        )
+
+
 @dataclass(frozen=True)
 class AuthenticatedRole:
     role_id: UUID
@@ -73,6 +91,12 @@ class AuthenticatedUser:
 @dataclass(frozen=True)
 class LoginResult:
     user: AuthenticatedUser
+    access_token: IssuedAccessToken
+    refresh_token: IssuedRefreshToken
+
+
+@dataclass(frozen=True)
+class RefreshResult:
     access_token: IssuedAccessToken
     refresh_token: IssuedRefreshToken
 
@@ -235,6 +259,129 @@ class AuthService:
             raise RuntimeError("Login did not produce a result.")
         return result
 
+    async def refresh(
+        self,
+        *,
+        refresh_token: str,
+        request_id: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> RefreshResult:
+        """Rotate one active Refresh Token inside a single caller-owned transaction."""
+
+        now = self._current_time()
+        result: RefreshResult | None = None
+        failure: AppError | None = None
+
+        async with self._session.begin():
+            stored_token = await self._refresh_token_repository.get_by_token_hash_for_update(
+                self._token_service.hash_refresh(refresh_token)
+            )
+            if stored_token is None:
+                self._record_refresh_failure(
+                    request_id=request_id,
+                    error_code="INVALID_REFRESH_TOKEN",
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+                failure = InvalidRefreshToken()
+            elif stored_token.revoked_at is not None:
+                if stored_token.replaced_by_jti is not None:
+                    await self._refresh_token_repository.revoke_all_for_user(
+                        stored_token.user_id,
+                        now,
+                    )
+                    self._record_refresh_failure(
+                        request_id=request_id,
+                        error_code="REFRESH_TOKEN_REUSED",
+                        user_id=stored_token.user_id,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                    )
+                    failure = RefreshTokenReused()
+                else:
+                    self._record_refresh_failure(
+                        request_id=request_id,
+                        error_code="INVALID_REFRESH_TOKEN",
+                        user_id=stored_token.user_id,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                    )
+                    failure = InvalidRefreshToken()
+            elif stored_token.expires_at <= now:
+                self._record_refresh_failure(
+                    request_id=request_id,
+                    error_code="INVALID_REFRESH_TOKEN",
+                    user_id=stored_token.user_id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+                failure = InvalidRefreshToken()
+            else:
+                user = await self._user_repository.get_by_id(stored_token.user_id)
+                if user is None or user.status != "active":
+                    await self._refresh_token_repository.revoke_all_for_user(
+                        stored_token.user_id,
+                        now,
+                    )
+                    self._record_refresh_failure(
+                        request_id=request_id,
+                        error_code="INVALID_REFRESH_TOKEN",
+                        user_id=stored_token.user_id,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                    )
+                    failure = InvalidRefreshToken()
+                else:
+                    roles = await self._rbac_repository.list_roles_for_user(user.id)
+                    permissions = await self._rbac_repository.list_permission_codes_for_user(
+                        user.id
+                    )
+                    access_token = self._token_service.issue_access(
+                        user_id=user.id,
+                        username=user.username,
+                        roles=(role.code for role in roles),
+                        permissions=permissions,
+                    )
+                    issued_refresh = self._token_service.issue_refresh()
+                    if not await self._refresh_token_repository.mark_rotated(
+                        stored_token.jti,
+                        issued_refresh.jti,
+                        now,
+                    ):
+                        raise RuntimeError("Locked Refresh Token could not be rotated.")
+                    self._refresh_token_repository.add(
+                        RefreshToken(
+                            jti=issued_refresh.jti,
+                            user_id=user.id,
+                            token_hash=issued_refresh.token_hash,
+                            expires_at=issued_refresh.expires_at,
+                            created_ip=ip_address,
+                            user_agent=user_agent,
+                        )
+                    )
+                    self._audit_service.record_success(
+                        action="auth.refresh",
+                        resource_type="user",
+                        resource_id=str(user.id),
+                        request_id=request_id,
+                        actor_user_id=user.id,
+                        actor_username=user.username,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        after_data={"status": "rotated"},
+                    )
+                    result = RefreshResult(
+                        access_token=access_token,
+                        refresh_token=issued_refresh,
+                    )
+
+        if failure is not None:
+            raise failure
+        if result is None:
+            raise RuntimeError("Refresh did not produce a result.")
+        return result
+
     def _record_login_failure(
         self,
         *,
@@ -253,6 +400,27 @@ class AuthService:
             error_code=error_code,
             actor_user_id=user_id,
             actor_username=username if user_id is not None else None,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            after_data={"status": "failure"},
+        )
+
+    def _record_refresh_failure(
+        self,
+        *,
+        request_id: str,
+        error_code: str,
+        user_id: UUID | None = None,
+        ip_address: str | None,
+        user_agent: str | None,
+    ) -> None:
+        self._audit_service.record_failure(
+            action="auth.refresh",
+            resource_type="user",
+            resource_id=str(user_id) if user_id is not None else None,
+            request_id=request_id,
+            error_code=error_code,
+            actor_user_id=user_id,
             ip_address=ip_address,
             user_agent=user_agent,
             after_data={"status": "failure"},

@@ -136,6 +136,12 @@ def test_issue_refresh_generates_high_entropy_hashed_tokens() -> None:
     assert first.token_hash not in repr(first)
 
 
+def test_hash_refresh_matches_the_persisted_token_hash() -> None:
+    token = "refresh-token-presented-by-the-client"
+
+    assert token_service().hash_refresh(token) == sha256(token.encode("utf-8")).hexdigest()
+
+
 def test_token_service_does_not_initialize_database() -> None:
     with patch.object(Database, "from_settings") as from_settings:
         service = token_service()

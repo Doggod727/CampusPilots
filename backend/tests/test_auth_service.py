@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -11,8 +12,10 @@ from app.modules.platform.auth import (
     AccountLocked,
     AuthService,
     InvalidCredentials,
+    InvalidRefreshToken,
+    RefreshTokenReused,
 )
-from app.modules.platform.models import Role, User
+from app.modules.platform.models import RefreshToken, Role, User
 from app.modules.platform.repositories import AuthLoginPolicy, LoginFailureState
 from app.modules.platform.tokens import IssuedAccessToken, IssuedRefreshToken
 
@@ -55,6 +58,10 @@ class StubTokenService:
     def issue_refresh(self) -> IssuedRefreshToken:
         return self.refresh
 
+    @staticmethod
+    def hash_refresh(token: str) -> str:
+        return sha256(token.encode("utf-8")).hexdigest()
+
 
 def _session() -> MagicMock:
     session = MagicMock()
@@ -94,6 +101,7 @@ def _service(
     session = _session()
     user_repository = MagicMock()
     user_repository.get_by_username = AsyncMock(return_value=user)
+    user_repository.get_by_id = AsyncMock(return_value=user)
     user_auth_repository = MagicMock()
     user_auth_repository.record_failed_login = AsyncMock(
         return_value=LoginFailureState(1, "active", None)
@@ -109,6 +117,9 @@ def _service(
         return_value=["community:read"]
     )
     refresh_token_repository = MagicMock()
+    refresh_token_repository.get_by_token_hash_for_update = AsyncMock()
+    refresh_token_repository.mark_rotated = AsyncMock(return_value=True)
+    refresh_token_repository.revoke_all_for_user = AsyncMock(return_value=0)
     auth_policy_repository = MagicMock()
     auth_policy_repository.get_login_policy = AsyncMock(
         return_value=AuthLoginPolicy(5, 15)
@@ -306,3 +317,163 @@ def test_expired_lock_allows_successful_login_and_state_reset() -> None:
         user.id,
         FIXED_NOW,
     )
+
+
+def _stored_refresh_token(
+    user: User,
+    *,
+    token: str = "presented-refresh-token",
+    expires_at: datetime | None = None,
+    revoked_at: datetime | None = None,
+    replaced_by_jti: object | None = None,
+) -> RefreshToken:
+    return RefreshToken(
+        jti=uuid4(),
+        user_id=user.id,
+        token_hash=sha256(token.encode("utf-8")).hexdigest(),
+        expires_at=expires_at or FIXED_NOW + timedelta(days=1),
+        revoked_at=revoked_at,
+        replaced_by_jti=replaced_by_jti,
+    )
+
+
+def test_refresh_rotates_active_token_and_writes_audit() -> None:
+    user = _user()
+    service, dependencies, _, tokens = _service(user=user, password_matches=True)
+    presented_token = "presented-refresh-token"
+    stored_token = _stored_refresh_token(user, token=presented_token)
+    dependencies["refresh"].get_by_token_hash_for_update = AsyncMock(
+        return_value=stored_token
+    )
+    dependencies["refresh"].mark_rotated = AsyncMock(return_value=True)
+
+    result = asyncio.run(
+        service.refresh(
+            refresh_token=presented_token,
+            request_id="request-id-refresh",
+            ip_address="127.0.0.1",
+            user_agent="refresh-agent",
+        )
+    )
+
+    assert result.access_token == tokens.access
+    assert result.refresh_token == tokens.refresh
+    assert presented_token not in repr(result)
+    dependencies["session"].begin.assert_called_once_with()
+    dependencies["user"].get_by_id.assert_awaited_once_with(user.id)
+    dependencies["refresh"].get_by_token_hash_for_update.assert_awaited_once_with(
+        sha256(presented_token.encode("utf-8")).hexdigest()
+    )
+    dependencies["refresh"].mark_rotated.assert_awaited_once_with(
+        stored_token.jti,
+        tokens.refresh.jti,
+        FIXED_NOW,
+    )
+    dependencies["refresh"].add.assert_called_once()
+    replacement = dependencies["refresh"].add.call_args.args[0]
+    assert replacement.user_id == user.id
+    assert replacement.token_hash == tokens.refresh.token_hash
+    assert replacement.created_ip == "127.0.0.1"
+    assert replacement.user_agent == "refresh-agent"
+    dependencies["audit"].record_success.assert_called_once()
+    audit_arguments = dependencies["audit"].record_success.call_args.kwargs
+    assert audit_arguments["action"] == "auth.refresh"
+    assert audit_arguments["after_data"] == {"status": "rotated"}
+    assert presented_token not in repr(audit_arguments)
+
+
+def test_refresh_rejects_unknown_token_without_raw_token_in_audit() -> None:
+    service, dependencies, _, _ = _service(user=None, password_matches=True)
+    dependencies["refresh"].get_by_token_hash_for_update = AsyncMock(return_value=None)
+    presented_token = "unknown-refresh-token"
+
+    with pytest.raises(InvalidRefreshToken) as error:
+        asyncio.run(
+            service.refresh(
+                refresh_token=presented_token,
+                request_id="request-id-missing-refresh",
+            )
+        )
+
+    assert error.value.status_code == 401
+    assert error.value.code == "INVALID_REFRESH_TOKEN"
+    dependencies["audit"].record_failure.assert_called_once()
+    audit_arguments = dependencies["audit"].record_failure.call_args.kwargs
+    assert audit_arguments["action"] == "auth.refresh"
+    assert audit_arguments["error_code"] == "INVALID_REFRESH_TOKEN"
+    assert presented_token not in repr(audit_arguments)
+    dependencies["refresh"].revoke_all_for_user.assert_not_called()
+
+
+def test_refresh_reuse_revokes_all_active_tokens_and_returns_safe_error() -> None:
+    user = _user()
+    service, dependencies, _, _ = _service(user=user, password_matches=True)
+    stored_token = _stored_refresh_token(
+        user,
+        revoked_at=FIXED_NOW - timedelta(minutes=1),
+        replaced_by_jti=uuid4(),
+    )
+    dependencies["refresh"].get_by_token_hash_for_update = AsyncMock(
+        return_value=stored_token
+    )
+
+    with pytest.raises(RefreshTokenReused) as error:
+        asyncio.run(
+            service.refresh(
+                refresh_token="reused-refresh-token",
+                request_id="request-id-reused-refresh",
+            )
+        )
+
+    assert error.value.status_code == 401
+    assert error.value.code == "REFRESH_TOKEN_REUSED"
+    dependencies["refresh"].revoke_all_for_user.assert_awaited_once_with(
+        user.id,
+        FIXED_NOW,
+    )
+    assert dependencies["audit"].record_failure.call_args.kwargs["error_code"] == (
+        "REFRESH_TOKEN_REUSED"
+    )
+
+
+@pytest.mark.parametrize(
+    ("user_status", "expires_at"),
+    [
+        ("active", FIXED_NOW - timedelta(seconds=1)),
+        ("disabled", FIXED_NOW + timedelta(days=1)),
+        ("locked", FIXED_NOW + timedelta(days=1)),
+    ],
+)
+def test_refresh_rejects_expired_or_inactive_users_uniformly(
+    user_status: str,
+    expires_at: datetime,
+) -> None:
+    user = _user(status=user_status)
+    service, dependencies, _, _ = _service(user=user, password_matches=True)
+    stored_token = _stored_refresh_token(user, expires_at=expires_at)
+    dependencies["refresh"].get_by_token_hash_for_update = AsyncMock(
+        return_value=stored_token
+    )
+    dependencies["user"].get_by_id = AsyncMock(return_value=user)
+
+    with pytest.raises(InvalidRefreshToken) as error:
+        asyncio.run(
+            service.refresh(
+                refresh_token="invalid-or-inactive-refresh-token",
+                request_id="request-id-invalid-refresh",
+            )
+        )
+
+    assert error.value.status_code == 401
+    assert error.value.code == "INVALID_REFRESH_TOKEN"
+    assert dependencies["audit"].record_failure.call_args.kwargs["error_code"] == (
+        "INVALID_REFRESH_TOKEN"
+    )
+    if expires_at <= FIXED_NOW:
+        dependencies["user"].get_by_id.assert_not_called()
+        dependencies["refresh"].revoke_all_for_user.assert_not_called()
+    else:
+        dependencies["refresh"].revoke_all_for_user.assert_awaited_once_with(
+            user.id,
+            FIXED_NOW,
+        )

@@ -119,10 +119,16 @@ class TokenService:
         return IssuedRefreshToken(
             token=token,
             jti=uuid4(),
-            token_hash=sha256(token.encode("utf-8")).hexdigest(),
+            token_hash=self.hash_refresh(token),
             expires_at=self._current_time()
             + timedelta(days=self._refresh_token_days),
         )
+
+    @staticmethod
+    def hash_refresh(token: str) -> str:
+        """Return the only Refresh Token representation persisted in PostgreSQL."""
+
+        return sha256(token.encode("utf-8")).hexdigest()
 
     def _current_time(self) -> datetime:
         now = self._now()

@@ -118,6 +118,10 @@
   - 新增显式 REFRESH_COOKIE_SECURE 配置；健康检查保持不读取配置或连接数据库。
   - 禁用账号 403 的 OpenAPI 漏项已登记至契约台账，留待 M4 收尾统一更新文档。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `84 passed`。
+- [x] [#23 M4：实现 Refresh Token 轮换与复用检测服务](https://github.com/Doggod727/CampusPilot/issues/23)（2026-07-14）
+  - AuthService 在单一事务中锁定有效 Refresh Token，签发 Access/替换 Refresh Token、标记旧 Token 已轮换，并只持久化新 Token 哈希。
+  - 已轮换 Token 的复用会撤销该用户全部有效 Refresh Token，并返回 `401 REFRESH_TOKEN_REUSED`；缺失、过期、撤销及非 active 用户统一返回 `401 INVALID_REFRESH_TOKEN`，不泄露用户状态或原始 Token。
+  - 审计事件不保存原始 Refresh Token 或哈希；Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `91 passed`。
 
 ## 待办
 
