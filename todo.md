@@ -148,6 +148,10 @@
   - `GET /api/v1/users/{user_id}` 查询未软删除用户及按角色 code 稳定排序的角色摘要，复用用户列表的安全响应字段。
   - 路由由 `user:read` 权限保护；不存在或软删除用户统一返回 `404 USER_NOT_FOUND`，不访问权限、Refresh Token 或敏感登录状态字段。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `145 passed`。
+- [x] [#30 M4：映射幂等记录 ORM 模型](https://github.com/Doggod727/CampusPilot/issues/30)（2026-07-14）
+  - 映射既有 `platform.idempotency_records` 的用户作用域、请求哈希、响应快照、资源引用及过期时间字段。
+  - 保留联合唯一、过期/状态码检查、级联外键和过期索引；不实现仓储、重放服务、清理任务或 API。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `147 passed`。
 
 ## 待办
 

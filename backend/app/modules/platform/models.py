@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import (
@@ -293,6 +294,52 @@ class AppConfig(Base):
 
 
 Index("ix_app_configs_namespace", AppConfig.namespace, AppConfig.key)
+
+
+class IdempotencyRecord(Base):
+    __tablename__ = "idempotency_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "endpoint",
+            "idempotency_key",
+            name="uq_idempotency_scope",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_idempotency_expiry",
+        ),
+        CheckConstraint(
+            "response_status IS NULL OR response_status BETWEEN 100 AND 599",
+            name="ck_idempotency_response_status",
+        ),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("platform.users.id", ondelete="CASCADE"),
+    )
+    endpoint: Mapped[str] = mapped_column(String(200))
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_hash: Mapped[str] = mapped_column(CHAR(64))
+    response_status: Mapped[int | None] = mapped_column(Integer())
+    response_body: Mapped[object | None] = mapped_column(JSONB())
+    resource_type: Mapped[str | None] = mapped_column(String(100))
+    resource_id: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("now()"),
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+Index("ix_idempotency_records_expiry", IdempotencyRecord.expires_at)
 
 
 class AuditLog(Base):

@@ -1,4 +1,4 @@
-from sqlalchemy import CHAR, CheckConstraint
+from sqlalchemy import CHAR, CheckConstraint, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import CITEXT, INET, JSONB, UUID
 from sqlalchemy.schema import CreateIndex, CreateTable
@@ -7,6 +7,7 @@ from app.infrastructure.database import Base
 from app.modules.platform.models import (
     AppConfig,
     AuditLog,
+    IdempotencyRecord,
     Permission,
     RefreshToken,
     Role,
@@ -23,6 +24,7 @@ EXPECTED_TABLES = {
     "platform.role_permissions",
     "platform.refresh_tokens",
     "platform.app_configs",
+    "platform.idempotency_records",
     "platform.audit_logs",
 }
 EXPECTED_COLUMNS = {
@@ -86,6 +88,19 @@ EXPECTED_COLUMNS = {
         "updated_by",
         "created_at",
         "updated_at",
+    },
+    "platform.idempotency_records": {
+        "id",
+        "user_id",
+        "endpoint",
+        "idempotency_key",
+        "request_hash",
+        "response_status",
+        "response_body",
+        "resource_type",
+        "resource_id",
+        "created_at",
+        "expires_at",
     },
     "platform.audit_logs": {
         "id",
@@ -265,6 +280,45 @@ def test_app_config_mapping_matches_platform_migration() -> None:
     assert "(namespace, key)" in index_sql(AppConfig)["ix_app_configs_namespace"]
 
 
+def test_idempotency_record_mapping_matches_platform_migration() -> None:
+    table = IdempotencyRecord.__table__
+
+    assert isinstance(table.c.id.type, UUID)
+    assert isinstance(table.c.request_hash.type, CHAR)
+    assert table.c.request_hash.type.length == 64
+    assert isinstance(table.c.response_body.type, JSONB)
+    assert table.c.endpoint.type.length == 200
+    assert table.c.idempotency_key.type.length == 128
+    assert table.c.response_status.nullable is True
+    assert table.c.response_body.nullable is True
+    assert table.c.expires_at.nullable is False
+    assert table.c.created_at.type.timezone is True
+    assert table.c.expires_at.type.timezone is True
+    assert table.c.id.server_default is not None
+    assert table.c.created_at.server_default is not None
+    assert constraint_names(IdempotencyRecord) == {
+        "ck_idempotency_expiry",
+        "ck_idempotency_response_status",
+    }
+    unique_constraints = {
+        constraint.name: [column.name for column in constraint.columns]
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    assert unique_constraints == {
+        "uq_idempotency_scope": ["user_id", "endpoint", "idempotency_key"]
+    }
+    foreign_keys = {
+        foreign_key.parent.name: (foreign_key.target_fullname, foreign_key.ondelete)
+        for foreign_key in table.foreign_keys
+    }
+    assert foreign_keys == {"user_id": ("platform.users.id", "CASCADE")}
+    assert set(index_sql(IdempotencyRecord)) == {"ix_idempotency_records_expiry"}
+    assert "(expires_at)" in index_sql(IdempotencyRecord)[
+        "ix_idempotency_records_expiry"
+    ]
+
+
 def test_audit_log_mapping_matches_platform_migration() -> None:
     table = AuditLog.__table__
 
@@ -307,6 +361,7 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
             RolePermission,
             RefreshToken,
             AppConfig,
+            IdempotencyRecord,
             AuditLog,
         )
     )
@@ -322,6 +377,9 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
     assert "ck_refresh_tokens_replacement" in compiled_tables
     assert "CREATE TABLE platform.app_configs" in compiled_tables
     assert "JSONB" in compiled_tables
+    assert "CREATE TABLE platform.idempotency_records" in compiled_tables
+    assert "CONSTRAINT uq_idempotency_scope UNIQUE (user_id, endpoint, idempotency_key)" in compiled_tables
+    assert "ck_idempotency_response_status" in compiled_tables
     assert "CREATE TABLE platform.audit_logs" in compiled_tables
     assert "ck_audit_logs_before_object" in compiled_tables
 
@@ -347,3 +405,19 @@ def test_refresh_token_repr_does_not_expose_token_hash() -> None:
     )
 
     assert token_hash not in repr(refresh_token)
+
+
+def test_idempotency_record_repr_does_not_expose_hash_or_response_body() -> None:
+    request_hash = "b" * 64
+    response_body = {"access_token": "must-not-appear"}
+    record = IdempotencyRecord(
+        user_id="1f762d59-a3ea-4018-95fd-1e657149977e",
+        endpoint="/api/v1/users",
+        idempotency_key="create-user-key",
+        request_hash=request_hash,
+        response_body=response_body,
+        expires_at="2026-07-15T00:00:00+00:00",
+    )
+
+    assert request_hash not in repr(record)
+    assert "must-not-appear" not in repr(record)
