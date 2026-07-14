@@ -246,6 +246,10 @@
   - `AuditLogRepository` 支持 actor/action/resource/request_id/from/to 过滤、分页和单条读取；不提供修改/删除或 Session 生命周期操作。
   - 审计 DTO 对 before/after 快照再次执行递归 `redact()`，兼容历史脏数据并确保 password/token/secret 等值不出现在响应对象中。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `230 passed`（11 条既有 httpx 弃用警告）通过；未发现契约差异。
+- [x] [#51 M4：实现审计日志查询 API](https://github.com/Doggod727/CampusPilot/issues/51)（2026-07-14）
+  - 新增 `GET /api/v1/audit-logs` 与 `GET /api/v1/audit-logs/{audit_id}`，由 `audit:read` 保护，支持 OpenAPI 过滤和分页。
+  - 不存在返回 `404 AUDIT_LOG_NOT_FOUND`；before/after 快照再次脱敏，响应不暴露密码、Token、密钥或内部异常。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `232 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
 
 ## 待办
 

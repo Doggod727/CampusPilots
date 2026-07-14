@@ -8,6 +8,7 @@ from app.modules.platform.user_routes import router as user_router
 from app.modules.platform.rbac_routes import router as rbac_router
 from app.modules.platform.sensitive_word_routes import router as sensitive_word_router
 from app.modules.platform.moderation_routes import router as moderation_router
+from app.modules.platform.audit_routes import router as audit_router
 
 
 def create_app() -> FastAPI:
@@ -23,6 +24,7 @@ def create_app() -> FastAPI:
     application.include_router(rbac_router)
     application.include_router(sensitive_word_router)
     application.include_router(moderation_router)
+    application.include_router(audit_router)
     return application
 
 
