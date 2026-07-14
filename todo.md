@@ -46,6 +46,11 @@
   - Session 不自动提交，异常退出执行 rollback，所有路径均关闭 Session。
   - `/health/live` 保持不读取数据库配置或访问 PostgreSQL。
   - Alembic 离线升降级、Python 编译检查及全部自动化测试 `27 passed`。
+- [x] [#9 M4：实现用户只读查询仓储](https://github.com/Doggod727/CampusPilot/issues/9)（2026-07-14）
+  - UserRepository 支持按 CITEXT 用户名和 UUID 查询未软删除用户。
+  - 仓储只使用调用方 Session 执行查询，不提交、回滚、flush 或关闭 Session。
+  - PostgreSQL 查询编译、Alembic 离线升降级及 Python 编译检查通过。
+  - 全部自动化测试 `30 passed`。
 
 ## 待办
 
