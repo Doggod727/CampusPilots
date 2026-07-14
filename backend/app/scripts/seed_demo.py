@@ -1,0 +1,358 @@
+import asyncio
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
+
+from sqlalchemy import delete, select, true
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.infrastructure.database import Database
+from app.modules.platform.models import (
+    AppConfig,
+    Permission,
+    Role,
+    RolePermission,
+    User,
+    UserRole,
+)
+from app.modules.platform.passwords import PasswordHasher
+
+
+@dataclass(frozen=True)
+class PermissionSeed:
+    code: str
+    name: str
+    module: str
+    description: str
+
+
+@dataclass(frozen=True)
+class RoleSeed:
+    code: str
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class DemoAccount:
+    username: str
+    display_name: str
+    email: str
+    department: str
+    role_code: str
+
+
+PERMISSIONS = (
+    PermissionSeed("user:read", "查看用户", "platform", "查看用户列表与详情"),
+    PermissionSeed("user:write", "管理用户", "platform", "创建、编辑和启停用户"),
+    PermissionSeed("user:role:assign", "分配用户角色", "platform", "全量替换用户角色"),
+    PermissionSeed("role:read", "查看角色权限", "platform", "查看角色和权限字典"),
+    PermissionSeed("role:write", "管理角色", "platform", "创建、编辑和删除自定义角色"),
+    PermissionSeed("role:permission:assign", "分配角色权限", "platform", "全量替换角色权限"),
+    PermissionSeed("sensitive_word:read", "查看敏感词", "platform", "查看敏感词规则"),
+    PermissionSeed("sensitive_word:write", "管理敏感词", "platform", "创建和删除敏感词规则"),
+    PermissionSeed("moderation:read", "查看审核队列", "platform", "查看授权范围内审核案件"),
+    PermissionSeed("moderation:decide", "处理审核案件", "platform", "批准、拒绝或升级审核案件"),
+    PermissionSeed("audit:read", "查看审计日志", "platform", "查看脱敏审计日志"),
+    PermissionSeed("config:read", "查看系统配置", "platform", "查看非密钥业务配置"),
+    PermissionSeed("config:write", "修改系统配置", "platform", "修改允许编辑的业务配置"),
+    PermissionSeed("dashboard:read", "查看运营看板", "platform", "查看基础运营指标"),
+    PermissionSeed("knowledge:read", "查看知识库", "ai_knowledge", "查看知识库、文档和任务"),
+    PermissionSeed("knowledge:write", "管理知识库", "ai_knowledge", "创建、编辑、上传和删除知识资产"),
+    PermissionSeed("knowledge:publish", "发布知识文档", "ai_knowledge", "发布或停用可检索文档"),
+    PermissionSeed("work_order:read", "查看工单", "campus_service", "按资源范围查看工单"),
+    PermissionSeed("work_order:create", "创建工单", "campus_service", "学生创建本人报修工单"),
+    PermissionSeed("work_order:transition", "流转工单", "campus_service", "处理员执行合法状态迁移"),
+    PermissionSeed("community:read", "查看社区", "community", "查看公开社区内容"),
+    PermissionSeed("community:write", "发布社区内容", "community", "创建帖子、评论、活动和失物信息"),
+    PermissionSeed("community:moderate", "管理社区内容", "community", "执行审核结果和运营操作"),
+    PermissionSeed(
+        "community:anonymous_identity:read",
+        "反查匿名身份",
+        "community",
+        "基于明确事由反查匿名内容作者并强制审计",
+    ),
+)
+
+ROLES = (
+    RoleSeed("super_admin", "超级管理员", "演示环境全权限账号"),
+    RoleSeed("knowledge_admin", "知识库管理员", "维护和发布校园知识文档"),
+    RoleSeed("service_staff", "服务处理员", "处理校园服务和报修工单"),
+    RoleSeed("community_operator", "社区运营员", "社区审核与内容运营"),
+    RoleSeed("student", "普通学生", "学生端基础功能"),
+)
+
+ROLE_PERMISSION_CODES = {
+    "super_admin": tuple(permission.code for permission in PERMISSIONS),
+    "knowledge_admin": (
+        "knowledge:read",
+        "knowledge:write",
+        "knowledge:publish",
+        "config:read",
+        "dashboard:read",
+    ),
+    "service_staff": (
+        "work_order:read",
+        "work_order:transition",
+        "dashboard:read",
+    ),
+    "community_operator": (
+        "community:read",
+        "community:write",
+        "community:moderate",
+        "moderation:read",
+        "moderation:decide",
+        "dashboard:read",
+    ),
+    "student": (
+        "work_order:read",
+        "work_order:create",
+        "community:read",
+        "community:write",
+    ),
+}
+
+DEMO_ACCOUNTS = (
+    DemoAccount("admin01", "平台管理员", "admin01@example.edu", "平台管理", "super_admin"),
+    DemoAccount(
+        "knowledge01",
+        "知识库管理员",
+        "knowledge01@example.edu",
+        "图书馆",
+        "knowledge_admin",
+    ),
+    DemoAccount(
+        "service01",
+        "服务处理员",
+        "service01@example.edu",
+        "后勤保障处",
+        "service_staff",
+    ),
+    DemoAccount(
+        "community01",
+        "社区运营员",
+        "community01@example.edu",
+        "学生工作处",
+        "community_operator",
+    ),
+    DemoAccount("student01", "张同学", "student01@example.edu", "计算机学院", "student"),
+    DemoAccount("student02", "李同学", "student02@example.edu", "计算机学院", "student"),
+)
+
+AUTH_CONFIGS = (
+    ("auth.max_failed_logins", "auth", 5, "integer", "触发临时锁定的连续失败次数"),
+    ("auth.lock_minutes", "auth", 15, "integer", "登录锁定分钟数"),
+)
+
+
+def require_demo_seed_password(environ: Mapping[str, str] | None = None) -> str:
+    password = (environ if environ is not None else os.environ).get(
+        "DEMO_SEED_PASSWORD"
+    )
+    if not password:
+        raise SystemExit("DEMO_SEED_PASSWORD must be set before seeding demo accounts.")
+    return password
+
+
+def _permission_upsert_statement():
+    statement = insert(Permission).values(
+        [
+            {
+                "code": permission.code,
+                "name": permission.name,
+                "module": permission.module,
+                "description": permission.description,
+            }
+            for permission in PERMISSIONS
+        ]
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[Permission.code],
+        set_={
+            "name": statement.excluded.name,
+            "module": statement.excluded.module,
+            "description": statement.excluded.description,
+        },
+    )
+
+
+def _role_upsert_statement():
+    statement = insert(Role).values(
+        [
+            {
+                "code": role.code,
+                "name": role.name,
+                "description": role.description,
+                "is_system": True,
+            }
+            for role in ROLES
+        ]
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[Role.code],
+        set_={
+            "name": statement.excluded.name,
+            "description": statement.excluded.description,
+            "is_system": statement.excluded.is_system,
+        },
+    )
+
+
+def _auth_config_upsert_statement():
+    statement = insert(AppConfig).values(
+        [
+            {
+                "key": key,
+                "namespace": namespace,
+                "value": value,
+                "value_type": value_type,
+                "description": description,
+                "editable": True,
+            }
+            for key, namespace, value, value_type, description in AUTH_CONFIGS
+        ]
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[AppConfig.key],
+        set_={
+            "namespace": statement.excluded.namespace,
+            "value": statement.excluded.value,
+            "value_type": statement.excluded.value_type,
+            "description": statement.excluded.description,
+            "editable": statement.excluded.editable,
+        },
+    )
+
+
+def _role_permission_insert_statement(role_code: str, permission_codes: tuple[str, ...]):
+    return (
+        insert(RolePermission)
+        .from_select(
+            ["role_id", "permission_id"],
+            select(Role.id, Permission.id)
+            .join(Permission, true())
+            .where(
+                Role.code == role_code,
+                Permission.code.in_(permission_codes),
+            ),
+        )
+        .on_conflict_do_nothing()
+    )
+
+
+def _clear_role_permissions_statement(role_codes: tuple[str, ...]):
+    return delete(RolePermission).where(
+        RolePermission.role_id.in_(
+            select(Role.id).where(Role.code.in_(role_codes))
+        )
+    )
+
+
+def _user_upsert_statement(account: DemoAccount, password_hash: str):
+    statement = insert(User).values(
+        username=account.username,
+        password_hash=password_hash,
+        display_name=account.display_name,
+        email=account.email,
+        department=account.department,
+        status="active",
+        failed_login_count=0,
+        locked_until=None,
+        deleted_at=None,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[User.username],
+        set_={
+            "password_hash": statement.excluded.password_hash,
+            "display_name": statement.excluded.display_name,
+            "email": statement.excluded.email,
+            "department": statement.excluded.department,
+            "status": statement.excluded.status,
+            "failed_login_count": statement.excluded.failed_login_count,
+            "locked_until": statement.excluded.locked_until,
+            "deleted_at": statement.excluded.deleted_at,
+        },
+    )
+
+
+def _user_role_insert_statement(account: DemoAccount):
+    return (
+        insert(UserRole)
+        .from_select(
+            ["user_id", "role_id"],
+            select(User.id, Role.id)
+            .join(Role, true())
+            .where(
+                User.username == account.username,
+                Role.code == account.role_code,
+            ),
+        )
+        .on_conflict_do_nothing()
+    )
+
+
+def _clear_user_roles_statement(usernames: tuple[str, ...]):
+    return delete(UserRole).where(
+        UserRole.user_id.in_(
+            select(User.id).where(User.username.in_(usernames))
+        )
+    )
+
+
+async def seed_demo(
+    session: AsyncSession,
+    password: str,
+    password_hasher: PasswordHasher | None = None,
+) -> tuple[str, ...]:
+    """Seed the M4 identity and RBAC demo baseline in one transaction."""
+
+    hasher = password_hasher if password_hasher is not None else PasswordHasher()
+    password_hashes = {
+        account.username: hasher.hash(password) for account in DEMO_ACCOUNTS
+    }
+    role_codes = tuple(role.code for role in ROLES)
+    usernames = tuple(account.username for account in DEMO_ACCOUNTS)
+
+    async with session.begin():
+        await session.execute(_permission_upsert_statement())
+        await session.execute(_role_upsert_statement())
+        await session.execute(_auth_config_upsert_statement())
+        await session.execute(_clear_role_permissions_statement(role_codes))
+        for role_code, permission_codes in ROLE_PERMISSION_CODES.items():
+            await session.execute(
+                _role_permission_insert_statement(role_code, permission_codes)
+            )
+
+        for account in DEMO_ACCOUNTS:
+            await session.execute(
+                _user_upsert_statement(account, password_hashes[account.username])
+            )
+        await session.execute(_clear_user_roles_statement(usernames))
+        for account in DEMO_ACCOUNTS:
+            await session.execute(_user_role_insert_statement(account))
+
+    return usernames
+
+
+async def _seed_from_settings(password: str) -> tuple[str, ...]:
+    database = Database.from_settings()
+    try:
+        async with database.session() as session:
+            return await seed_demo(session, password)
+    finally:
+        await database.dispose()
+
+
+def format_seed_result(usernames: tuple[str, ...]) -> str:
+    return f"Seeded demo accounts: {', '.join(usernames)}"
+
+
+def main() -> None:
+    password = require_demo_seed_password()
+    usernames = asyncio.run(_seed_from_settings(password))
+    print(format_seed_result(usernames))
+
+
+if __name__ == "__main__":
+    main()

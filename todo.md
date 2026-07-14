@@ -1,0 +1,285 @@
+# CampusPilot 开发任务
+
+## 固定开发规则
+
+- 一次只完成一个小型任务。
+- 每次完成任务并验证通过后，在本文档标记完成情况。
+- 开发模块前，先创建并推送对应名称的远端分支，例如 M3 使用 `m3`。
+- 严格按当前任务范围实现，不做需求外扩展或过度兜底。
+- 实现中发现的 OpenAPI、状态码、响应字段或跨模块依赖差异，先记录在本文档的“契约与设计差异”中；M4 完成时统一更新受影响文档，供后续模块开发使用。
+- 每个小型任务使用 GitHub Issue 记录问题、范围和验收标准，并在提交中关联；验证并推送后主动关闭 Issue。
+- 每个模块使用同一个 Pull Request 持续交付；模块未完成时保持 Draft，完整验收后转为 Ready。
+
+## 当前模块
+
+- M4：公共基础与平台治理
+- 开发分支：`m4`
+
+## 契约与设计差异
+
+- 认证登录临时锁定：M4 详细设计第 4.2 节和错误码表写为 429，但 OpenAPI `/api/v1/auth/login` 定义 `423 Locked` 及 `Retry-After`。后续实现固定使用 `423 ACCOUNT_LOCKED`，429 仅用于限流；影响依赖认证的前端与 M1/M2/M3。M4 收尾时修订详细设计对应章节，OpenAPI 保持现有定义。
+- 认证失败达到锁定阈值的当前请求：实现固定返回 `401 INVALID_CREDENTIALS`，从下一次请求开始返回 `423 ACCOUNT_LOCKED`；详细设计未规定该边界行为。影响依赖认证的前端与 M1/M2/M3；M4 收尾时在登录流程补充该规则。
+- 认证登录禁用账号：实现返回 `403 ACCOUNT_DISABLED`，与详细设计一致，但 OpenAPI `/api/v1/auth/login` 当前未声明 403。影响依赖认证的前端与 M1/M2/M3；M4 收尾时补充 OpenAPI 响应并校验生成客户端。
+- 认证 Cookie 的 Origin 校验：`POST /api/v1/auth/refresh` 与 `/api/v1/auth/logout` 对缺失或非 `FRONTEND_ORIGIN` 的 Origin 返回 `403 AUTH_FORBIDDEN`，且不执行认证服务；当前 OpenAPI 未声明该 403。影响前端刷新/登出请求；M4 收尾时补充 403 响应与 Origin 要求，CORS 策略仍由后续独立任务实现。
+- 幂等登出：实现对缺失、未知、已撤销和有效 Refresh Cookie 均返回 `200`、清除 Cookie；当前 OpenAPI `/api/v1/auth/logout` 声明 401，详细设计仅笼统说明“重复登出按幂等成功处理”。影响前端登出逻辑；M4 收尾时将 OpenAPI 与详细设计的精确行为同步为该规则。
+
+## 已完成
+
+- [x] [#1 M4：建立后端骨架与存活检查](https://github.com/Doggod727/CampusPilot/issues/1)（2026-07-14）
+  - 建立 Python 3.12 + FastAPI 最小后端骨架。
+  - 实现 Request-Id 生成、校验和响应回传。
+  - 实现匿名 `GET /health/live` 及 OpenAPI 规定的统一响应。
+  - 添加启动说明与自动化测试；`3 passed`。
+- [x] [#2 M4：建立环境配置基线](https://github.com/Doggod727/CampusPilot/issues/2)（2026-07-14）
+  - 使用 Pydantic Settings 统一读取并校验环境变量。
+  - 使用 SecretStr 保护 JWT 与 DeepSeek 密钥，Token 时长限制为正整数。
+  - 添加根目录 `.env.example` 和本地配置说明。
+  - 保持 `/health/live` 不依赖配置或外部服务；全部自动化测试 `8 passed`。
+- [x] [#3 M4：统一异常响应信封](https://github.com/Doggod727/CampusPilot/issues/3)（2026-07-14）
+  - 增加领域 AppError 与 OpenAPI 扁平错误响应模型。
+  - 统一处理领域异常、请求校验、HTTP 错误和未知异常。
+  - 错误响应统一回传 Request-Id，且不泄露原始校验输入或内部异常文本。
+  - 全部自动化测试 `12 passed`，Python 编译检查通过。
+- [x] [#4 M4：建立平台数据库迁移基线](https://github.com/Doggod727/CampusPilot/issues/4)（2026-07-14）
+  - 建立 SQLAlchemy async + Alembic 迁移基础设施。
+  - 首版 Revision 覆盖 M4 平台 Schema、11 张表、约束、索引、函数、触发器和注释。
+  - upgrade SQL 与原始 M4 DDL 共 51 条语句逐条一致；downgrade 保留共享扩展。
+  - Alembic 离线升降级、单 head、全部自动化测试 `15 passed`，Python 编译检查通过。
+- [x] [#5 M4：建立身份与权限 ORM 模型](https://github.com/Doggod727/CampusPilot/issues/5)（2026-07-14）
+  - 建立共享 SQLAlchemy DeclarativeBase。
+  - 映射 users、roles、permissions 及两张关联表，与首版迁移的类型、约束和索引一致。
+  - 保持 Alembic target_metadata 未注册，避免未映射治理表被误删。
+  - PostgreSQL 方言离线编译、迁移回归及全部自动化测试 `21 passed`。
+- [x] [#7 M4：建立异步数据库会话基础设施](https://github.com/Doggod727/CampusPilot/issues/7)（2026-07-14）
+  - Database 显式持有 AsyncEngine 与 async_sessionmaker，不在导入或应用启动时连接数据库。
+  - Session 不自动提交，异常退出执行 rollback，所有路径均关闭 Session。
+  - `/health/live` 保持不读取数据库配置或访问 PostgreSQL。
+  - Alembic 离线升降级、Python 编译检查及全部自动化测试 `27 passed`。
+- [x] [#9 M4：实现用户只读查询仓储](https://github.com/Doggod727/CampusPilot/issues/9)（2026-07-14）
+  - UserRepository 支持按 CITEXT 用户名和 UUID 查询未软删除用户。
+  - 仓储只使用调用方 Session 执行查询，不提交、回滚、flush 或关闭 Session。
+  - PostgreSQL 查询编译、Alembic 离线升降级及 Python 编译检查通过。
+  - 全部自动化测试 `30 passed`。
+- [x] [#10 M4：实现 RBAC 只读查询仓储](https://github.com/Doggod727/CampusPilot/issues/10)（2026-07-14）
+  - RbacRepository 支持查询用户角色和去重后的权限码，并按 code 稳定排序。
+  - 两类查询均连接 users 并排除软删除用户，不修改或关闭调用方 Session。
+  - PostgreSQL 查询编译、Alembic 离线升降级及 Python 编译检查通过。
+  - 全部自动化测试 `33 passed`。
+- [x] [#11 M4：实现 Argon2id 密码哈希适配器](https://github.com/Doggod727/CampusPilot/issues/11)（2026-07-14）
+  - 使用 argon2-cffi 默认安全参数提供密码哈希、验证和重哈希判断。
+  - 密码不匹配和非法哈希统一安全返回验证失败，不记录或返回明文密码。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `36 passed`。
+- [x] [#12 M4：添加演示账号与 RBAC 种子命令](https://github.com/Doggod727/CampusPilot/issues/12)（2026-07-14）
+  - `python -m app.scripts.seed_demo` 在单事务中收敛权限、系统角色、角色权限及 6 个演示账号。
+  - 种子密码只从运行时 `DEMO_SEED_PASSWORD` 读取，并使用 Argon2id 哈希；命令输出不包含密码。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `41 passed`；真实空库执行仍待 PostgreSQL 环境可用后完成。
+- [x] [#13 M4：映射 Refresh Token ORM 模型](https://github.com/Doggod727/CampusPilot/issues/13)（2026-07-14）
+  - 映射既有 refresh_tokens 的 UUID、SHA-256 哈希、时区、INET、约束和部分索引元数据。
+  - 不保存原始 Refresh Token，且实体表示不泄露 token_hash。
+  - PostgreSQL 方言编译、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `43 passed`。
+- [x] [#14 M4：实现 JWT 与 Refresh Token 基础服务](https://github.com/Doggod727/CampusPilot/issues/14)（2026-07-14）
+  - TokenService 使用 HS256 签发并校验包含用户、角色与权限上下文的短期 Access Token。
+  - 高熵 Refresh Token 仅输出运行时原值、UUID 与 SHA-256 哈希；敏感值不参与 repr 或异常信息。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `51 passed`。
+- [x] [#15 M4：实现 Refresh Token 持久化仓储](https://github.com/Doggod727/CampusPilot/issues/15)（2026-07-14）
+  - RefreshTokenRepository 支持新增、哈希精确行锁读取、轮换标记、单 Token 撤销及用户全部 Token 撤销。
+  - 所有写操作只更新尚未撤销记录；仓储不管理调用方 Session 的事务或生命周期。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `56 passed`。
+- [x] [#16 M4：实现登录状态原子更新仓储](https://github.com/Doggod727/CampusPilot/issues/16)（2026-07-14）
+  - UserAuthRepository 以原子更新记录登录失败、阈值锁定及成功登录后的状态重置。
+  - 更新排除软删除和禁用用户，不更新 version，且不管理调用方 Session 生命周期。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `60 passed`。
+- [x] [#17 M4：实现认证锁定策略配置读取](https://github.com/Doggod727/CampusPilot/issues/17)（2026-07-14）
+  - 映射 app_configs，并以单条只读查询严格加载认证失败阈值与锁定分钟数。
+  - 缺失、重复、非整数或非正策略均安全拒绝；演示种子幂等写入 5 次失败和 15 分钟锁定配置。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `68 passed`。
+- [x] [#18 M4：实现审计日志写入基础](https://github.com/Doggod727/CampusPilot/issues/18)（2026-07-14）
+  - 映射 audit_logs 的 UUID、INET、JSONB、约束、索引及用户逻辑外键。
+  - AuditLogRepository 只向调用方 Session 追加事件，不提供修改、删除或事务生命周期操作。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `70 passed`。
+- [x] [#19 M4：实现审计服务与敏感字段脱敏](https://github.com/Doggod727/CampusPilot/issues/19)（2026-07-14）
+  - AuditService 在调用方事务内写入成功/失败事件，并在写入前递归复制和脱敏审计快照。
+  - password、token、authorization、cookie、api_key、secret 的命名变体均替换为 `***`，原始入参保持不变。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `74 passed`。
+- [x] [#21 M4：实现登录应用服务核心](https://github.com/Doggod727/CampusPilot/issues/21)（2026-07-14）
+  - AuthService 在单一调用方事务中编排用户状态、密码校验、RBAC、Token、Refresh 哈希持久化及成功/失败审计。
+  - 未知用户与密码错误统一 401；禁用为 403；锁定为 423 并携带 Retry-After；阈值当前请求的 401 规则已登记至契约台账。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `80 passed`。
+- [x] [#22 M4：实现登录 HTTP 接口与 Refresh Cookie](https://github.com/Doggod727/CampusPilot/issues/22)（2026-07-14）
+  - `POST /api/v1/auth/login` 返回统一成功信封、完整当前用户上下文，并设置 HttpOnly、SameSite=Lax 的 Refresh Cookie。
+  - 新增显式 REFRESH_COOKIE_SECURE 配置；健康检查保持不读取配置或连接数据库。
+  - 禁用账号 403 的 OpenAPI 漏项已登记至契约台账，留待 M4 收尾统一更新文档。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `84 passed`。
+- [x] [#23 M4：实现 Refresh Token 轮换与复用检测服务](https://github.com/Doggod727/CampusPilot/issues/23)（2026-07-14）
+  - AuthService 在单一事务中锁定有效 Refresh Token，签发 Access/替换 Refresh Token、标记旧 Token 已轮换，并只持久化新 Token 哈希。
+  - 已轮换 Token 的复用会撤销该用户全部有效 Refresh Token，并返回 `401 REFRESH_TOKEN_REUSED`；缺失、过期、撤销及非 active 用户统一返回 `401 INVALID_REFRESH_TOKEN`，不泄露用户状态或原始 Token。
+  - 审计事件不保存原始 Refresh Token 或哈希；Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `91 passed`。
+- [x] [#24 M4：实现 Refresh HTTP 接口与 Origin 校验](https://github.com/Doggod727/CampusPilot/issues/24)（2026-07-14）
+  - `POST /api/v1/auth/refresh` 从 Cookie 读取 Refresh Token，返回统一 TokenData 信封，并以相同安全属性覆盖轮换 Cookie。
+  - 刷新路由仅接受配置的前端 Origin（兼容配置末尾斜杠）；缺失或不匹配时在数据库依赖前返回 403。全局 CORS、注销、Bearer 认证依赖和限流保持后续独立任务。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `99 passed`。
+- [x] [#25 M4：实现幂等登出与 Cookie 清除](https://github.com/Doggod727/CampusPilot/issues/25)（2026-07-14）
+  - `AuthService.logout` 在单一事务中锁定并撤销有效 Refresh Token；未知和已撤销 Token 同样幂等完成，审计不保存原始 Token 或哈希。
+  - `POST /api/v1/auth/logout` 复用 Cookie Origin 校验，统一返回空数据成功信封并以原 Path/安全属性清除 Refresh Cookie。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `107 passed`。
+- [x] [#26 M4：实现 Bearer 认证依赖与当前用户接口](https://github.com/Doggod727/CampusPilot/issues/26)（2026-07-14）
+  - 增加可复用的 Bearer Access Token 认证依赖；JWT 无效时不创建数据库上下文，用户软删除、禁用、锁定或用户名 Claim 不匹配统一返回 `401 AUTH_UNAUTHORIZED`。
+  - `GET /api/v1/auth/me` 返回数据库当前用户资料、角色与权限；Access Token 权限 Claim 不作为该响应的事实来源。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `119 passed`。
+- [x] [#27 M4：实现 RBAC 权限依赖工厂](https://github.com/Doggod727/CampusPilot/issues/27)（2026-07-14）
+  - 新增 `require_permissions(...)`；多权限采用全部具备的最小权限语义，拒绝统一返回 `403 AUTH_FORBIDDEN`，不泄露缺失权限。
+  - 依赖复用当前数据库认证上下文，不追加数据库查询、审计或 Session 生命周期操作，供后续 `x-permissions` 路由显式挂载。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `126 passed`。
+- [x] [#28 M4：实现用户分页查询接口](https://github.com/Doggod727/CampusPilot/issues/28)（2026-07-14）
+  - `GET /api/v1/users` 支持未软删除用户的用户名/显示名/邮箱模糊查询、状态和角色筛选，以及六种稳定排序与分页总数。
+  - 响应只映射用户摘要和批量加载的角色摘要；路由由 `user:read` 权限保护，不暴露密码哈希、登录失败状态或 Token 数据。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `138 passed`。
+- [x] [#29 M4：实现用户详情查询接口](https://github.com/Doggod727/CampusPilot/issues/29)（2026-07-14）
+  - `GET /api/v1/users/{user_id}` 查询未软删除用户及按角色 code 稳定排序的角色摘要，复用用户列表的安全响应字段。
+  - 路由由 `user:read` 权限保护；不存在或软删除用户统一返回 `404 USER_NOT_FOUND`，不访问权限、Refresh Token 或敏感登录状态字段。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `145 passed`。
+- [x] [#30 M4：映射幂等记录 ORM 模型](https://github.com/Doggod727/CampusPilot/issues/30)（2026-07-14）
+  - 映射既有 `platform.idempotency_records` 的用户作用域、请求哈希、响应快照、资源引用及过期时间字段。
+  - 保留联合唯一、过期/状态码检查、级联外键和过期索引；不实现仓储、重放服务、清理任务或 API。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `147 passed`。
+- [x] [#31 M4：实现幂等记录仓储](https://github.com/Doggod727/CampusPilot/issues/31)（2026-07-14）
+  - IdempotencyRecordRepository 支持按用户/端点/Key 加锁读取、追加记录及仅首次响应完成更新。
+  - 查询不预先过滤过期或已完成记录；仓储不处理哈希、重放、并发唯一冲突、清理任务或 Session 生命周期。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `151 passed`。
+- [x] [#32 M4：实现幂等服务](https://github.com/Doggod727/CampusPilot/issues/32)（2026-07-14）
+  - IdempotencyService 使用排序键 canonical JSON 和 SHA-256 请求哈希，支持首次记录、同哈希重放、不同哈希冲突及 pending 结果。
+  - 通过事务嵌套保存点处理并发唯一约束竞争，记录默认 24 小时有效；服务不保存原始请求体、不提交事务或管理 Session 生命周期。
+  - pending 仅为内部结果，后续业务接口自行决定等待或冲突映射；本任务未新增 HTTP 契约差异。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `158 passed`。
+- [x] [#33 M4：实现用户创建接口](https://github.com/Doggod727/CampusPilot/issues/33)（2026-07-14）
+  - `POST /api/v1/users` 由 `user:write` 保护，严格校验用户名、密码、邮箱和唯一角色 UUID，并要求 `Idempotency-Key`。
+  - 在单一调用方事务内完成幂等记录、角色存在性校验、Argon2id 密码哈希、用户与角色绑定、成功审计及首次响应保存。
+  - 成功返回 `201 UserResponse`；同哈希请求原样重放首次响应与 Request-Id，不同哈希或 pending 安全返回 `409 IDEMPOTENCY_CONFLICT`；重复身份返回 `409 DUPLICATE_RESOURCE`，缺失角色返回 `404 ROLE_NOT_FOUND`。
+  - 响应、审计、幂等快照均不包含明文密码、密码哈希、请求体或数据库异常；新增共享用户摘要 DTO，列表/详情/创建接口字段保持一致。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `168 passed`。
+- [x] [#34 M4：实现用户角色全量替换接口](https://github.com/Doggod727/CampusPilot/issues/34)（2026-07-14）
+  - `PUT /api/v1/users/{user_id}/roles` 由 `user:role:assign` 保护，严格校验非空且不重复的角色 UUID 集合和乐观锁 `version`。
+  - 在用户行锁和单一事务内校验未软删除用户、角色存在性，原子递增用户版本并全量重建 `user_roles`；版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`。
+  - 成功写入 `user.roles.replace` 审计并返回共享安全用户摘要；before/after 仅包含用户、版本和角色信息，不暴露密码、Token 或内部异常。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `173 passed`。
+- [x] [#35 M4：实现用户资料与状态更新接口](https://github.com/Doggod727/CampusPilot/issues/35)（2026-07-14）
+  - `PATCH /api/v1/users/{user_id}` 由 `user:write` 保护，支持 display_name、email、department 和 active/disabled 状态更新，使用乐观锁 `version`。
+  - active 会清除锁定时间并重置登录失败次数；disabled 会在同一事务内撤销全部 Refresh Token，并阻止禁用最后一个 active super_admin。
+  - 用户不存在、版本冲突、重复邮箱分别返回 `404 USER_NOT_FOUND`、`409 RESOURCE_VERSION_CONFLICT`、`409 DUPLICATE_RESOURCE`；更新写入脱敏 `user.update` 审计。
+  - 契约差异：OpenAPI 的 UserUpdateRequest 允许 status=locked，但管理接口禁止手工设置，返回 `409 STATUS_CHANGE_NOT_ALLOWED`；locked 仅由登录失败策略产生，M4 收尾时同步修订 OpenAPI/详细设计。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `180 passed`。
+- [x] [#36 M4：实现角色与权限只读查询接口](https://github.com/Doggod727/CampusPilot/issues/36)（2026-07-14）
+  - `GET /api/v1/roles` 和 `GET /api/v1/permissions` 均由 `role:read` 保护，返回统一成功信封、稳定排序及 Request-Id。
+  - 角色查询批量加载权限和未软删除用户数，避免逐角色 N+1；权限查询支持 module 过滤，不暴露内部写字段或 Session 信息。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `184 passed`。
+- [x] [#37 M4：实现自定义角色创建接口](https://github.com/Doggod727/CampusPilot/issues/37)（2026-07-14）
+  - `POST /api/v1/roles` 由 `role:write` 保护，严格校验角色 code/name/description 和唯一权限 UUID 集合。
+  - 在单一事务内校验权限存在性、创建非系统角色、绑定角色权限并写入 `role.create` 审计；重复 code 和唯一约束竞争安全返回 `409 DUPLICATE_RESOURCE`。
+  - 缺失权限返回 `404 PERMISSION_NOT_FOUND`；响应仅包含安全角色、权限摘要和 user_count，不暴露 Session 或内部异常。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `187 passed`。
+- [x] [#38 M4：实现角色基本信息更新接口](https://github.com/Doggod727/CampusPilot/issues/38)（2026-07-14）
+  - `PATCH /api/v1/roles/{role_id}` 由 `role:write` 保护，支持 name/description 更新和乐观锁 `version`，角色权限、系统标记和 code 不可由此修改。
+  - 角色不存在返回 `404 ROLE_NOT_FOUND`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`；成功写入脱敏 `role.update` 审计并返回完整角色权限摘要。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `190 passed`。
+- [x] [#39 M4：实现角色权限全量替换接口](https://github.com/Doggod727/CampusPilot/issues/39)（2026-07-14）
+  - `PUT /api/v1/roles/{role_id}/permissions` 由 `role:permission:assign` 保护，严格校验唯一权限 UUID 集合和乐观锁 `version`。
+  - 在单事务内校验角色/权限、原子递增角色版本并全量重建 `role_permissions`；成功写入 `role.permissions.replace` 审计并返回完整角色摘要。
+  - 角色不存在、权限不存在和版本冲突分别返回 `404 ROLE_NOT_FOUND`、`404 PERMISSION_NOT_FOUND`、`409 RESOURCE_VERSION_CONFLICT`。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `193 passed`。
+- [x] [#40 M4：实现角色详情查询接口](https://github.com/Doggod727/CampusPilot/issues/40)（2026-07-14）
+  - `GET /api/v1/roles/{role_id}` 由 `role:read` 保护，复用角色摘要结构，返回权限列表、未软删除用户数、版本和时间字段。
+  - 角色不存在返回 `404 ROLE_NOT_FOUND`；非法 UUID 返回 422；认证失败/权限不足沿用统一 401/403 错误信封。
+  - 查询保持只读，不暴露密码、Token 或 Session 字段；未发现 OpenAPI 状态码或字段差异。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `196 passed`（11 条既有 httpx 弃用警告）。
+- [x] [#41 M4：实现角色删除接口](https://github.com/Doggod727/CampusPilot/issues/41)（2026-07-14）
+  - `DELETE /api/v1/roles/{role_id}` 由 `role:write` 保护；系统角色返回 `409 SYSTEM_ROLE_PROTECTED`，被用户引用角色返回 `409 ROLE_IN_USE`。
+  - 角色不存在返回 `404 ROLE_NOT_FOUND`；成功删除自定义角色并写入脱敏 `role.delete` 审计，响应为统一空数据信封。
+  - 本任务未发现 OpenAPI 状态码或字段差异；Python 编译、Alembic 单 head/离线 upgrade 与 downgrade 及全量测试 `201 passed`（11 条既有 httpx 弃用警告）通过。
+- [x] [#42 M4：实现敏感词 ORM 与仓储](https://github.com/Doggod727/CampusPilot/issues/42)（2026-07-14）
+  - 映射既有 `platform.sensitive_words`，保留四项检查约束、大小写不敏感规则唯一索引、scope/enabled 索引及 `created_by ON DELETE SET NULL`。
+  - `SensitiveWordRepository` 支持分页筛选、规则查找、按 ID 查找、追加和删除；不管理事务或 Session 生命周期。
+  - PostgreSQL 方言建表/索引、Python 编译、Alembic 单 head/离线 upgrade/downgrade 通过；全量测试 `204 passed`（11 条既有 httpx 弃用警告）。未发现契约差异。
+- [x] [#43 M4：实现敏感词扫描服务](https://github.com/Doggod727/CampusPilot/issues/43)（2026-07-14）
+  - 新增 exact/contains/regex 扫描，规则动作按 `block > review > mask > allow` 确定性聚合，风险等级映射为 low/medium/high/critical。
+  - mask 仅修改 sanitized_text；命中摘要只保存规则 UUID 和动作，matched_text 不回显原始敏感词；非法正则返回安全的 `422 INVALID_SENSITIVE_WORD_RULE`。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `208 passed`（11 条既有 httpx 弃用警告）通过；本任务无 HTTP 契约差异。
+- [x] [#44 M4：实现敏感词管理 API](https://github.com/Doggod727/CampusPilot/issues/44)（2026-07-14）
+  - 新增 `GET/POST /api/v1/sensitive-words` 与 `DELETE /api/v1/sensitive-words/{word_id}`，分别使用 `sensitive_word:read/write`，严格校验分页、scope、规则类型和 mask replacement。
+  - 重复规则返回 `409 DUPLICATE_RESOURCE`，不存在返回 `404 SENSITIVE_WORD_NOT_FOUND`；写操作追加脱敏审计，响应不包含创建者内部信息。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `212 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#45 M4：实现审核案件 ORM 与仓储](https://github.com/Doggod727/CampusPilot/issues/45)（2026-07-14）
+  - 映射 `platform.moderation_cases`，保留目标/风险/状态/决策/版本约束、JSONB rule_hits 及队列、目标和 GIN 索引。
+  - `ModerationCaseRepository` 支持分页筛选、普通/行锁读取、追加和 pending+version 条件决策更新；不建立跨 Schema 外键或管理事务。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `215 passed`（11 条既有 httpx 弃用警告）通过；未发现契约差异。
+- [x] [#46 M4：实现审核目标处理器协议与注册表](https://github.com/Doggod727/CampusPilot/issues/46)（2026-07-14）
+  - 新增 `ModerationTargetHandler` 协议和按 `target_module/target_type` 注册解析的 Registry，支持 approve/reject/escalate。
+  - 未注册目标统一返回 `409 MODERATION_HANDLER_UNAVAILABLE`，不回显目标标识；不导入或修改 M1/M2/M3 业务 ORM。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `218 passed`（11 条既有 httpx 弃用警告）通过；无 HTTP 契约差异。
+- [x] [#47 M4：实现审核扫描与建案应用服务](https://github.com/Doggod727/CampusPilot/issues/47)（2026-07-14）
+  - 新增内部 `ModerationService.scan/submit_case`；allow/mask 不建案，review/block 建立 pending 案件。
+  - 案件仅保存 500 字内容摘要和规则 UUID/动作，写入脱敏 `moderation.case.submit` 审计；目标模块校验失败返回 `422 INVALID_MODERATION_TARGET`。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `221 passed`（11 条既有 httpx 弃用警告）通过；无公共 HTTP 契约差异。
+- [x] [#48 M4：实现审核案件查询 API](https://github.com/Doggod727/CampusPilot/issues/48)（2026-07-14）
+  - 新增 `GET /api/v1/moderation/cases` 与 `GET /api/v1/moderation/cases/{case_id}`，由 `moderation:read` 保护，支持分页、状态/风险/目标模块和四种排序。
+  - 空结果返回 200；不存在返回 `404 MODERATION_CASE_NOT_FOUND`；rule_hits 的 matched_text 始终置空，不回显敏感词原文。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `224 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#49 M4：实现审核决策 API 与幂等处理](https://github.com/Doggod727/CampusPilot/issues/49)（2026-07-14）
+  - `POST /api/v1/moderation/cases/{case_id}/decision` 使用 `moderation:decide` 和必填 `Idempotency-Key`，在事务内执行行锁、pending/版本校验、目标处理器回调、状态更新、审计和幂等完成。
+  - 终态案件返回 `409 MODERATION_CASE_ALREADY_DECIDED`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`，处理器缺失返回 `409 MODERATION_HANDLER_UNAVAILABLE`；同 Key 同哈希原样重放。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `228 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#50 M4：实现审计日志查询仓储与 DTO](https://github.com/Doggod727/CampusPilot/issues/50)（2026-07-14）
+  - `AuditLogRepository` 支持 actor/action/resource/request_id/from/to 过滤、分页和单条读取；不提供修改/删除或 Session 生命周期操作。
+  - 审计 DTO 对 before/after 快照再次执行递归 `redact()`，兼容历史脏数据并确保 password/token/secret 等值不出现在响应对象中。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `230 passed`（11 条既有 httpx 弃用警告）通过；未发现契约差异。
+- [x] [#51 M4：实现审计日志查询 API](https://github.com/Doggod727/CampusPilot/issues/51)（2026-07-14）
+  - 新增 `GET /api/v1/audit-logs` 与 `GET /api/v1/audit-logs/{audit_id}`，由 `audit:read` 保护，支持 OpenAPI 过滤和分页。
+  - 不存在返回 `404 AUDIT_LOG_NOT_FOUND`；before/after 快照再次脱敏，响应不暴露密码、Token、密钥或内部异常。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `232 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#52 M4：实现配置仓储与 ConfigService](https://github.com/Doggod727/CampusPilot/issues/52)（2026-07-14）
+  - `ConfigRepository` 支持 namespace/key 读取和 editable+version 条件更新；`ConfigService` 严格校验 string/integer/number/boolean/json 类型。
+  - 不可编辑返回 `403 CONFIG_NOT_EDITABLE`，缺失返回 `404 CONFIG_NOT_FOUND`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`；环境密钥相关 key 不暴露或更新，写入 `config.update` 审计。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `234 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#53 M4：实现配置管理 API](https://github.com/Doggod727/CampusPilot/issues/53)（2026-07-14）
+  - 新增 `GET /api/v1/configs` 与 `PATCH /api/v1/configs/{config_key}`，分别由 `config:read/write` 保护，严格校验 key、value、version 和未知字段。
+  - 响应只包含非密钥业务配置；ConfigService 的不可编辑/缺失/版本冲突语义分别为 403/404/409，沿用统一错误信封。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `236 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#54 M4：实现运营看板指标服务与 API](https://github.com/Doggod727/CampusPilot/issues/54)（2026-07-14）
+  - 新增 `GET /api/v1/dashboard/metrics`，由 `dashboard:read` 保护，支持 from/to 日期和 day/week 粒度。
+  - M4 查询 active users、pending moderation 等自有指标；M1/M2/M3 指标通过可注入 Provider，未注册时返回 0，不访问不存在的业务表。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `239 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#55 M4：实现 `/health/ready` 就绪检查](https://github.com/Doggod727/CampusPilot/issues/55)（2026-07-14）
+  - 新增显式 PostgreSQL、Redis 探针和可替换 Chroma 探针；模块导入、`/health/live` 不创建连接，缺少配置或依赖不可用统一返回 `503 SERVICE_NOT_READY`。
+  - 就绪响应包含 OpenAPI 要求的 postgres/redis/chroma 状态及安全延迟信息，不回显连接串或异常文本；Chroma 当前无适配器时标记 `up/not configured`，待 M1 接入真实探针。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `243 passed`（11 条既有 httpx 弃用警告）通过；真实 PostgreSQL/Redis 集成仍受本机环境限制。
+- [x] [#56 M4：实现全局 CORS 策略](https://github.com/Doggod727/CampusPilot/issues/56)（2026-07-14）
+  - 配置 FastAPI CORS，仅允许 `FRONTEND_ORIGIN`（兼容末尾 `/`），开启 credentials，显式允许 API 方法及 Authorization/Content-Type/X-Request-Id/Idempotency-Key 请求头。
+  - CORS 预检和普通响应均保留 Request-Id；刷新/登出的专用 Origin 校验保持不变，未放宽 Cookie 会话边界。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `246 passed`（11 条既有 httpx 弃用警告）通过；未新增契约差异。
+- [x] [#57 M4：契约与平台文档统一收尾](https://github.com/Doggod727/CampusPilot/issues/57)（2026-07-14）
+  - 同步 OpenAPI：登录禁用 403、锁定 423+Retry-After、Refresh/Logout Origin 403、幂等登出 200、角色保护/引用冲突、敏感词/审核/配置稳定错误码及 `/health/ready` 503 错误信封；operationId 共 103 个且唯一。
+  - 更新 M4 详细设计版本 V0.11、统一扁平响应示例、认证/审核/配置/就绪/CORS 差异台账；README 增加就绪、CORS、管理接口和真实依赖限制说明。
+  - OpenAPI YAML 解析、Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `246 passed`（11 条既有 httpx 弃用警告）通过。
+- [x] [#58 M4：最终验收与 PR 收尾](https://github.com/Doggod727/CampusPilot/issues/58)（2026-07-14）
+  - 全量 pytest `246 passed`（11 条既有 httpx 弃用警告）、`python -m compileall -q app`、`alembic heads` 单一 `0001_platform_schema`、离线 upgrade/downgrade SQL 和 OpenAPI YAML 解析通过。
+  - OpenAPI 共 103 个 operationId 且唯一；当前应用已实现的 M4 29 个 operationId 与契约逐项匹配；统一错误信封、Request-Id 和敏感字段脱敏回归通过。
+  - Issue #41–#57 均已关闭；Draft PR #8 汇总全部提交并在本任务后转 Ready。真实 PostgreSQL/Redis/Chroma 集成仍保留为环境可用后的独立待办。
+
+## 待办
+
+- [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
+- [ ] 前端、Docker Compose 和跨模块 M1/M2/M3 handler 联调不属于本仓库本次 M4 后端交付范围。

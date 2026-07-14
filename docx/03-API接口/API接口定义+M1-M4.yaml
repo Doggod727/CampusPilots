@@ -113,7 +113,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ReadinessResponse"
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/v1/auth/login:
     post:
@@ -147,6 +147,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
         "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: 账号已禁用
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+              example:
+                code: ACCOUNT_DISABLED
+                message: 账号已禁用
+                details: []
+                request_id: 01J2ABCDEF0123456789ABCDE0
+                timestamp: 2026-07-12T08:00:00Z
         "423": {$ref: "#/components/responses/Locked"}
         "422": {$ref: "#/components/responses/ValidationError"}
         "429": {$ref: "#/components/responses/TooManyRequests"}
@@ -173,6 +184,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/TokenResponse"
         "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Origin 缺失或与 FRONTEND_ORIGIN 不匹配
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
         "429": {$ref: "#/components/responses/TooManyRequests"}
   /api/v1/auth/logout:
     post:
@@ -185,7 +201,7 @@ paths:
         - $ref: "#/components/parameters/XRequestId"
       responses:
         "200":
-          description: 已撤销 Refresh Token 并清除 Cookie
+          description: 幂等注销：Cookie 缺失、未知、已撤销或有效时均清除 Cookie 并返回成功
           headers:
             Set-Cookie:
               description: 清除 refresh_token 的过期 Cookie
@@ -194,6 +210,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EmptyResponse"
+        "403":
+          description: Origin 缺失或与 FRONTEND_ORIGIN 不匹配
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
         "401": {$ref: "#/components/responses/Unauthorized"}
   /api/v1/auth/me:
     get:
@@ -298,7 +319,7 @@ paths:
       tags: [Users]
       operationId: updateUser
       summary: 更新用户基本资料或状态
-      description: 请求中的 version 用于乐观锁；不能通过此接口修改密码或角色。
+      description: 请求中的 version 用于乐观锁；不能通过此接口修改密码或角色。管理接口不可手工设置 `status=locked`，该值由登录失败策略产生，手工设置返回 `409 STATUS_CHANGE_NOT_ALLOWED`。
       x-permissions: [user:write]
       requestBody:
         required: true
@@ -423,7 +444,7 @@ paths:
       tags: [Roles]
       operationId: deleteRole
       summary: 删除未使用的自定义角色
-      description: 系统预置角色或仍被用户引用的角色返回 409。
+      description: 系统预置角色返回 `409 SYSTEM_ROLE_PROTECTED`，仍被用户引用的角色返回 `409 ROLE_IN_USE`。
       x-permissions: [role:write]
       responses:
         "200":
@@ -511,6 +532,7 @@ paths:
       tags: [SensitiveWords]
       operationId: createSensitiveWord
       summary: 创建敏感词规则
+      description: 正则规则必须可编译且长度受限；重复规则返回 `409 DUPLICATE_RESOURCE`。
       x-permissions: [sensitive_word:write]
       parameters:
         - $ref: "#/components/parameters/XRequestId"
@@ -534,6 +556,7 @@ paths:
       tags: [SensitiveWords]
       operationId: deleteSensitiveWord
       summary: 删除敏感词规则
+      description: 不存在的规则返回 `404 SENSITIVE_WORD_NOT_FOUND`。
       x-permissions: [sensitive_word:write]
       parameters:
         - name: word_id
@@ -610,7 +633,7 @@ paths:
       tags: [Moderation]
       operationId: decideModerationCase
       summary: 审批审核案件
-      description: 只有 pending 案件可处理；重复或并发处理返回 409。
+      description: 只有 pending 案件可处理；终态返回 `409 MODERATION_CASE_ALREADY_DECIDED`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`，未注册目标处理器返回 `409 MODERATION_HANDLER_UNAVAILABLE`。rule_hits 仅返回安全摘要。
       x-permissions: [moderation:decide]
       parameters:
         - name: case_id
@@ -725,6 +748,7 @@ paths:
       tags: [Config]
       operationId: updateConfig
       summary: 更新单个可编辑配置
+      description: 仅 editable=true 配置可更新；不可编辑返回 `403 CONFIG_NOT_EDITABLE`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`，不返回环境密钥。
       x-permissions: [config:write]
       parameters:
         - name: config_key
