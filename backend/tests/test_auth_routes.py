@@ -43,6 +43,11 @@ class StubAuthService:
         assert isinstance(self._result, RefreshResult)
         return self._result
 
+    async def logout(self, **kwargs: object) -> None:
+        self.calls.append(kwargs)
+        if isinstance(self._result, Exception):
+            raise self._result
+
 
 def _login_result() -> LoginResult:
     now = datetime.now(UTC).replace(microsecond=0)
@@ -306,3 +311,86 @@ def test_refresh_accepts_configured_origin_with_trailing_slash() -> None:
 
     assert response.status_code == 200
     assert len(service.calls) == 1
+
+
+def test_logout_returns_empty_data_and_clears_cookie() -> None:
+    service = StubAuthService(_refresh_result())
+    client = _client(service)
+
+    response = client.post(
+        "/api/v1/auth/logout",
+        headers={
+            "Origin": "http://localhost:5173",
+            "X-Request-Id": "logout-request-123",
+            "User-Agent": "logout-route-test",
+        },
+        cookies={"refresh_token": "presented-refresh-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["code"] == "OK"
+    assert payload["data"] == {}
+    assert payload["request_id"] == "logout-request-123"
+    assert response.headers["X-Request-Id"] == "logout-request-123"
+    cookie = response.headers["set-cookie"]
+    assert "refresh_token=\"\"" in cookie
+    assert "Max-Age=0" in cookie
+    assert "HttpOnly" in cookie
+    assert "SameSite=lax" in cookie
+    assert "Path=/api/v1/auth" in cookie
+    assert "Secure" not in cookie
+    assert service.calls == [
+        {
+            "refresh_token": "presented-refresh-token",
+            "request_id": "logout-request-123",
+            "ip_address": "testclient",
+            "user_agent": "logout-route-test",
+        }
+    ]
+
+
+def test_logout_can_clear_cookie_with_secure_attribute() -> None:
+    client = _client(StubAuthService(_refresh_result()), secure=True)
+
+    response = client.post(
+        "/api/v1/auth/logout",
+        headers={"Origin": "http://localhost:5173"},
+        cookies={"refresh_token": "presented-refresh-token"},
+    )
+
+    assert response.status_code == 200
+    assert "Secure" in response.headers["set-cookie"]
+
+
+def test_logout_missing_cookie_remains_idempotent() -> None:
+    service = StubAuthService(_refresh_result())
+    client = _client(service)
+
+    response = client.post(
+        "/api/v1/auth/logout",
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {}
+    assert service.calls[0]["refresh_token"] == ""
+
+
+@pytest.mark.parametrize("origin", [None, "http://evil.example"])
+def test_logout_rejects_untrusted_origin_without_resolving_service(
+    origin: str | None,
+) -> None:
+    service = StubAuthService(_refresh_result())
+    client = _client(service)
+    headers = {} if origin is None else {"Origin": origin}
+
+    response = client.post(
+        "/api/v1/auth/logout",
+        headers=headers,
+        cookies={"refresh_token": "presented-refresh-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "AUTH_FORBIDDEN"
+    assert service.calls == []

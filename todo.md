@@ -20,7 +20,8 @@
 - 认证登录临时锁定：M4 详细设计第 4.2 节和错误码表写为 429，但 OpenAPI `/api/v1/auth/login` 定义 `423 Locked` 及 `Retry-After`。后续实现固定使用 `423 ACCOUNT_LOCKED`，429 仅用于限流；影响依赖认证的前端与 M1/M2/M3。M4 收尾时修订详细设计对应章节，OpenAPI 保持现有定义。
 - 认证失败达到锁定阈值的当前请求：实现固定返回 `401 INVALID_CREDENTIALS`，从下一次请求开始返回 `423 ACCOUNT_LOCKED`；详细设计未规定该边界行为。影响依赖认证的前端与 M1/M2/M3；M4 收尾时在登录流程补充该规则。
 - 认证登录禁用账号：实现返回 `403 ACCOUNT_DISABLED`，与详细设计一致，但 OpenAPI `/api/v1/auth/login` 当前未声明 403。影响依赖认证的前端与 M1/M2/M3；M4 收尾时补充 OpenAPI 响应并校验生成客户端。
-- Refresh Cookie 的 Origin 校验：`POST /api/v1/auth/refresh` 对缺失或非 `FRONTEND_ORIGIN` 的 Origin 返回 `403 AUTH_FORBIDDEN`，且不执行刷新；当前 OpenAPI 只声明 401/429。影响前端刷新请求；M4 收尾时补充 403 响应与 Origin 要求，CORS 策略仍由后续独立任务实现。
+- 认证 Cookie 的 Origin 校验：`POST /api/v1/auth/refresh` 与 `/api/v1/auth/logout` 对缺失或非 `FRONTEND_ORIGIN` 的 Origin 返回 `403 AUTH_FORBIDDEN`，且不执行认证服务；当前 OpenAPI 未声明该 403。影响前端刷新/登出请求；M4 收尾时补充 403 响应与 Origin 要求，CORS 策略仍由后续独立任务实现。
+- 幂等登出：实现对缺失、未知、已撤销和有效 Refresh Cookie 均返回 `200`、清除 Cookie；当前 OpenAPI `/api/v1/auth/logout` 声明 401，详细设计仅笼统说明“重复登出按幂等成功处理”。影响前端登出逻辑；M4 收尾时将 OpenAPI 与详细设计的精确行为同步为该规则。
 
 ## 已完成
 
@@ -127,6 +128,10 @@
   - `POST /api/v1/auth/refresh` 从 Cookie 读取 Refresh Token，返回统一 TokenData 信封，并以相同安全属性覆盖轮换 Cookie。
   - 刷新路由仅接受配置的前端 Origin（兼容配置末尾斜杠）；缺失或不匹配时在数据库依赖前返回 403。全局 CORS、注销、Bearer 认证依赖和限流保持后续独立任务。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `99 passed`。
+- [x] [#25 M4：实现幂等登出与 Cookie 清除](https://github.com/Doggod727/CampusPilot/issues/25)（2026-07-14）
+  - `AuthService.logout` 在单一事务中锁定并撤销有效 Refresh Token；未知和已撤销 Token 同样幂等完成，审计不保存原始 Token 或哈希。
+  - `POST /api/v1/auth/logout` 复用 Cookie Origin 校验，统一返回空数据成功信封并以原 Path/安全属性清除 Refresh Cookie。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `107 passed`。
 
 ## 待办
 

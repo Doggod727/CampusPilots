@@ -119,6 +119,7 @@ def _service(
     refresh_token_repository = MagicMock()
     refresh_token_repository.get_by_token_hash_for_update = AsyncMock()
     refresh_token_repository.mark_rotated = AsyncMock(return_value=True)
+    refresh_token_repository.revoke_by_jti = AsyncMock(return_value=True)
     refresh_token_repository.revoke_all_for_user = AsyncMock(return_value=0)
     auth_policy_repository = MagicMock()
     auth_policy_repository.get_login_policy = AsyncMock(
@@ -477,3 +478,70 @@ def test_refresh_rejects_expired_or_inactive_users_uniformly(
             user.id,
             FIXED_NOW,
         )
+
+
+def test_logout_revokes_active_token_and_writes_safe_audit() -> None:
+    user = _user()
+    service, dependencies, _, _ = _service(user=user, password_matches=True)
+    presented_token = "presented-refresh-token"
+    stored_token = _stored_refresh_token(user, token=presented_token)
+    dependencies["refresh"].get_by_token_hash_for_update = AsyncMock(
+        return_value=stored_token
+    )
+
+    asyncio.run(
+        service.logout(
+            refresh_token=presented_token,
+            request_id="request-id-logout",
+            ip_address="127.0.0.1",
+            user_agent="logout-agent",
+        )
+    )
+
+    dependencies["session"].begin.assert_called_once_with()
+    dependencies["refresh"].get_by_token_hash_for_update.assert_awaited_once_with(
+        sha256(presented_token.encode("utf-8")).hexdigest()
+    )
+    dependencies["refresh"].revoke_by_jti.assert_awaited_once_with(
+        stored_token.jti,
+        FIXED_NOW,
+    )
+    audit_arguments = dependencies["audit"].record_success.call_args.kwargs
+    assert audit_arguments["action"] == "auth.logout"
+    assert audit_arguments["actor_user_id"] == user.id
+    assert audit_arguments["after_data"] == {"status": "revoked"}
+    assert presented_token not in repr(audit_arguments)
+    assert stored_token.token_hash not in repr(audit_arguments)
+
+
+@pytest.mark.parametrize(
+    "stored_token",
+    [None, "revoked"],
+)
+def test_logout_is_idempotent_for_unknown_or_already_revoked_token(
+    stored_token: RefreshToken | str | None,
+) -> None:
+    user = _user()
+    service, dependencies, _, _ = _service(user=user, password_matches=True)
+    if stored_token == "revoked":
+        stored_token = _stored_refresh_token(
+            user,
+            revoked_at=FIXED_NOW - timedelta(minutes=1),
+        )
+    dependencies["refresh"].get_by_token_hash_for_update = AsyncMock(
+        return_value=stored_token
+    )
+
+    asyncio.run(
+        service.logout(
+            refresh_token="idempotent-logout-token",
+            request_id="request-id-idempotent-logout",
+        )
+    )
+
+    dependencies["refresh"].revoke_by_jti.assert_not_awaited()
+    audit_arguments = dependencies["audit"].record_success.call_args.kwargs
+    assert audit_arguments["action"] == "auth.logout"
+    assert audit_arguments["after_data"] == {
+        "status": "not_found" if stored_token is None else "already_revoked"
+    }

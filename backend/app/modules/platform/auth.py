@@ -382,6 +382,51 @@ class AuthService:
             raise RuntimeError("Refresh did not produce a result.")
         return result
 
+    async def logout(
+        self,
+        *,
+        refresh_token: str,
+        request_id: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> None:
+        """Revoke the presented Refresh Token without exposing its state to callers."""
+
+        now = self._current_time()
+        async with self._session.begin():
+            stored_token = await self._refresh_token_repository.get_by_token_hash_for_update(
+                self._token_service.hash_refresh(refresh_token)
+            )
+            if stored_token is None:
+                self._audit_service.record_success(
+                    action="auth.logout",
+                    resource_type="user",
+                    request_id=request_id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    after_data={"status": "not_found"},
+                )
+                return
+
+            revoked = False
+            if stored_token.revoked_at is None:
+                revoked = await self._refresh_token_repository.revoke_by_jti(
+                    stored_token.jti,
+                    now,
+                )
+            self._audit_service.record_success(
+                action="auth.logout",
+                resource_type="user",
+                resource_id=str(stored_token.user_id),
+                request_id=request_id,
+                actor_user_id=stored_token.user_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                after_data={
+                    "status": "revoked" if revoked else "already_revoked",
+                },
+            )
+
     def _record_login_failure(
         self,
         *,

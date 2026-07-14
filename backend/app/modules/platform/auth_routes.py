@@ -65,6 +65,10 @@ class TokenData(BaseModel):
     expires_in: int
 
 
+class EmptyData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
 class LoginData(TokenData):
     model_config = ConfigDict(extra="forbid")
 
@@ -99,7 +103,7 @@ def get_frontend_origin() -> str:
     return str(get_settings().frontend_origin).rstrip("/")
 
 
-def verify_refresh_origin(
+def verify_cookie_origin(
     request: Request,
     frontend_origin: Annotated[str, Depends(get_frontend_origin)],
 ) -> None:
@@ -142,7 +146,7 @@ async def login(
     "/refresh",
     operation_id="refreshAccessToken",
     response_model=SuccessResponse[TokenData],
-    dependencies=[Depends(verify_refresh_origin)],
+    dependencies=[Depends(verify_cookie_origin)],
 )
 async def refresh(
     request: Request,
@@ -168,6 +172,32 @@ async def refresh(
     )
 
 
+@router.post(
+    "/logout",
+    operation_id="logout",
+    response_model=SuccessResponse[EmptyData],
+    dependencies=[Depends(verify_cookie_origin)],
+)
+async def logout(
+    request: Request,
+    response: Response,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    refresh_cookie_secure: Annotated[bool, Depends(get_refresh_cookie_secure)],
+) -> SuccessResponse[EmptyData]:
+    await auth_service.logout(
+        refresh_token=request.cookies.get("refresh_token", ""),
+        request_id=request.state.request_id,
+        ip_address=request.client.host if request.client is not None else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    _clear_refresh_cookie(response, secure=refresh_cookie_secure)
+    return SuccessResponse(
+        data=EmptyData(),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
 def _set_refresh_cookie(
     response: Response,
     refresh_token: IssuedRefreshToken,
@@ -178,6 +208,16 @@ def _set_refresh_cookie(
         key="refresh_token",
         value=refresh_token.token,
         max_age=_refresh_cookie_max_age(refresh_token),
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/api/v1/auth",
+    )
+
+
+def _clear_refresh_cookie(response: Response, *, secure: bool) -> None:
+    response.delete_cookie(
+        key="refresh_token",
         httponly=True,
         secure=secure,
         samesite="lax",
