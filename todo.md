@@ -18,6 +18,7 @@
 ## 契约与设计差异
 
 - 认证登录临时锁定：M4 详细设计第 4.2 节和错误码表写为 429，但 OpenAPI `/api/v1/auth/login` 定义 `423 Locked` 及 `Retry-After`。后续实现固定使用 `423 ACCOUNT_LOCKED`，429 仅用于限流；影响依赖认证的前端与 M1/M2/M3。M4 收尾时修订详细设计对应章节，OpenAPI 保持现有定义。
+- 认证失败达到锁定阈值的当前请求：实现固定返回 `401 INVALID_CREDENTIALS`，从下一次请求开始返回 `423 ACCOUNT_LOCKED`；详细设计未规定该边界行为。影响依赖认证的前端与 M1/M2/M3；M4 收尾时在登录流程补充该规则。
 
 ## 已完成
 
@@ -106,6 +107,11 @@
   - password、token、authorization、cookie、api_key、secret 的命名变体均替换为 `***`，原始入参保持不变。
   - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `74 passed`。
+- [x] [#21 M4：实现登录应用服务核心](https://github.com/Doggod727/CampusPilot/issues/21)（2026-07-14）
+  - AuthService 在单一调用方事务中编排用户状态、密码校验、RBAC、Token、Refresh 哈希持久化及成功/失败审计。
+  - 未知用户与密码错误统一 401；禁用为 403；锁定为 423 并携带 Retry-After；阈值当前请求的 401 规则已登记至契约台账。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `80 passed`。
 
 ## 待办
 
