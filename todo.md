@@ -81,6 +81,11 @@
   - 所有写操作只更新尚未撤销记录；仓储不管理调用方 Session 的事务或生命周期。
   - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `56 passed`。
+- [x] [#16 M4：实现登录状态原子更新仓储](https://github.com/Doggod727/CampusPilot/issues/16)（2026-07-14）
+  - UserAuthRepository 以原子更新记录登录失败、阈值锁定及成功登录后的状态重置。
+  - 更新排除软删除和禁用用户，不更新 version，且不管理调用方 Session 生命周期。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `60 passed`。
 
 ## 待办
 
