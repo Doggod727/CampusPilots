@@ -51,6 +51,11 @@
   - 仓储只使用调用方 Session 执行查询，不提交、回滚、flush 或关闭 Session。
   - PostgreSQL 查询编译、Alembic 离线升降级及 Python 编译检查通过。
   - 全部自动化测试 `30 passed`。
+- [x] [#10 M4：实现 RBAC 只读查询仓储](https://github.com/Doggod727/CampusPilot/issues/10)（2026-07-14）
+  - RbacRepository 支持查询用户角色和去重后的权限码，并按 code 稳定排序。
+  - 两类查询均连接 users 并排除软删除用户，不修改或关闭调用方 Session。
+  - PostgreSQL 查询编译、Alembic 离线升降级及 Python 编译检查通过。
+  - 全部自动化测试 `33 passed`。
 
 ## 待办
 
