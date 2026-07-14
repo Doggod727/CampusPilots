@@ -6,6 +6,7 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 from app.infrastructure.database import Base
 from app.modules.platform.models import (
     AppConfig,
+    AuditLog,
     Permission,
     RefreshToken,
     Role,
@@ -22,6 +23,7 @@ EXPECTED_TABLES = {
     "platform.role_permissions",
     "platform.refresh_tokens",
     "platform.app_configs",
+    "platform.audit_logs",
 }
 EXPECTED_COLUMNS = {
     "platform.users": {
@@ -84,6 +86,22 @@ EXPECTED_COLUMNS = {
         "updated_by",
         "created_at",
         "updated_at",
+    },
+    "platform.audit_logs": {
+        "id",
+        "actor_user_id",
+        "actor_username",
+        "action",
+        "resource_type",
+        "resource_id",
+        "result",
+        "request_id",
+        "ip_address",
+        "user_agent",
+        "before_data",
+        "after_data",
+        "error_code",
+        "created_at",
     },
 }
 
@@ -247,6 +265,35 @@ def test_app_config_mapping_matches_platform_migration() -> None:
     assert "(namespace, key)" in index_sql(AppConfig)["ix_app_configs_namespace"]
 
 
+def test_audit_log_mapping_matches_platform_migration() -> None:
+    table = AuditLog.__table__
+
+    assert isinstance(table.c.id.type, UUID)
+    assert isinstance(table.c.ip_address.type, INET)
+    assert isinstance(table.c.before_data.type, JSONB)
+    assert isinstance(table.c.after_data.type, JSONB)
+    assert table.c.request_id.type.length == 64
+    assert table.c.user_agent.type.length == 500
+    assert table.c.id.server_default is not None
+    assert table.c.created_at.server_default is not None
+    assert constraint_names(AuditLog) == {
+        "ck_audit_logs_result",
+        "ck_audit_logs_before_object",
+        "ck_audit_logs_after_object",
+    }
+    foreign_keys = {
+        foreign_key.parent.name: (foreign_key.target_fullname, foreign_key.ondelete)
+        for foreign_key in table.foreign_keys
+    }
+    assert foreign_keys == {"actor_user_id": ("platform.users.id", "SET NULL")}
+    assert set(index_sql(AuditLog)) == {
+        "ix_audit_logs_created_at",
+        "ix_audit_logs_actor_created_at",
+        "ix_audit_logs_resource",
+        "ix_audit_logs_request_id",
+    }
+
+
 def test_all_identity_tables_compile_for_postgresql() -> None:
     dialect = postgresql.dialect()
 
@@ -260,6 +307,7 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
             RolePermission,
             RefreshToken,
             AppConfig,
+            AuditLog,
         )
     )
 
@@ -274,6 +322,8 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
     assert "ck_refresh_tokens_replacement" in compiled_tables
     assert "CREATE TABLE platform.app_configs" in compiled_tables
     assert "JSONB" in compiled_tables
+    assert "CREATE TABLE platform.audit_logs" in compiled_tables
+    assert "ck_audit_logs_before_object" in compiled_tables
 
 
 def test_user_repr_does_not_expose_password_hash() -> None:

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.platform.models import (
     AppConfig,
+    AuditLog,
     Permission,
     RefreshToken,
     Role,
@@ -90,6 +91,16 @@ class AuthPolicyRepository:
             max_failed_logins=values[AUTH_MAX_FAILED_LOGINS_KEY],
             lock_minutes=values[AUTH_LOCK_MINUTES_KEY],
         )
+
+
+class AuditLogRepository:
+    """Append audit events to a caller-owned session."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def add(self, audit_log: AuditLog) -> None:
+        self._session.add(audit_log)
 
 @dataclass(frozen=True)
 class LoginFailureState:

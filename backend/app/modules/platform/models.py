@@ -293,3 +293,62 @@ class AppConfig(Base):
 
 
 Index("ix_app_configs_namespace", AppConfig.namespace, AppConfig.key)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        CheckConstraint(
+            "result IN ('success', 'failure')",
+            name="ck_audit_logs_result",
+        ),
+        CheckConstraint(
+            "before_data IS NULL OR jsonb_typeof(before_data) = 'object'",
+            name="ck_audit_logs_before_object",
+        ),
+        CheckConstraint(
+            "after_data IS NULL OR jsonb_typeof(after_data) = 'object'",
+            name="ck_audit_logs_after_object",
+        ),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("platform.users.id", ondelete="SET NULL"),
+    )
+    actor_username: Mapped[str | None] = mapped_column(String(50))
+    action: Mapped[str] = mapped_column(String(100))
+    resource_type: Mapped[str] = mapped_column(String(100))
+    resource_id: Mapped[str | None] = mapped_column(String(100))
+    result: Mapped[str] = mapped_column(String(16))
+    request_id: Mapped[str] = mapped_column(String(64))
+    ip_address: Mapped[str | None] = mapped_column(INET())
+    user_agent: Mapped[str | None] = mapped_column(String(500))
+    before_data: Mapped[dict[str, object] | None] = mapped_column(JSONB())
+    after_data: Mapped[dict[str, object] | None] = mapped_column(JSONB())
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("now()"),
+    )
+
+
+Index("ix_audit_logs_created_at", AuditLog.created_at.desc())
+Index(
+    "ix_audit_logs_actor_created_at",
+    AuditLog.actor_user_id,
+    AuditLog.created_at.desc(),
+)
+Index(
+    "ix_audit_logs_resource",
+    AuditLog.resource_type,
+    AuditLog.resource_id,
+    AuditLog.created_at.desc(),
+)
+Index("ix_audit_logs_request_id", AuditLog.request_id)
