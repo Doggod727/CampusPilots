@@ -152,6 +152,10 @@
   - 映射既有 `platform.idempotency_records` 的用户作用域、请求哈希、响应快照、资源引用及过期时间字段。
   - 保留联合唯一、过期/状态码检查、级联外键和过期索引；不实现仓储、重放服务、清理任务或 API。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `147 passed`。
+- [x] [#31 M4：实现幂等记录仓储](https://github.com/Doggod727/CampusPilot/issues/31)（2026-07-14）
+  - IdempotencyRecordRepository 支持按用户/端点/Key 加锁读取、追加记录及仅首次响应完成更新。
+  - 查询不预先过滤过期或已完成记录；仓储不处理哈希、重放、并发唯一冲突、清理任务或 Session 生命周期。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `151 passed`。
 
 ## 待办
 

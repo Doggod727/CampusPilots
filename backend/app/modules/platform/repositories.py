@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.platform.models import (
     AppConfig,
     AuditLog,
+    IdempotencyRecord,
     Permission,
     RefreshToken,
     Role,
@@ -210,6 +211,58 @@ class AuditLogRepository:
 
     def add(self, audit_log: AuditLog) -> None:
         self._session.add(audit_log)
+
+
+class IdempotencyRecordRepository:
+    """Idempotency persistence within a caller-owned session."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_by_scope_for_update(
+        self,
+        user_id: UUID,
+        endpoint: str,
+        idempotency_key: str,
+    ) -> IdempotencyRecord | None:
+        statement = (
+            select(IdempotencyRecord)
+            .where(
+                IdempotencyRecord.user_id == user_id,
+                IdempotencyRecord.endpoint == endpoint,
+                IdempotencyRecord.idempotency_key == idempotency_key,
+            )
+            .with_for_update()
+        )
+        result = await self._session.execute(statement)
+        return result.scalar_one_or_none()
+
+    def add(self, record: IdempotencyRecord) -> None:
+        self._session.add(record)
+
+    async def complete(
+        self,
+        record_id: UUID,
+        response_status: int,
+        response_body: object,
+        resource_type: str | None,
+        resource_id: str | None,
+    ) -> bool:
+        statement = (
+            update(IdempotencyRecord)
+            .where(
+                IdempotencyRecord.id == record_id,
+                IdempotencyRecord.response_status.is_(None),
+            )
+            .values(
+                response_status=response_status,
+                response_body=response_body,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+        )
+        result = await self._session.execute(statement)
+        return result.rowcount == 1
 
 @dataclass(frozen=True)
 class LoginFailureState:
