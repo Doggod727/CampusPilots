@@ -156,6 +156,11 @@
   - IdempotencyRecordRepository 支持按用户/端点/Key 加锁读取、追加记录及仅首次响应完成更新。
   - 查询不预先过滤过期或已完成记录；仓储不处理哈希、重放、并发唯一冲突、清理任务或 Session 生命周期。
   - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `151 passed`。
+- [x] [#32 M4：实现幂等服务](https://github.com/Doggod727/CampusPilot/issues/32)（2026-07-14）
+  - IdempotencyService 使用排序键 canonical JSON 和 SHA-256 请求哈希，支持首次记录、同哈希重放、不同哈希冲突及 pending 结果。
+  - 通过事务嵌套保存点处理并发唯一约束竞争，记录默认 24 小时有效；服务不保存原始请求体、不提交事务或管理 Session 生命周期。
+  - pending 仅为内部结果，后续业务接口自行决定等待或冲突映射；本任务未新增 HTTP 契约差异。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `158 passed`。
 
 ## 待办
 
