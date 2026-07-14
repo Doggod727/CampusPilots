@@ -21,3 +21,18 @@ python -m uvicorn app.main:app --reload
 cd backend
 python -m pytest
 ```
+
+## M4 数据库迁移
+
+迁移从仓库根目录 `.env` 的 `DATABASE_URL` 读取 PostgreSQL 连接。进入 `backend` 后执行：
+
+```powershell
+# 不连接数据库，仅生成待执行 SQL
+python -m alembic upgrade head --sql
+
+# PostgreSQL 可用时执行升级或降级
+python -m alembic upgrade head
+python -m alembic downgrade base
+```
+
+当前开发机没有 Docker/PostgreSQL，仅完成了 Alembic 离线 SQL 验证；真实空库升降级仍需在可用环境中执行。

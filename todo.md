@@ -30,7 +30,13 @@
   - 统一处理领域异常、请求校验、HTTP 错误和未知异常。
   - 错误响应统一回传 Request-Id，且不泄露原始校验输入或内部异常文本。
   - 全部自动化测试 `12 passed`，Python 编译检查通过。
+- [x] [#4 M4：建立平台数据库迁移基线](https://github.com/Doggod727/CampusPilot/issues/4)（2026-07-14）
+  - 建立 SQLAlchemy async + Alembic 迁移基础设施。
+  - 首版 Revision 覆盖 M4 平台 Schema、11 张表、约束、索引、函数、触发器和注释。
+  - upgrade SQL 与原始 M4 DDL 共 51 条语句逐条一致；downgrade 保留共享扩展。
+  - Alembic 离线升降级、单 head、全部自动化测试 `15 passed`，Python 编译检查通过。
 
 ## 待办
 
 - [ ] 下一项小型任务尚未选择。
+- [ ] Docker/PostgreSQL 可用后，在真实空库执行 `alembic upgrade head` 与 `alembic downgrade base`。
