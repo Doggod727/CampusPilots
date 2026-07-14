@@ -218,6 +218,10 @@
   - 新增 exact/contains/regex 扫描，规则动作按 `block > review > mask > allow` 确定性聚合，风险等级映射为 low/medium/high/critical。
   - mask 仅修改 sanitized_text；命中摘要只保存规则 UUID 和动作，matched_text 不回显原始敏感词；非法正则返回安全的 `422 INVALID_SENSITIVE_WORD_RULE`。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `208 passed`（11 条既有 httpx 弃用警告）通过；本任务无 HTTP 契约差异。
+- [x] [#44 M4：实现敏感词管理 API](https://github.com/Doggod727/CampusPilot/issues/44)（2026-07-14）
+  - 新增 `GET/POST /api/v1/sensitive-words` 与 `DELETE /api/v1/sensitive-words/{word_id}`，分别使用 `sensitive_word:read/write`，严格校验分页、scope、规则类型和 mask replacement。
+  - 重复规则返回 `409 DUPLICATE_RESOURCE`，不存在返回 `404 SENSITIVE_WORD_NOT_FOUND`；写操作追加脱敏审计，响应不包含创建者内部信息。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `212 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
 
 ## 待办
 
