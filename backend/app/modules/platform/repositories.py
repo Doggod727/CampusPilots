@@ -13,6 +13,7 @@ from app.modules.platform.models import (
     RefreshToken,
     Role,
     RolePermission,
+    SensitiveWord,
     User,
     UserRole,
 )
@@ -706,3 +707,69 @@ class RefreshTokenRepository:
         )
         result = await self._session.execute(statement)
         return result.rowcount
+
+
+class SensitiveWordRepository:
+    """Sensitive-word rule persistence within a caller-owned session."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        query: str | None = None,
+        scope: str | None = None,
+        enabled: bool | None = None,
+    ) -> tuple[list[SensitiveWord], int]:
+        predicates = []
+        if query:
+            predicates.append(func.lower(SensitiveWord.word).contains(query.lower()))
+        if scope is not None:
+            predicates.append(SensitiveWord.scope == scope)
+        if enabled is not None:
+            predicates.append(SensitiveWord.enabled.is_(enabled))
+        count_result = await self._session.execute(
+            select(func.count(SensitiveWord.id)).where(*predicates)
+        )
+        rows_result = await self._session.execute(
+            select(SensitiveWord)
+            .where(*predicates)
+            .order_by(SensitiveWord.created_at.desc(), SensitiveWord.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(rows_result.scalars().all()), int(count_result.scalar_one())
+
+    async def get_by_rule(
+        self,
+        *,
+        word: str,
+        match_type: str,
+        scope: str,
+    ) -> SensitiveWord | None:
+        result = await self._session.execute(
+            select(SensitiveWord).where(
+                func.lower(SensitiveWord.word) == word.lower(),
+                SensitiveWord.match_type == match_type,
+                SensitiveWord.scope == scope,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id(self, word_id: UUID) -> SensitiveWord | None:
+        result = await self._session.execute(
+            select(SensitiveWord).where(SensitiveWord.id == word_id)
+        )
+        return result.scalar_one_or_none()
+
+    def add(self, rule: SensitiveWord) -> None:
+        self._session.add(rule)
+
+    async def delete(self, word_id: UUID) -> bool:
+        result = await self._session.execute(
+            delete(SensitiveWord).where(SensitiveWord.id == word_id)
+        )
+        return result.rowcount == 1

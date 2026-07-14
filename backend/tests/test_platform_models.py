@@ -14,6 +14,7 @@ from app.modules.platform.models import (
     RolePermission,
     User,
     UserRole,
+    SensitiveWord,
 )
 
 EXPECTED_TABLES = {
@@ -26,6 +27,7 @@ EXPECTED_TABLES = {
     "platform.app_configs",
     "platform.idempotency_records",
     "platform.audit_logs",
+    "platform.sensitive_words",
 }
 EXPECTED_COLUMNS = {
     "platform.users": {
@@ -117,6 +119,10 @@ EXPECTED_COLUMNS = {
         "after_data",
         "error_code",
         "created_at",
+    },
+    "platform.sensitive_words": {
+        "id", "word", "match_type", "action", "replacement", "scope",
+        "enabled", "created_by", "created_at", "updated_at",
     },
 }
 
@@ -348,6 +354,30 @@ def test_audit_log_mapping_matches_platform_migration() -> None:
     }
 
 
+def test_sensitive_word_mapping_matches_platform_migration() -> None:
+    table = SensitiveWord.__table__
+    assert isinstance(table.c.id.type, UUID)
+    assert table.c.word.type.length == 200
+    assert table.c.replacement.type.length == 100
+    assert table.c.enabled.server_default is not None
+    assert constraint_names(SensitiveWord) == {
+        "ck_sensitive_words_match_type",
+        "ck_sensitive_words_action",
+        "ck_sensitive_words_scope",
+        "ck_sensitive_words_replacement",
+    }
+    foreign_keys = {
+        foreign_key.parent.name: (foreign_key.target_fullname, foreign_key.ondelete)
+        for foreign_key in table.foreign_keys
+    }
+    assert foreign_keys == {"created_by": ("platform.users.id", "SET NULL")}
+    indexes = index_sql(SensitiveWord)
+    assert set(indexes) == {
+        "uq_sensitive_words_rule", "ix_sensitive_words_enabled_scope"
+    }
+    assert "lower(word)" in indexes["uq_sensitive_words_rule"]
+
+
 def test_all_identity_tables_compile_for_postgresql() -> None:
     dialect = postgresql.dialect()
 
@@ -363,6 +393,7 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
             AppConfig,
             IdempotencyRecord,
             AuditLog,
+            SensitiveWord,
         )
     )
 
@@ -382,6 +413,8 @@ def test_all_identity_tables_compile_for_postgresql() -> None:
     assert "ck_idempotency_response_status" in compiled_tables
     assert "CREATE TABLE platform.audit_logs" in compiled_tables
     assert "ck_audit_logs_before_object" in compiled_tables
+    assert "CREATE TABLE platform.sensitive_words" in compiled_tables
+    assert "ck_sensitive_words_replacement" in compiled_tables
 
 
 def test_user_repr_does_not_expose_password_hash() -> None:

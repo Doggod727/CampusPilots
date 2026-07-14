@@ -210,6 +210,10 @@
   - `DELETE /api/v1/roles/{role_id}` 由 `role:write` 保护；系统角色返回 `409 SYSTEM_ROLE_PROTECTED`，被用户引用角色返回 `409 ROLE_IN_USE`。
   - 角色不存在返回 `404 ROLE_NOT_FOUND`；成功删除自定义角色并写入脱敏 `role.delete` 审计，响应为统一空数据信封。
   - 本任务未发现 OpenAPI 状态码或字段差异；Python 编译、Alembic 单 head/离线 upgrade 与 downgrade 及全量测试 `201 passed`（11 条既有 httpx 弃用警告）通过。
+- [x] [#42 M4：实现敏感词 ORM 与仓储](https://github.com/Doggod727/CampusPilot/issues/42)（2026-07-14）
+  - 映射既有 `platform.sensitive_words`，保留四项检查约束、大小写不敏感规则唯一索引、scope/enabled 索引及 `created_by ON DELETE SET NULL`。
+  - `SensitiveWordRepository` 支持分页筛选、规则查找、按 ID 查找、追加和删除；不管理事务或 Session 生命周期。
+  - PostgreSQL 方言建表/索引、Python 编译、Alembic 单 head/离线 upgrade/downgrade 通过；全量测试 `204 passed`（11 条既有 httpx 弃用警告）。未发现契约差异。
 
 ## 待办
 

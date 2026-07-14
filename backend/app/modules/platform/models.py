@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import (
@@ -255,6 +256,61 @@ Index(
     RefreshToken.expires_at,
     postgresql_where=text("revoked_at IS NULL"),
 )
+
+
+class SensitiveWord(Base):
+    __tablename__ = "sensitive_words"
+    __table_args__ = (
+        CheckConstraint(
+            "match_type IN ('exact', 'contains', 'regex')",
+            name="ck_sensitive_words_match_type",
+        ),
+        CheckConstraint(
+            "action IN ('mask', 'block', 'review')",
+            name="ck_sensitive_words_action",
+        ),
+        CheckConstraint(
+            "scope IN ('user_input', 'ai_output', 'community', 'all')",
+            name="ck_sensitive_words_scope",
+        ),
+        CheckConstraint(
+            "action <> 'mask' OR replacement IS NOT NULL",
+            name="ck_sensitive_words_replacement",
+        ),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    word: Mapped[str] = mapped_column(String(200))
+    match_type: Mapped[str] = mapped_column(String(16))
+    action: Mapped[str] = mapped_column(String(16))
+    replacement: Mapped[str | None] = mapped_column(String(100))
+    scope: Mapped[str] = mapped_column(String(20))
+    enabled: Mapped[bool] = mapped_column(Boolean(), server_default=text("true"))
+    created_by: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("platform.users.id", ondelete="SET NULL"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+Index(
+    "uq_sensitive_words_rule",
+    func.lower(SensitiveWord.word),
+    SensitiveWord.match_type,
+    SensitiveWord.scope,
+    unique=True,
+)
+Index("ix_sensitive_words_enabled_scope", SensitiveWord.scope, SensitiveWord.enabled)
 
 
 class AppConfig(Base):
