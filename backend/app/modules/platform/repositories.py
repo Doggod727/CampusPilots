@@ -499,6 +499,29 @@ class ConfigRepository:
         return result.rowcount == 1
 
 
+class DashboardRepository:
+    """Read-only M4 dashboard counts within a caller-owned session."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def summary(self) -> dict[str, int]:
+        active = await self._session.execute(
+            select(func.count(User.id)).where(User.status == "active", User.deleted_at.is_(None))
+        )
+        pending = await self._session.execute(
+            select(func.count(ModerationCase.id)).where(ModerationCase.status == "pending")
+        )
+        audit = await self._session.execute(select(func.count(AuditLog.id)))
+        refresh = await self._session.execute(select(func.count(RefreshToken.id)))
+        return {
+            "active_users": int(active.scalar_one()),
+            "moderation_pending": int(pending.scalar_one()),
+            "audit_events": int(audit.scalar_one()),
+            "refresh_tokens": int(refresh.scalar_one()),
+        }
+
+
 class AuditLogRepository:
     """Read and append audit events within a caller-owned session."""
 

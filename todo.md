@@ -258,6 +258,10 @@
   - 新增 `GET /api/v1/configs` 与 `PATCH /api/v1/configs/{config_key}`，分别由 `config:read/write` 保护，严格校验 key、value、version 和未知字段。
   - 响应只包含非密钥业务配置；ConfigService 的不可编辑/缺失/版本冲突语义分别为 403/404/409，沿用统一错误信封。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `236 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#54 M4：实现运营看板指标服务与 API](https://github.com/Doggod727/CampusPilot/issues/54)（2026-07-14）
+  - 新增 `GET /api/v1/dashboard/metrics`，由 `dashboard:read` 保护，支持 from/to 日期和 day/week 粒度。
+  - M4 查询 active users、pending moderation 等自有指标；M1/M2/M3 指标通过可注入 Provider，未注册时返回 0，不访问不存在的业务表。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `239 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
 
 ## 待办
 

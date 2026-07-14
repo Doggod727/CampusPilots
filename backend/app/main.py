@@ -10,6 +10,7 @@ from app.modules.platform.sensitive_word_routes import router as sensitive_word_
 from app.modules.platform.moderation_routes import router as moderation_router
 from app.modules.platform.audit_routes import router as audit_router
 from app.modules.platform.config_routes import router as config_router
+from app.modules.platform.dashboard_routes import router as dashboard_router
 
 
 def create_app() -> FastAPI:
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
     application.include_router(moderation_router)
     application.include_router(audit_router)
     application.include_router(config_router)
+    application.include_router(dashboard_router)
     return application
 
 
