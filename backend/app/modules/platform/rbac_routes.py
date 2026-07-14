@@ -13,6 +13,7 @@ from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
 from app.modules.platform.rbac_admin import RoleAdminService, role_admin_service_context
 from app.modules.platform.rbac_update import (
+    RoleNotFound,
     RoleUpdateService,
     role_update_service_context,
 )
@@ -121,6 +122,27 @@ async def list_roles(
     items = await repository.list_roles()
     return SuccessResponse(
         data=RoleListData(items=[role_data(item) for item in items]),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
+@router.get(
+    "/roles/{role_id}",
+    operation_id="getRole",
+    response_model=RoleResponse,
+)
+async def get_role(
+    role_id: UUID,
+    request: Request,
+    _: Annotated[AuthenticatedUser, Depends(require_permissions("role:read"))],
+    repository: Annotated[RbacReadRepository, Depends(get_rbac_repository)],
+) -> SuccessResponse:
+    item = await repository.get_role(role_id)
+    if item is None:
+        raise RoleNotFound()
+    return SuccessResponse(
+        data=role_data(item),
         request_id=request.state.request_id,
         timestamp=datetime.now(UTC),
     )

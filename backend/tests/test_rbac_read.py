@@ -136,6 +136,57 @@ def test_role_and_permission_routes_return_safe_sorted_envelopes() -> None:
     repository.list_permissions.assert_awaited_once_with("platform")
 
 
+def test_role_detail_route_returns_role_summary_and_request_id() -> None:
+    role = _role("student")
+    permission = _permission("user:read")
+    repository = MagicMock(spec=RbacReadRepository)
+    repository.get_role = AsyncMock(
+        return_value=RoleListItem(role=role, permissions=(permission,), user_count=4)
+    )
+    client = _client(repository, _actor("role:read"))
+
+    response = client.get(
+        f"/api/v1/roles/{role.id}",
+        headers={"X-Request-Id": "role-detail-request-123"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["request_id"] == "role-detail-request-123"
+    assert body["data"]["id"] == str(role.id)
+    assert body["data"]["permissions"][0]["code"] == "user:read"
+    assert body["data"]["user_count"] == 4
+    assert "password_hash" not in body["data"]
+    repository.get_role.assert_awaited_once_with(role.id)
+
+
+def test_role_detail_route_returns_not_found_without_leaking_details() -> None:
+    repository = MagicMock(spec=RbacReadRepository)
+    repository.get_role = AsyncMock(return_value=None)
+    client = _client(repository, _actor("role:read"))
+
+    response = client.get(f"/api/v1/roles/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "ROLE_NOT_FOUND"
+    assert "role_id" not in response.text
+    repository.get_role.assert_awaited_once()
+
+
+def test_role_detail_route_validates_uuid_and_permission() -> None:
+    repository = MagicMock(spec=RbacReadRepository)
+    repository.get_role = AsyncMock()
+    client = _client(repository, _actor("user:read"))
+
+    forbidden = client.get(f"/api/v1/roles/{uuid4()}")
+    invalid = _client(repository, _actor("role:read")).get("/api/v1/roles/not-a-uuid")
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["code"] == "AUTH_FORBIDDEN"
+    assert invalid.status_code == 422
+    repository.get_role.assert_not_called()
+
+
 def test_rbac_routes_require_role_read_permission() -> None:
     repository = MagicMock(spec=RbacReadRepository)
     repository.list_roles = AsyncMock()

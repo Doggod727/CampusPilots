@@ -201,6 +201,11 @@
   - 角色不存在、权限不存在和版本冲突分别返回 `404 ROLE_NOT_FOUND`、`404 PERMISSION_NOT_FOUND`、`409 RESOURCE_VERSION_CONFLICT`。
   - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `193 passed`。
+- [x] [#40 M4：实现角色详情查询接口](https://github.com/Doggod727/CampusPilot/issues/40)（2026-07-14）
+  - `GET /api/v1/roles/{role_id}` 由 `role:read` 保护，复用角色摘要结构，返回权限列表、未软删除用户数、版本和时间字段。
+  - 角色不存在返回 `404 ROLE_NOT_FOUND`；非法 UUID 返回 422；认证失败/权限不足沿用统一 401/403 错误信封。
+  - 查询保持只读，不暴露密码、Token 或 Session 字段；未发现 OpenAPI 状态码或字段差异。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `196 passed`（11 条既有 httpx 弃用警告）。
 
 ## 待办
 
