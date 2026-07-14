@@ -184,6 +184,12 @@
   - 角色查询批量加载权限和未软删除用户数，避免逐角色 N+1；权限查询支持 module 过滤，不暴露内部写字段或 Session 信息。
   - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `184 passed`。
+- [x] [#37 M4：实现自定义角色创建接口](https://github.com/Doggod727/CampusPilot/issues/37)（2026-07-14）
+  - `POST /api/v1/roles` 由 `role:write` 保护，严格校验角色 code/name/description 和唯一权限 UUID 集合。
+  - 在单一事务内校验权限存在性、创建非系统角色、绑定角色权限并写入 `role.create` 审计；重复 code 和唯一约束竞争安全返回 `409 DUPLICATE_RESOURCE`。
+  - 缺失权限返回 `404 PERMISSION_NOT_FOUND`；响应仅包含安全角色、权限摘要和 user_count，不暴露 Session 或内部异常。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `187 passed`。
 
 ## 待办
 

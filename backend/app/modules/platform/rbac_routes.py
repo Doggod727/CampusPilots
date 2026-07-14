@@ -2,22 +2,43 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
+from app.modules.platform.rbac_admin import RoleAdminService, role_admin_service_context
 from app.modules.platform.rbac_schemas import (
     PermissionListData,
     RoleListData,
     permission_data,
     role_data,
+    RoleResponse,
 )
 from app.modules.platform.repositories import RbacReadRepository
 from app.shared.responses import SuccessResponse
 
 router = APIRouter(prefix="/api/v1", tags=["Roles"])
+
+
+class RoleCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(pattern=r"^[a-z][a-z0-9_]{2,49}$")
+    name: str = Field(min_length=1, max_length=50)
+    description: str | None = Field(default=None, max_length=500)
+    permission_ids: list[UUID]
+
+    @field_validator("permission_ids")
+    @classmethod
+    def validate_unique_permissions(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("permission_ids must be unique")
+        return value
 
 
 async def get_rbac_repository() -> AsyncIterator[RbacReadRepository]:
@@ -27,6 +48,11 @@ async def get_rbac_repository() -> AsyncIterator[RbacReadRepository]:
             yield RbacReadRepository(session)
     finally:
         await database.dispose()
+
+
+async def get_role_admin_service() -> AsyncIterator[RoleAdminService]:
+    async with role_admin_service_context(get_settings()) as service:
+        yield service
 
 
 @router.get(
@@ -42,6 +68,36 @@ async def list_roles(
     items = await repository.list_roles()
     return SuccessResponse(
         data=RoleListData(items=[role_data(item) for item in items]),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
+@router.post(
+    "/roles",
+    operation_id="createRole",
+    status_code=201,
+    response_model=RoleResponse,
+)
+async def create_role(
+    payload: RoleCreateRequest,
+    request: Request,
+    current_user: Annotated[
+        AuthenticatedUser,
+        Depends(require_permissions("role:write")),
+    ],
+    service: Annotated[RoleAdminService, Depends(get_role_admin_service)],
+) -> SuccessResponse:
+    result = await service.create_role(
+        actor=current_user,
+        code=payload.code,
+        name=payload.name,
+        description=payload.description,
+        permission_ids=payload.permission_ids,
+        request_id=request.state.request_id,
+    )
+    return SuccessResponse(
+        data=role_data(result),
         request_id=request.state.request_id,
         timestamp=datetime.now(UTC),
     )

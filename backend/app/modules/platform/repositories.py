@@ -334,6 +334,36 @@ class RbacReadRepository:
         return list(result.scalars().all())
 
 
+class RbacWriteRepository(RbacReadRepository):
+    """Role catalog writes within a caller-owned transaction."""
+
+    async def get_role_by_code(self, code: str) -> Role | None:
+        result = await self._session.execute(
+            select(Role).where(Role.code == code)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_permissions_by_ids(
+        self,
+        permission_ids: list[UUID],
+    ) -> list[Permission]:
+        result = await self._session.execute(
+            select(Permission)
+            .where(Permission.id.in_(permission_ids))
+            .order_by(Permission.code)
+        )
+        return list(result.scalars().all())
+
+    def add_role(self, role: Role) -> None:
+        self._session.add(role)
+
+    def add_role_permissions(self, role_id: UUID, permission_ids: list[UUID]) -> None:
+        for permission_id in permission_ids:
+            self._session.add(
+                RolePermission(role_id=role_id, permission_id=permission_id)
+            )
+
+
 class AuthPolicyRepository:
     """Read the persisted login-lock policy within a caller-owned session."""
 

@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.modules.platform.models import Permission
 from app.modules.platform.repositories import RoleListItem
+from app.shared.responses import SuccessResponse
 
 
 class PermissionData(BaseModel):
@@ -42,6 +43,9 @@ class PermissionListData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[PermissionData]
+
+
+RoleResponse = SuccessResponse[RoleData]
 
 
 def permission_data(permission: Permission) -> PermissionData:
