@@ -466,13 +466,56 @@ class AuthPolicyRepository:
 
 
 class AuditLogRepository:
-    """Append audit events to a caller-owned session."""
+    """Read and append audit events within a caller-owned session."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
     def add(self, audit_log: AuditLog) -> None:
         self._session.add(audit_log)
+
+    async def list_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        actor_user_id: UUID | None = None,
+        action: str | None = None,
+        resource_type: str | None = None,
+        request_id: str | None = None,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+    ) -> tuple[list[AuditLog], int]:
+        predicates = []
+        if actor_user_id is not None:
+            predicates.append(AuditLog.actor_user_id == actor_user_id)
+        if action is not None:
+            predicates.append(AuditLog.action == action)
+        if resource_type is not None:
+            predicates.append(AuditLog.resource_type == resource_type)
+        if request_id is not None:
+            predicates.append(AuditLog.request_id == request_id)
+        if from_time is not None:
+            predicates.append(AuditLog.created_at >= from_time)
+        if to_time is not None:
+            predicates.append(AuditLog.created_at <= to_time)
+        count_result = await self._session.execute(
+            select(func.count(AuditLog.id)).where(*predicates)
+        )
+        rows_result = await self._session.execute(
+            select(AuditLog)
+            .where(*predicates)
+            .order_by(AuditLog.created_at.desc(), AuditLog.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(rows_result.scalars().all()), int(count_result.scalar_one())
+
+    async def get_by_id(self, audit_id: UUID) -> AuditLog | None:
+        result = await self._session.execute(
+            select(AuditLog).where(AuditLog.id == audit_id)
+        )
+        return result.scalar_one_or_none()
 
 
 class IdempotencyRecordRepository:

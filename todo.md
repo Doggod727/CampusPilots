@@ -242,6 +242,10 @@
   - `POST /api/v1/moderation/cases/{case_id}/decision` 使用 `moderation:decide` 和必填 `Idempotency-Key`，在事务内执行行锁、pending/版本校验、目标处理器回调、状态更新、审计和幂等完成。
   - 终态案件返回 `409 MODERATION_CASE_ALREADY_DECIDED`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`，处理器缺失返回 `409 MODERATION_HANDLER_UNAVAILABLE`；同 Key 同哈希原样重放。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `228 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#50 M4：实现审计日志查询仓储与 DTO](https://github.com/Doggod727/CampusPilot/issues/50)（2026-07-14）
+  - `AuditLogRepository` 支持 actor/action/resource/request_id/from/to 过滤、分页和单条读取；不提供修改/删除或 Session 生命周期操作。
+  - 审计 DTO 对 before/after 快照再次执行递归 `redact()`，兼容历史脏数据并确保 password/token/secret 等值不出现在响应对象中。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `230 passed`（11 条既有 httpx 弃用警告）通过；未发现契约差异。
 
 ## 待办
 
