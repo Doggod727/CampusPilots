@@ -234,6 +234,10 @@
   - 新增内部 `ModerationService.scan/submit_case`；allow/mask 不建案，review/block 建立 pending 案件。
   - 案件仅保存 500 字内容摘要和规则 UUID/动作，写入脱敏 `moderation.case.submit` 审计；目标模块校验失败返回 `422 INVALID_MODERATION_TARGET`。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `221 passed`（11 条既有 httpx 弃用警告）通过；无公共 HTTP 契约差异。
+- [x] [#48 M4：实现审核案件查询 API](https://github.com/Doggod727/CampusPilot/issues/48)（2026-07-14）
+  - 新增 `GET /api/v1/moderation/cases` 与 `GET /api/v1/moderation/cases/{case_id}`，由 `moderation:read` 保护，支持分页、状态/风险/目标模块和四种排序。
+  - 空结果返回 200；不存在返回 `404 MODERATION_CASE_NOT_FOUND`；rule_hits 的 matched_text 始终置空，不回显敏感词原文。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `224 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
 
 ## 待办
 
