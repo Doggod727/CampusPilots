@@ -167,6 +167,12 @@
   - 成功返回 `201 UserResponse`；同哈希请求原样重放首次响应与 Request-Id，不同哈希或 pending 安全返回 `409 IDEMPOTENCY_CONFLICT`；重复身份返回 `409 DUPLICATE_RESOURCE`，缺失角色返回 `404 ROLE_NOT_FOUND`。
   - 响应、审计、幂等快照均不包含明文密码、密码哈希、请求体或数据库异常；新增共享用户摘要 DTO，列表/详情/创建接口字段保持一致。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `168 passed`。
+- [x] [#34 M4：实现用户角色全量替换接口](https://github.com/Doggod727/CampusPilot/issues/34)（2026-07-14）
+  - `PUT /api/v1/users/{user_id}/roles` 由 `user:role:assign` 保护，严格校验非空且不重复的角色 UUID 集合和乐观锁 `version`。
+  - 在用户行锁和单一事务内校验未软删除用户、角色存在性，原子递增用户版本并全量重建 `user_roles`；版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`。
+  - 成功写入 `user.roles.replace` 审计并返回共享安全用户摘要；before/after 仅包含用户、版本和角色信息，不暴露密码、Token 或内部异常。
+  - 本任务未发现 OpenAPI 状态码或字段差异，未新增契约台账项。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `173 passed`。
 
 ## 待办
 

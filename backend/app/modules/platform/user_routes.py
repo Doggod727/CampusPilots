@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.core.errors import AppError
 from app.core.request_id import REQUEST_ID_HEADER
 from app.infrastructure.database import Database
 from app.modules.platform.auth import AuthenticatedUser
@@ -23,6 +22,11 @@ from app.modules.platform.repositories import (
     UserRepository,
 )
 from app.modules.platform.user_admin import UserAdminService, user_admin_service_context
+from app.modules.platform.user_roles import (
+    UserNotFound,
+    UserRoleService,
+    user_role_service_context,
+)
 from app.modules.platform.user_schemas import (
     PageMetaData,
     RoleSummaryData,
@@ -63,14 +67,18 @@ class UserCreateRequest(BaseModel):
         return value
 
 
-class UserNotFound(AppError):
-    def __init__(self) -> None:
-        super().__init__(
-            status_code=404,
-            code="USER_NOT_FOUND",
-            message="用户不存在",
-        )
+class UserRoleAssignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
+    role_ids: list[UUID] = Field(min_length=1)
+    version: int = Field(ge=1)
+
+    @field_validator("role_ids")
+    @classmethod
+    def validate_unique_roles(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("role_ids must be unique")
+        return value
 
 async def get_user_repository() -> AsyncIterator[UserRepository]:
     database = Database.from_settings(get_settings())
@@ -83,6 +91,11 @@ async def get_user_repository() -> AsyncIterator[UserRepository]:
 
 async def get_user_admin_service() -> AsyncIterator[UserAdminService]:
     async with user_admin_service_context(get_settings()) as service:
+        yield service
+
+
+async def get_user_role_service() -> AsyncIterator[UserRoleService]:
+    async with user_role_service_context(get_settings()) as service:
         yield service
 
 
@@ -171,6 +184,35 @@ async def get_user(
     result = await repository.get_summary_by_id(user_id)
     if result is None:
         raise UserNotFound()
+    return SuccessResponse(
+        data=_user_summary(result),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
+@router.put(
+    "/{user_id}/roles",
+    operation_id="replaceUserRoles",
+    response_model=UserResponse,
+)
+async def replace_user_roles(
+    user_id: UUID,
+    payload: UserRoleAssignmentRequest,
+    request: Request,
+    current_user: Annotated[
+        AuthenticatedUser,
+        Depends(require_permissions("user:role:assign")),
+    ],
+    service: Annotated[UserRoleService, Depends(get_user_role_service)],
+) -> SuccessResponse[UserSummaryData]:
+    result = await service.replace_user_roles(
+        actor=current_user,
+        user_id=user_id,
+        role_ids=payload.role_ids,
+        expected_version=payload.version,
+        request_id=request.state.request_id,
+    )
     return SuccessResponse(
         data=_user_summary(result),
         request_id=request.state.request_id,

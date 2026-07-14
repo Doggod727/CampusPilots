@@ -11,7 +11,12 @@ from app.modules.platform.idempotency import IdempotencyConflict
 from app.modules.platform.models import Role, User
 from app.modules.platform.repositories import UserListItem, UserListPage
 from app.modules.platform.user_admin import CreateUserResult
-from app.modules.platform.user_routes import get_user_admin_service, get_user_repository
+from app.modules.platform.user_roles import UserRoleService
+from app.modules.platform.user_routes import (
+    get_user_admin_service,
+    get_user_repository,
+    get_user_role_service,
+)
 
 
 def _authenticated_user(*permissions: str) -> AuthenticatedUser:
@@ -60,11 +65,14 @@ def _client(
     repository: MagicMock,
     current_user: AuthenticatedUser | None = None,
     service: MagicMock | None = None,
+    role_service: MagicMock | None = None,
 ) -> TestClient:
     application = create_app()
     application.dependency_overrides[get_user_repository] = lambda: repository
     if service is not None:
         application.dependency_overrides[get_user_admin_service] = lambda: service
+    if role_service is not None:
+        application.dependency_overrides[get_user_role_service] = lambda: role_service
     if current_user is not None:
         application.dependency_overrides[get_authenticated_user] = lambda: current_user
     return TestClient(application, raise_server_exceptions=False)
@@ -333,3 +341,56 @@ def test_create_user_requires_write_permission_and_key_validation() -> None:
     )
     assert invalid.status_code == 422
     assert invalid.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_replace_user_roles_returns_updated_summary_and_forwards_actor() -> None:
+    repository = MagicMock()
+    role_service = MagicMock(spec=UserRoleService)
+    user, role = _listed_user()
+    role_service.replace_user_roles = AsyncMock(
+        return_value=UserListItem(user=user, roles=(role,))
+    )
+    actor = _authenticated_user("user:role:assign")
+    client = _client(repository, actor, role_service=role_service)
+
+    response = client.put(
+        f"/api/v1/users/{user.id}/roles",
+        json={"role_ids": [str(role.id)], "version": user.version},
+        headers={"X-Request-Id": "replace-role-request-123"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["request_id"] == "replace-role-request-123"
+    assert payload["data"]["roles"][0]["code"] == "student"
+    assert "password_hash" not in response.text
+    kwargs = role_service.replace_user_roles.await_args.kwargs
+    assert kwargs["actor"] is actor
+    assert kwargs["user_id"] == user.id
+    assert kwargs["expected_version"] == user.version
+
+
+def test_replace_user_roles_requires_permission_and_validates_payload() -> None:
+    repository = MagicMock()
+    role_service = MagicMock(spec=UserRoleService)
+    client = _client(repository, _authenticated_user("user:read"), role_service)
+
+    forbidden = client.put(
+        f"/api/v1/users/{uuid4()}/roles",
+        json={"role_ids": [str(uuid4())], "version": 1},
+    )
+    assert forbidden.status_code == 403
+    role_service.replace_user_roles.assert_not_called()
+
+    validation_client = _client(
+        repository,
+        _authenticated_user("user:role:assign"),
+        role_service=role_service,
+    )
+    invalid = validation_client.put(
+        f"/api/v1/users/{uuid4()}/roles",
+        json={"role_ids": [], "version": 0, "unexpected": True},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["code"] == "VALIDATION_ERROR"
+    role_service.replace_user_roles.assert_not_called()

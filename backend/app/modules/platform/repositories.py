@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import case, func, or_, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.platform.models import (
@@ -110,6 +110,46 @@ class UserRepository:
         )
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
+
+    async def get_for_update(self, user_id: UUID) -> User | None:
+        result = await self._session.execute(
+            select(User)
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def get_roles_for_user(self, user_id: UUID) -> list[Role]:
+        result = await self._session.execute(
+            select(Role)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user_id)
+            .order_by(Role.code)
+        )
+        return list(result.scalars().all())
+
+    async def bump_version_if_match(
+        self,
+        user_id: UUID,
+        expected_version: int,
+        updated_at: datetime,
+    ) -> bool:
+        result = await self._session.execute(
+            update(User)
+            .where(
+                User.id == user_id,
+                User.version == expected_version,
+                User.deleted_at.is_(None),
+            )
+            .values(version=User.version + 1, updated_at=updated_at)
+        )
+        return result.rowcount == 1
+
+    async def clear_roles(self, user_id: UUID) -> int:
+        result = await self._session.execute(
+            delete(UserRole).where(UserRole.user_id == user_id)
+        )
+        return result.rowcount
 
     async def get_summary_by_id(self, user_id: UUID) -> UserListItem | None:
         user = await self.get_by_id(user_id)
