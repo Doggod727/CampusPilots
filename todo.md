@@ -56,6 +56,11 @@
   - 两类查询均连接 users 并排除软删除用户，不修改或关闭调用方 Session。
   - PostgreSQL 查询编译、Alembic 离线升降级及 Python 编译检查通过。
   - 全部自动化测试 `33 passed`。
+- [x] [#11 M4：实现 Argon2id 密码哈希适配器](https://github.com/Doggod727/CampusPilot/issues/11)（2026-07-14）
+  - 使用 argon2-cffi 默认安全参数提供密码哈希、验证和重哈希判断。
+  - 密码不匹配和非法哈希统一安全返回验证失败，不记录或返回明文密码。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `36 passed`。
 
 ## 待办
 
