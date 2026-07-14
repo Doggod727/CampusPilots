@@ -254,6 +254,10 @@
   - `ConfigRepository` 支持 namespace/key 读取和 editable+version 条件更新；`ConfigService` 严格校验 string/integer/number/boolean/json 类型。
   - 不可编辑返回 `403 CONFIG_NOT_EDITABLE`，缺失返回 `404 CONFIG_NOT_FOUND`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`；环境密钥相关 key 不暴露或更新，写入 `config.update` 审计。
   - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `234 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
+- [x] [#53 M4：实现配置管理 API](https://github.com/Doggod727/CampusPilot/issues/53)（2026-07-14）
+  - 新增 `GET /api/v1/configs` 与 `PATCH /api/v1/configs/{config_key}`，分别由 `config:read/write` 保护，严格校验 key、value、version 和未知字段。
+  - 响应只包含非密钥业务配置；ConfigService 的不可编辑/缺失/版本冲突语义分别为 403/404/409，沿用统一错误信封。
+  - Python 编译、Alembic 单 head/离线 upgrade/downgrade 及全量测试 `236 passed`（11 条既有 httpx 弃用警告）通过；未发现 OpenAPI 差异。
 
 ## 待办
 
