@@ -21,6 +21,10 @@ from app.modules.platform.rbac_permissions import (
     RolePermissionService,
     role_permission_service_context,
 )
+from app.modules.platform.rbac_delete import (
+    RoleDeleteService,
+    role_delete_service_context,
+)
 from app.modules.platform.rbac_schemas import (
     PermissionListData,
     RoleListData,
@@ -101,6 +105,11 @@ async def get_role_admin_service() -> AsyncIterator[RoleAdminService]:
 
 async def get_role_update_service() -> AsyncIterator[RoleUpdateService]:
     async with role_update_service_context(get_settings()) as service:
+        yield service
+
+
+async def get_role_delete_service() -> AsyncIterator[RoleDeleteService]:
+    async with role_delete_service_context(get_settings()) as service:
         yield service
 
 
@@ -202,6 +211,32 @@ async def update_role(
     )
     return SuccessResponse(
         data=role_data(result),
+        request_id=request.state.request_id,
+        timestamp=datetime.now(UTC),
+    )
+
+
+@router.delete(
+    "/roles/{role_id}",
+    operation_id="deleteRole",
+    response_model=SuccessResponse[dict[str, object]],
+)
+async def delete_role(
+    role_id: UUID,
+    request: Request,
+    current_user: Annotated[
+        AuthenticatedUser,
+        Depends(require_permissions("role:write")),
+    ],
+    service: Annotated[RoleDeleteService, Depends(get_role_delete_service)],
+) -> SuccessResponse[dict[str, object]]:
+    await service.delete_role(
+        actor=current_user,
+        role_id=role_id,
+        request_id=request.state.request_id,
+    )
+    return SuccessResponse(
+        data={},
         request_id=request.state.request_id,
         timestamp=datetime.now(UTC),
     )

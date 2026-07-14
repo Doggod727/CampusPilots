@@ -206,6 +206,10 @@
   - 角色不存在返回 `404 ROLE_NOT_FOUND`；非法 UUID 返回 422；认证失败/权限不足沿用统一 401/403 错误信封。
   - 查询保持只读，不暴露密码、Token 或 Session 字段；未发现 OpenAPI 状态码或字段差异。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `196 passed`（11 条既有 httpx 弃用警告）。
+- [x] [#41 M4：实现角色删除接口](https://github.com/Doggod727/CampusPilot/issues/41)（2026-07-14）
+  - `DELETE /api/v1/roles/{role_id}` 由 `role:write` 保护；系统角色返回 `409 SYSTEM_ROLE_PROTECTED`，被用户引用角色返回 `409 ROLE_IN_USE`。
+  - 角色不存在返回 `404 ROLE_NOT_FOUND`；成功删除自定义角色并写入脱敏 `role.delete` 审计，响应为统一空数据信封。
+  - 本任务未发现 OpenAPI 状态码或字段差异；Python 编译、Alembic 单 head/离线 upgrade 与 downgrade 及全量测试 `201 passed`（11 条既有 httpx 弃用警告）通过。
 
 ## 待办
 

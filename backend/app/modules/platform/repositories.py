@@ -410,6 +410,22 @@ class RbacWriteRepository(RbacReadRepository):
         )
         return result.rowcount
 
+    async def get_role_for_update(self, role_id: UUID) -> Role | None:
+        result = await self._session.execute(
+            select(Role).where(Role.id == role_id).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def count_role_assignments(self, role_id: UUID) -> int:
+        result = await self._session.execute(
+            select(func.count(UserRole.user_id)).where(UserRole.role_id == role_id)
+        )
+        return int(result.scalar_one())
+
+    async def delete_role(self, role_id: UUID) -> bool:
+        result = await self._session.execute(delete(Role).where(Role.id == role_id))
+        return result.rowcount == 1
+
 
 class AuthPolicyRepository:
     """Read the persisted login-lock policy within a caller-owned session."""
