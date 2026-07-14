@@ -45,6 +45,7 @@ def test_settings_load_defaults_and_mask_secrets(
 
     assert settings.access_token_minutes == 15
     assert settings.refresh_token_days == 7
+    assert settings.refresh_cookie_secure is False
     assert str(settings.deepseek_base_url) == "https://api.deepseek.com/"
     assert settings.deepseek_model == "deepseek-v4-pro"
     assert settings.use_mock_campus_adapters is True
@@ -58,6 +59,7 @@ def test_environment_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None
     set_required_environment(monkeypatch)
     monkeypatch.setenv("ACCESS_TOKEN_MINUTES", "30")
     monkeypatch.setenv("REFRESH_TOKEN_DAYS", "14")
+    monkeypatch.setenv("REFRESH_COOKIE_SECURE", "true")
     monkeypatch.setenv("DEEPSEEK_MODEL", "mock-deepseek-model")
     monkeypatch.setenv("USE_MOCK_CAMPUS_ADAPTERS", "false")
 
@@ -65,6 +67,7 @@ def test_environment_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert settings.access_token_minutes == 30
     assert settings.refresh_token_days == 14
+    assert settings.refresh_cookie_secure is True
     assert settings.deepseek_model == "mock-deepseek-model"
     assert settings.use_mock_campus_adapters is False
 

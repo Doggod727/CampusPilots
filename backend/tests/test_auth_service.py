@@ -76,6 +76,10 @@ def _user(**overrides: object) -> User:
         "status": "active",
         "failed_login_count": 0,
         "locked_until": None,
+        "email": "student01@example.edu",
+        "department": "计算机学院",
+        "created_at": FIXED_NOW - timedelta(days=30),
+        "version": 1,
     }
     values.update(overrides)
     return User(**values)
@@ -97,7 +101,9 @@ def _service(
     user_auth_repository.record_successful_login = AsyncMock(return_value=True)
     rbac_repository = MagicMock()
     rbac_repository.list_roles_for_user = AsyncMock(
-        return_value=[MagicMock(spec=Role, code="student")]
+        return_value=[
+            Role(id=uuid4(), code="student", name="普通学生", description=None)
+        ]
     )
     rbac_repository.list_permission_codes_for_user = AsyncMock(
         return_value=["community:read"]
@@ -156,7 +162,7 @@ def test_login_success_resets_state_issues_tokens_and_writes_audit() -> None:
     )
 
     assert result.user.user_id == user.id
-    assert result.user.roles == ("student",)
+    assert tuple(role.code for role in result.user.roles) == ("student",)
     assert result.user.permissions == ("community:read",)
     assert "access-token-secret" not in repr(result)
     assert "refresh-token-secret" not in repr(result)

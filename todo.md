@@ -19,6 +19,7 @@
 
 - 认证登录临时锁定：M4 详细设计第 4.2 节和错误码表写为 429，但 OpenAPI `/api/v1/auth/login` 定义 `423 Locked` 及 `Retry-After`。后续实现固定使用 `423 ACCOUNT_LOCKED`，429 仅用于限流；影响依赖认证的前端与 M1/M2/M3。M4 收尾时修订详细设计对应章节，OpenAPI 保持现有定义。
 - 认证失败达到锁定阈值的当前请求：实现固定返回 `401 INVALID_CREDENTIALS`，从下一次请求开始返回 `423 ACCOUNT_LOCKED`；详细设计未规定该边界行为。影响依赖认证的前端与 M1/M2/M3；M4 收尾时在登录流程补充该规则。
+- 认证登录禁用账号：实现返回 `403 ACCOUNT_DISABLED`，与详细设计一致，但 OpenAPI `/api/v1/auth/login` 当前未声明 403。影响依赖认证的前端与 M1/M2/M3；M4 收尾时补充 OpenAPI 响应并校验生成客户端。
 
 ## 已完成
 
@@ -112,6 +113,11 @@
   - 未知用户与密码错误统一 401；禁用为 403；锁定为 423 并携带 Retry-After；阈值当前请求的 401 规则已登记至契约台账。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `80 passed`。
+- [x] [#22 M4：实现登录 HTTP 接口与 Refresh Cookie](https://github.com/Doggod727/CampusPilot/issues/22)（2026-07-14）
+  - `POST /api/v1/auth/login` 返回统一成功信封、完整当前用户上下文，并设置 HttpOnly、SameSite=Lax 的 Refresh Cookie。
+  - 新增显式 REFRESH_COOKIE_SECURE 配置；健康检查保持不读取配置或连接数据库。
+  - 禁用账号 403 的 OpenAPI 漏项已登记至契约台账，留待 M4 收尾统一更新文档。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过；全部自动化测试 `84 passed`。
 
 ## 待办
 

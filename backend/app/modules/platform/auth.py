@@ -49,12 +49,25 @@ class AccountLocked(AppError):
 
 
 @dataclass(frozen=True)
+class AuthenticatedRole:
+    role_id: UUID
+    code: str
+    name: str
+
+
+@dataclass(frozen=True)
 class AuthenticatedUser:
     user_id: UUID
     username: str
     display_name: str
-    roles: tuple[str, ...]
+    email: str | None
+    department: str | None
+    status: str
+    roles: tuple[AuthenticatedRole, ...]
     permissions: tuple[str, ...]
+    last_login_at: datetime
+    created_at: datetime
+    version: int
 
 
 @dataclass(frozen=True)
@@ -162,6 +175,14 @@ class AuthService:
                     user.id
                 )
                 role_codes = tuple(role.code for role in roles)
+                role_summaries = tuple(
+                    AuthenticatedRole(
+                        role_id=role.id,
+                        code=role.code,
+                        name=role.name,
+                    )
+                    for role in roles
+                )
                 access_token = self._token_service.issue_access(
                     user_id=user.id,
                     username=user.username,
@@ -195,8 +216,14 @@ class AuthService:
                         user_id=user.id,
                         username=user.username,
                         display_name=user.display_name,
-                        roles=role_codes,
+                        email=user.email,
+                        department=user.department,
+                        status="active",
+                        roles=role_summaries,
                         permissions=tuple(permissions),
+                        last_login_at=now,
+                        created_at=user.created_at,
+                        version=user.version,
                     ),
                     access_token=access_token,
                     refresh_token=refresh_token,

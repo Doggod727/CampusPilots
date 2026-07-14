@@ -13,6 +13,8 @@ python -m uvicorn app.main:app --reload
 
 `.env.example` 只包含本地演示值和密钥占位符。真实的 JWT、DeepSeek 等密钥只写入本机 `.env`，不得提交。当前 `/health/live` 不读取配置或访问外部依赖。
 
+本地 HTTP 演示使用 `REFRESH_COOKIE_SECURE=false`；生产环境必须在本机部署配置中显式设置为 `true`，否则浏览器不会以 Secure 属性保存 Refresh Cookie。
+
 存活检查：`GET http://localhost:8000/health/live`
 
 运行当前后端测试：
