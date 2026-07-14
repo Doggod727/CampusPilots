@@ -36,3 +36,16 @@ python -m alembic downgrade base
 ```
 
 当前开发机没有 Docker/PostgreSQL，仅完成了 Alembic 离线 SQL 验证；真实空库升降级仍需在可用环境中执行。
+
+## M4 演示账号种子
+
+在 PostgreSQL 已完成迁移且本机 `.env` 已配置后，临时注入演示密码并执行种子命令：
+
+```powershell
+cd backend
+$env:DEMO_SEED_PASSWORD = Read-Host "Set a local demo seed password"
+python -m app.scripts.seed_demo
+Remove-Item Env:DEMO_SEED_PASSWORD
+```
+
+命令会重复收敛到预定义的系统角色、权限、角色权限和 6 个演示账号。密码只在运行时读取并写入 Argon2id 哈希，命令输出不会显示密码。

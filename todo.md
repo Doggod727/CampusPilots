@@ -61,6 +61,11 @@
   - 密码不匹配和非法哈希统一安全返回验证失败，不记录或返回明文密码。
   - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `36 passed`。
+- [x] [#12 M4：添加演示账号与 RBAC 种子命令](https://github.com/Doggod727/CampusPilot/issues/12)（2026-07-14）
+  - `python -m app.scripts.seed_demo` 在单事务中收敛权限、系统角色、角色权限及 6 个演示账号。
+  - 种子密码只从运行时 `DEMO_SEED_PASSWORD` 读取，并使用 Argon2id 哈希；命令输出不包含密码。
+  - PostgreSQL 方言 SQL、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `41 passed`；真实空库执行仍待 PostgreSQL 环境可用后完成。
 
 ## 待办
 
