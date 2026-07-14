@@ -71,6 +71,11 @@
   - 不保存原始 Refresh Token，且实体表示不泄露 token_hash。
   - PostgreSQL 方言编译、Python 编译检查及 Alembic 单 head、离线升降级回归通过。
   - 全部自动化测试 `43 passed`。
+- [x] [#14 M4：实现 JWT 与 Refresh Token 基础服务](https://github.com/Doggod727/CampusPilot/issues/14)（2026-07-14）
+  - TokenService 使用 HS256 签发并校验包含用户、角色与权限上下文的短期 Access Token。
+  - 高熵 Refresh Token 仅输出运行时原值、UUID 与 SHA-256 哈希；敏感值不参与 repr 或异常信息。
+  - Python 编译检查及 Alembic 单 head、离线升降级回归通过。
+  - 全部自动化测试 `51 passed`。
 
 ## 待办
 
