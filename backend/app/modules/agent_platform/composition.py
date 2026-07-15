@@ -29,6 +29,10 @@ from app.modules.agent_platform.tool_gateway.mocks import build_mock_handlers
 from app.modules.agent_platform.traces import TraceRepository, TraceService
 from app.modules.campus_service.electricity import ElectricityService
 from app.modules.campus_service.repositories import ElectricityRepository
+from app.modules.ai_knowledge.knowledge import KnowledgeRepository, KnowledgeService
+from app.modules.ai_knowledge.retrieval import RetrievalService
+from app.modules.ai_knowledge.tool_adapters import KnowledgeAnswerToolHandler, KnowledgeSearchToolHandler
+from app.modules.ai_knowledge.vectors import BgeSmallZhEmbeddingProvider, ChromaVectorStore
 from app.modules.platform.audit import AuditService, redact
 from app.modules.platform.moderation import ModerationService
 from app.modules.platform.moderation_scan import SensitiveWordScanner
@@ -95,8 +99,25 @@ class RuntimeCompositionFactory:
         )
         authorization = M4ToolAuthorizationAdapter()
         electricity = ElectricityService(ElectricityRepository(session))
+        import chromadb
+        knowledge = KnowledgeService(session, KnowledgeRepository(session))
+        retrieval = RetrievalService(
+            session,
+            knowledge,
+            BgeSmallZhEmbeddingProvider(str(self.settings.knowledge_embedding_model_path)),
+            ChromaVectorStore(chromadb.PersistentClient(path=str(self.settings.knowledge_chroma_path))),
+            self.settings.knowledge_score_threshold,
+        )
+        gateway = DeepSeekGateway(
+            api_key=self.settings.deepseek_api_key.get_secret_value(),
+            base_url=str(self.settings.deepseek_base_url),
+            model=self.settings.deepseek_model,
+            timeout_seconds=self.settings.agent_run_timeout_seconds,
+        )
         handlers = build_mock_handlers()
         handlers.update({
+            "knowledge.search": KnowledgeSearchToolHandler(retrieval),
+            "knowledge.answer": KnowledgeAnswerToolHandler(retrieval, gateway),
             "electricity.get_balance": ElectricityBalanceToolHandler(electricity),
             "electricity.create_topup_request": ElectricityTopupToolHandler(electricity),
             "governance.check_content": GovernanceCheckContentHandler(moderation),

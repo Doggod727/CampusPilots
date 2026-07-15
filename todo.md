@@ -560,6 +560,8 @@
   - 实现meta、delta、sources、done/error固定事件顺序；Provider开始输出后不做透明重试。
 - [x] [#125 M1：引用与消息反馈](https://github.com/Doggod727/CampusPilot/issues/125)（2026-07-15）
   - 原子追加有界引用快照，并为本人已完成/兜底回答提供-1/1幂等反馈upsert。
+- [x] [#126 M1：真实知识Tool Adapter](https://github.com/Doggod727/CampusPilot/issues/126)（2026-07-15）
+  - knowledge.search/answer改用M1授权检索与DeepSeek网关；Tool传入知识范围只能缩小，空范围安全兜底。
 
 ## 待办
 
