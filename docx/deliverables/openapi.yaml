@@ -2876,6 +2876,8 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/datasets:
     get:
@@ -5819,10 +5821,11 @@ components:
             data: {$ref: "#/components/schemas/ToolCatalogItem"}
     ToolStateUpdateRequest:
       type: object
-      required: [enabled]
+      required: [enabled, confirmed, reason]
       additionalProperties: false
       properties:
         enabled: {type: boolean}
+        confirmed: {type: boolean, const: true}
         reason: {type: string, minLength: 2, maxLength: 300}
 
     DatasetPurpose:

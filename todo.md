@@ -494,6 +494,10 @@
   - Worker 使用新 Session 与 `FOR UPDATE SKIP LOCKED` 单次领取，原子收敛 queued→running→succeeded/failed；终态和并发领取不会重复执行或重复写指标。
   - 五类确定性 Fake Evaluator 仅生成固定离线测试指标；Provider异常统一只保存 `EVALUATION_PROVIDER_UNAVAILABLE`，不保存异常、样本、Prompt或密钥。
   - 全量测试 `440 passed`（11 条既有警告），Python编译、OpenAPI lint（3条既有文档警告）、Alembic单head及离线升降级通过；真实评估器与常驻Worker仍为后续任务。
+- [x] [#104 M5：实现 Tool 启停与目录刷新 API](https://github.com/Doggod727/CampusPilot/issues/104)（2026-07-15）
+  - 新增 `PATCH /api/v1/tools/{tool_name}`，强制 `tool:catalog:write`、幂等键、confirmed=true和操作原因；事务内原子更新、脱敏审计，提交成功后失效目录缓存。
+  - Loader 保留停用 Tool 的活动冻结契约，Registry精确返回 `409 TOOL_DISABLED`，不再把合法停用误判为全目录契约漂移。
+  - OpenAPI与详细设计同步 `409 TOOL_STATE_CONFIRMATION_REQUIRED`、请求字段和422语义。
 
 ## 待办
 

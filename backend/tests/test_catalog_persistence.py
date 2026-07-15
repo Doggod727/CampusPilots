@@ -37,7 +37,7 @@ def test_repository_queries_are_stable_and_session_owned() -> None:
     session=MagicMock(); session.execute=AsyncMock(side_effect=[Result(agent_rows()), Result(tool_rows())]); repo=CatalogRepository(session)
     assert len(asyncio.run(repo.list_active_agents())) == 6; assert len(asyncio.run(repo.list_active_tools())) == 14
     sql=str(session.execute.await_args_list[1].args[0].compile(dialect=postgresql.dialect()))
-    assert "enabled IS true" in sql and "status =" in sql and "ORDER BY" in sql
+    assert "enabled IS true" not in sql and "status =" in sql and "ORDER BY" in sql
     session.commit.assert_not_called(); session.close.assert_not_called()
 
 
@@ -46,6 +46,15 @@ def test_loader_builds_registries_and_rejects_schema_drift() -> None:
     agents, tools=asyncio.run(PersistentCatalogLoader(repo).load()); assert len(agents.list_active()) == 6; assert all(tools.resolve(name) for name in TOOL_CONTRACTS)
     records=list(awaitable_result(repo.list_active_tools)); records[0].version.timeout_ms += 1; repo.list_active_tools=AsyncMock(return_value=tuple(records))
     with pytest.raises(CatalogContractMismatch): asyncio.run(PersistentCatalogLoader(repo).load())
+
+
+def test_loader_preserves_disabled_tool_without_breaking_catalog() -> None:
+    records=tuple(type("R", (), {"definition": d, "version": v}) for d,v in tool_rows())
+    records[0].definition.enabled=False
+    repo=MagicMock();repo.list_active_agents=AsyncMock(return_value=tuple(type("R", (), {"definition": d, "version": v}) for d,v in agent_rows()));repo.list_active_tools=AsyncMock(return_value=records)
+    _agents,tools=asyncio.run(PersistentCatalogLoader(repo).load())
+    with pytest.raises(Exception) as error:tools.resolve(records[0].definition.name)
+    assert getattr(error.value,"code",None)=="TOOL_DISABLED"
 
 
 def awaitable_result(mock): return mock.return_value

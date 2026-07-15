@@ -566,7 +566,9 @@ SSE 以 PostgreSQL `agent_run_events` 为事实源，事件 sequence 在单个 R
 | GET `/agents` | `agent:catalog:read` | 返回启用 Agent 和版本，不返回完整系统 Prompt 给普通用户 |
 | GET `/tools` | `tool:catalog:read` | 按用户权限过滤；内部 Tool 不返回 |
 | GET `/tools/{tool_name}` | `tool:catalog:read` | 返回 Schema、风险、确认和版本 |
-| PATCH `/tools/{tool_name}` | `tool:catalog:write` | 只允许启停/版本切换；二次确认和审计 |
+| PATCH `/tools/{tool_name}` | `tool:catalog:write` | 启停要求幂等键、`confirmed=true`、原因和审计；未确认返回 `409 TOOL_STATE_CONFIRMATION_REQUIRED` |
+
+停用只改变数据库运行状态，不删除冻结契约或活动版本。Catalog Loader 仍加载停用 Tool，使精确解析稳定返回 `409 TOOL_DISABLED`；目录缓存仅在事务成功后失效并按需重建，单个 Tool 停用不得触发 `CATALOG_CONTRACT_MISMATCH`。
 
 ## 9.3 Dataset/Training/Model/Evaluation
 

@@ -5,18 +5,25 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, Header, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
+from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.agent_platform.catalog_persistence import CatalogRepository, PersistentCatalogLoader
 from app.modules.agent_platform.domain.contracts import UserContext
 from app.modules.agent_platform.orchestration.agent_registry import AgentRegistry
+from app.modules.agent_platform.tool_gateway.catalog import TOOL_CONTRACTS, ToolContract
 from app.modules.agent_platform.tool_gateway.errors import ToolNotFound
 from app.modules.agent_platform.tool_gateway.registry import ToolRegistry
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
+from app.modules.platform.audit import AuditService
+from app.modules.platform.idempotency import IdempotencyConflict, IdempotencyService
+from app.modules.platform.repositories import AuditLogRepository, IdempotencyRecordRepository
+from app.core.errors import AppError
+from app.core.request_id import REQUEST_ID_HEADER
 from app.shared.responses import SuccessResponse
 
 router = APIRouter(prefix="/api/v1", tags=["AgentCatalog", "ToolCatalog"])
@@ -53,6 +60,18 @@ ToolCatalogResponse = SuccessResponse[ToolCatalogData]
 ToolResponse = SuccessResponse[ToolCatalogItemData]
 
 
+class ToolStateUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    enabled: bool
+    confirmed: bool
+    reason: str = Field(min_length=2, max_length=300)
+
+
+class ToolStateConfirmationRequired(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="TOOL_STATE_CONFIRMATION_REQUIRED", message="Tool 状态变更需要明确确认")
+
+
 class CatalogProvider:
     """Lazily cache validated registries without import-time I/O."""
 
@@ -82,6 +101,41 @@ catalog_provider = CatalogProvider()
 
 async def get_catalogs() -> tuple[AgentRegistry, ToolRegistry]:
     return await catalog_provider.get()
+
+
+class ToolCatalogAdminService:
+    def __init__(self, session, repository, idempotency, audit) -> None:
+        self.session=session; self.repository=repository; self.idempotency=idempotency; self.audit=audit
+
+    async def update(self, *, actor: AuthenticatedUser, name: str, payload: ToolStateUpdateRequest, key: str, request_id: str):
+        if not payload.confirmed:
+            raise ToolStateConfirmationRequired()
+        request_body=payload.model_dump(mode="json")
+        async with self.session.begin():
+            decision=await self.idempotency.begin(user_id=actor.user_id,endpoint=f"PATCH /api/v1/tools/{name}",idempotency_key=key,request_body=request_body)
+            if decision.replay:
+                return decision.replay.response_status,dict(decision.replay.response_body),str(decision.replay.response_body["request_id"])
+            if decision.pending: raise IdempotencyConflict()
+            record=await self.repository.get_tool_for_update(name)
+            if record is None: raise ToolNotFound()
+            before=record.definition.enabled; record.definition.enabled=payload.enabled
+            frozen=TOOL_CONTRACTS.get(name)
+            if frozen is None: raise ToolNotFound()
+            contract=ToolContract(definition=frozen.definition.model_copy(update={"enabled":payload.enabled}),input_model=frozen.input_model,output_model=frozen.output_model)
+            data=_tool_data(contract)
+            response=SuccessResponse(data=data,request_id=request_id,timestamp=datetime.now(UTC)).model_dump(mode="json")
+            self.audit.record_success(action="tool.state.update",resource_type="tool",resource_id=name,request_id=request_id,actor_user_id=actor.user_id,actor_username=actor.username,before_data={"enabled":before},after_data={"enabled":payload.enabled,"reason":payload.reason})
+            if not await self.idempotency.complete(record_id=decision.record_id,response_status=200,response_body=response,resource_type="tool",resource_id=name): raise IdempotencyConflict()
+        return 200,response,request_id
+
+
+async def get_catalog_admin_service() -> AsyncIterator[ToolCatalogAdminService]:
+    database=Database.from_settings(get_settings())
+    try:
+        async with database.session() as session:
+            yield ToolCatalogAdminService(session,CatalogRepository(session),IdempotencyService(session=session,repository=IdempotencyRecordRepository(session)),AuditService(AuditLogRepository(session)))
+    finally:
+        await database.dispose()
 
 
 def _context(user: AuthenticatedUser, request_id: str) -> UserContext:
@@ -142,3 +196,17 @@ async def get_tool(
     if tool_name not in allowed:
         raise ToolNotFound()
     return SuccessResponse(data=_tool_data(allowed[tool_name]), request_id=request.state.request_id, timestamp=datetime.now(UTC))
+
+
+@router.patch("/tools/{tool_name}", operation_id="updateToolRuntimeState", response_model=ToolResponse)
+async def update_tool_runtime_state(
+    tool_name: str,
+    payload: ToolStateUpdateRequest,
+    request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("tool:catalog:write"))],
+    service: Annotated[ToolCatalogAdminService, Depends(get_catalog_admin_service)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
+) -> JSONResponse:
+    status,body,response_request_id=await service.update(actor=actor,name=tool_name,payload=payload,key=idempotency_key,request_id=request.state.request_id)
+    catalog_provider.invalidate()
+    return JSONResponse(body,status_code=status,headers={REQUEST_ID_HEADER:response_request_id})

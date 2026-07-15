@@ -42,13 +42,23 @@ class CatalogRepository:
         row = (await self._session.execute(stmt)).one_or_none(); return AgentCatalogRecord(*row) if row else None
 
     async def list_active_tools(self) -> tuple[ToolCatalogRecord, ...]:
-        stmt = select(ToolDefinition, ToolVersion).join(ToolVersion, ToolVersion.tool_id == ToolDefinition.id).where(ToolDefinition.enabled.is_(True), ToolVersion.status == "active").order_by(ToolDefinition.name, ToolVersion.version)
+        stmt = select(ToolDefinition, ToolVersion).join(ToolVersion, ToolVersion.tool_id == ToolDefinition.id).where(ToolVersion.status == "active").order_by(ToolDefinition.name, ToolVersion.version)
         return tuple(ToolCatalogRecord(*row) for row in (await self._session.execute(stmt)).all())
 
     async def get_tool(self, name: str, version: str | None = None) -> ToolCatalogRecord | None:
         stmt = select(ToolDefinition, ToolVersion).join(ToolVersion, ToolVersion.tool_id == ToolDefinition.id).where(ToolDefinition.name == name)
         stmt = stmt.where(ToolVersion.version == version) if version else stmt.where(ToolVersion.status == "active")
         row = (await self._session.execute(stmt)).one_or_none(); return ToolCatalogRecord(*row) if row else None
+
+    async def get_tool_for_update(self, name: str) -> ToolCatalogRecord | None:
+        stmt = (
+            select(ToolDefinition, ToolVersion)
+            .join(ToolVersion, ToolVersion.tool_id == ToolDefinition.id)
+            .where(ToolDefinition.name == name, ToolVersion.status == "active")
+            .with_for_update()
+        )
+        row = (await self._session.execute(stmt)).one_or_none()
+        return ToolCatalogRecord(*row) if row else None
 
 
 class PersistentCatalogLoader:
@@ -66,11 +76,15 @@ class PersistentCatalogLoader:
         for record in tool_records:
             frozen = TOOL_CONTRACTS.get(record.definition.name)
             if frozen is None or not self._matches(record, frozen): raise CatalogContractMismatch()
-            tools.append(frozen)
+            tools.append(ToolContract(
+                definition=frozen.definition.model_copy(update={"enabled": record.definition.enabled}),
+                input_model=frozen.input_model,
+                output_model=frozen.output_model,
+            ))
         if len(tools) != len(TOOL_CONTRACTS): raise CatalogContractMismatch()
         return AgentRegistry(agents), ToolRegistry(tools)
 
     @staticmethod
     def _matches(record: ToolCatalogRecord, frozen: ToolContract) -> bool:
         d, v, expected = record.definition, record.version, frozen.definition
-        return d.enabled and v.status == "active" and d.module == expected.module and d.risk_level == expected.risk_level and d.visibility == expected.visibility and v.version == expected.version and v.input_schema == frozen.input_model.model_json_schema() and v.output_schema == frozen.output_model.model_json_schema() and tuple(sorted(v.required_permissions)) == expected.required_permissions and v.timeout_ms == expected.timeout_ms and v.idempotent == expected.idempotent and v.requires_approval == expected.requires_approval
+        return v.status == "active" and d.module == expected.module and d.risk_level == expected.risk_level and d.visibility == expected.visibility and v.version == expected.version and v.input_schema == frozen.input_model.model_json_schema() and v.output_schema == frozen.output_model.model_json_schema() and tuple(sorted(v.required_permissions)) == expected.required_permissions and v.timeout_ms == expected.timeout_ms and v.idempotent == expected.idempotent and v.requires_approval == expected.requires_approval

@@ -4,7 +4,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.modules.agent_platform.catalog_routes import get_catalogs
+from app.modules.agent_platform.catalog_routes import get_catalogs,get_catalog_admin_service
 from app.modules.agent_platform.orchestration.agent_registry import AGENT_REGISTRATIONS, AgentRegistry
 from app.modules.agent_platform.tool_gateway.catalog import TOOL_CONTRACTS
 from app.modules.agent_platform.tool_gateway.registry import ToolRegistry
@@ -55,3 +55,16 @@ def test_catalog_permission_is_required() -> None:
 def test_import_and_health_do_not_load_catalog_database() -> None:
     response=client(set()).get("/health/live")
     assert response.status_code==200
+
+
+def test_tool_state_update_requires_confirmation_and_write_permission() -> None:
+    service=type("Service",(),{})();service.update=__import__("unittest.mock",fromlist=["AsyncMock"]).AsyncMock(return_value=(200,{"code":"OK","message":"success","data":{"name":"knowledge.search","module":"m1","description":"search","risk_level":"r0","enabled":False,"version":"1.0.0","input_schema":{},"output_schema":{},"required_permissions":[],"timeout_ms":5000,"idempotent":True,"requires_approval":False},"request_id":"state-request","timestamp":NOW.isoformat()},"state-request"))
+    app=create_app()
+    async def auth():return user({"tool:catalog:write"})
+    async def admin():yield service
+    app.dependency_overrides[get_authenticated_user]=auth;app.dependency_overrides[get_catalog_admin_service]=admin
+    client_=TestClient(app)
+    payload={"enabled":False,"confirmed":True,"reason":"maintenance"}
+    assert client_.patch("/api/v1/tools/knowledge.search",json=payload).status_code==422
+    response=client_.patch("/api/v1/tools/knowledge.search",headers={"Idempotency-Key":"state-key","X-Request-Id":"state-request"},json=payload)
+    assert response.status_code==200 and response.headers["X-Request-Id"]=="state-request"
