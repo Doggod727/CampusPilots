@@ -129,10 +129,13 @@ paths:
                 $ref: "#/components/schemas/ReadinessResponse"
         "503":
           description: 至少一个依赖未就绪
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ReadinessResponse"
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/v1/auth/login:
     post:
@@ -166,6 +169,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
         "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: 账号已禁用（`ACCOUNT_DISABLED`）
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
         "423": {$ref: "#/components/responses/Locked"}
         "422": {$ref: "#/components/responses/ValidationError"}
         "429": {$ref: "#/components/responses/TooManyRequests"}
@@ -192,19 +200,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/TokenResponse"
         "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Origin 缺失或与 `FRONTEND_ORIGIN` 不匹配（`AUTH_FORBIDDEN`）
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
         "429": {$ref: "#/components/responses/TooManyRequests"}
   /api/v1/auth/logout:
     post:
       tags: [Auth]
       operationId: logout
       summary: 注销当前刷新会话
+      description: 缺失、未知、已撤销或有效的 Refresh Cookie 均按幂等成功处理并清除 Cookie，不暴露 Token 状态。
       security:
         - refreshCookie: []
       parameters:
         - $ref: "#/components/parameters/XRequestId"
       responses:
         "200":
-          description: 已撤销 Refresh Token 并清除 Cookie
+          description: 登出已幂等完成并清除 Cookie
           headers:
             Set-Cookie:
               description: 清除 refresh_token 的过期 Cookie
@@ -213,7 +227,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EmptyResponse"
-        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Origin 缺失或与 `FRONTEND_ORIGIN` 不匹配（`AUTH_FORBIDDEN`）
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
   /api/v1/auth/me:
     get:
       tags: [Auth]
@@ -588,7 +606,7 @@ paths:
           schema: {$ref: "#/components/schemas/RiskLevel"}
         - name: target_module
           in: query
-          schema: {type: string, enum: [ai_knowledge, campus_service, community]}
+          schema: {type: string, enum: [ai_knowledge, campus_service, community, agent_platform]}
         - name: sort
           in: query
           schema:
@@ -2648,7 +2666,9 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AgentRunListResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+        "422": {$ref: "#/components/responses/ValidationError"}
     post:
       tags: [AgentRuns]
       operationId: createAgentRun
@@ -2668,6 +2688,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AgentRunResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
@@ -2687,33 +2708,44 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AgentRunDetailResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/agent-runs/{run_id}/stream:
     get:
       tags: [AgentRuns]
       operationId: streamAgentRun
       summary: 订阅 Agent 运行 SSE 事件
-      description: 支持 Last-Event-ID 断线续传；事件类型见 AgentStreamEvent.event。
+      description: 支持数字 Last-Event-ID 按持久化 sequence 断线续传；非法或超前游标返回 AGENT_EVENT_CURSOR_INVALID。终态 done/error 发送后关闭连接。
       parameters:
         - $ref: "#/components/parameters/AgentRunId"
         - name: Last-Event-ID
           in: header
           required: false
-          schema: {type: string, maxLength: 100}
+          schema: {type: string, pattern: "^[0-9]+$", maxLength: 100}
         - $ref: "#/components/parameters/XRequestId"
       responses:
         "200":
           description: SSE 事件流，每条 data 是 AgentStreamEvent JSON
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-cache}
+            X-Accel-Buffering:
+              schema: {type: string, const: "no"}
+            X-Request-Id:
+              schema: {type: string}
           x-event-payload-schema:
             $ref: "#/components/schemas/AgentStreamEvent"
           content:
             text/event-stream:
               schema: {type: string}
-              example: "id: 17\nevent: tool.completed\ndata: {\"run_id\":\"21000000-0000-4000-8000-000000000010\",\"sequence\":17}\n\n"
+              example: "id: 17\nevent: tool_call\ndata: {\"run_id\":\"21000000-0000-4000-8000-000000000010\",\"sequence\":17,\"event\":\"tool_call\",\"occurred_at\":\"2026-07-15T08:00:00Z\",\"data\":{\"status\":\"succeeded\"}}\n\n"
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /api/v1/agent-runs/{run_id}/cancel:
     post:
@@ -2730,8 +2762,11 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AgentRunResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/agent-runs/{run_id}/approvals/{approval_id}:
     post:
@@ -2755,6 +2790,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ApprovalResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
@@ -2772,7 +2808,9 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AgentCatalogResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /api/v1/tools:
     get:
@@ -2793,7 +2831,9 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ToolCatalogResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /api/v1/tools/{tool_name}:
     get:
@@ -2809,7 +2849,11 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ToolResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
     patch:
       tags: [ToolCatalog]
       operationId: updateToolRuntimeState
@@ -2829,8 +2873,11 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ToolResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/datasets:
     get:
@@ -2847,6 +2894,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/DatasetListResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
     post:
       tags: [Datasets]
@@ -2866,6 +2914,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/DatasetResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
@@ -2884,6 +2933,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/DatasetDetailResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
     delete:
       tags: [Datasets]
@@ -2899,6 +2950,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/EmptyResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
@@ -2929,9 +2981,12 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/DatasetUploadResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "413": {$ref: "#/components/responses/PayloadTooLarge"}
         "415": {$ref: "#/components/responses/UnsupportedMediaType"}
+        "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/datasets/{dataset_id}/versions:
@@ -2954,6 +3009,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/DatasetVersionResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
@@ -2974,6 +3031,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/DatasetVersionResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
 
@@ -2992,6 +3051,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/TrainingJobListResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
     post:
       tags: [Training]
@@ -3012,6 +3072,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/TrainingJobResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
@@ -3030,6 +3091,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/TrainingJobResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
 
   /api/v1/training-jobs/{training_job_id}/cancel:
@@ -3047,6 +3110,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/TrainingJobResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
 
@@ -3066,6 +3131,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ModelListResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
     post:
       tags: [Models]
@@ -3085,6 +3151,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ModelResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
@@ -3103,6 +3170,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ModelResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
 
   /api/v1/models/{model_id}/activate:
@@ -3121,6 +3190,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ModelResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
 
@@ -3140,6 +3211,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ModelResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
@@ -3159,6 +3231,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/EvaluationListResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
     post:
       tags: [Evaluations]
@@ -3178,7 +3251,10 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/EvaluationResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/evaluations/compare:
@@ -3199,8 +3275,10 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/EvaluationCompareResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/evaluations/{evaluation_id}:
@@ -3217,6 +3295,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/EvaluationResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
 
   /internal/v1/tools/{tool_name}:invoke:
@@ -3226,7 +3306,7 @@ paths:
       summary: Agent Runtime 统一调用 Tool
       description: 仅允许服务间凭证；复用用户身份和 run_id，不接受前端直接调用。
       security:
-        - bearerAuth: []
+        - internalServiceBearer: []
       parameters:
         - $ref: "#/components/parameters/ToolName"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -3247,10 +3327,13 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ToolInvokeResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
+        "429": {$ref: "#/components/responses/TooManyRequests"}
+        "502": {$ref: "#/components/responses/BadGateway"}
         "504": {$ref: "#/components/responses/GatewayTimeout"}
 
 components:
@@ -3263,6 +3346,11 @@ components:
       type: apiKey
       in: cookie
       name: refresh_token
+    internalServiceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-token
+      description: 仅受信 Agent Runtime 使用的独立服务凭证，不接受用户 JWT
   headers:
     XRequestId:
       description: 服务端确认的链路请求 ID
@@ -3846,7 +3934,7 @@ components:
 
     SensitiveWordScope:
       type: string
-      enum: [user_input, ai_output, community, all]
+      enum: [user_input, ai_output, community, tool_input, tool_output, agent_context, all]
     SensitiveWord:
       type: object
       required: [id, word, match_type, action, scope, enabled, created_at]
@@ -3907,7 +3995,7 @@ components:
       additionalProperties: false
       properties:
         id: {type: string, format: uuid}
-        target_module: {type: string, enum: [ai_knowledge, campus_service, community]}
+        target_module: {type: string, enum: [ai_knowledge, campus_service, community, agent_platform]}
         target_type: {type: string, maxLength: 50}
         target_id: {type: string, format: uuid}
         content_excerpt: {type: string, maxLength: 500}
@@ -5548,7 +5636,7 @@ components:
       properties:
         input: {type: string, minLength: 2, maxLength: 4000}
         conversation_id: {type: [string, "null"], format: uuid}
-        mode: {type: string, enum: [auto, knowledge, service, community], default: auto}
+        mode: {type: string, enum: [auto, knowledge, service, community, governance, modelops], default: auto}
         context:
           type: object
           additionalProperties: true
@@ -5560,7 +5648,7 @@ components:
       properties:
         id: {type: string, format: uuid}
         status: {$ref: "#/components/schemas/AgentRunStatus"}
-        route: {type: [string, "null"], enum: [knowledge, service, community, mixed, null]}
+        route: {type: [string, "null"], enum: [knowledge, service, community, governance, modelops, mixed, clarify, null]}
         router_model: {type: [string, "null"]}
         router_confidence: {type: [number, "null"], minimum: 0, maximum: 1}
         input_summary: {type: string, maxLength: 1000}
@@ -5579,8 +5667,8 @@ components:
         agent_code: {type: string}
         step_type: {type: string, enum: [route, plan, handoff, tool, generate, merge, govern]}
         status: {type: string, enum: [created, running, awaiting_approval, succeeded, partial, failed, cancelled]}
-        input_summary: {type: [string, "null"]}
-        output_summary: {type: [string, "null"]}
+        input_summary: {type: object, additionalProperties: true}
+        output_summary: {type: object, additionalProperties: true}
         error_code: {type: [string, "null"]}
         started_at: {type: string, format: date-time}
         finished_at: {type: [string, "null"], format: date-time}
@@ -5741,10 +5829,11 @@ components:
             data: {$ref: "#/components/schemas/ToolCatalogItem"}
     ToolStateUpdateRequest:
       type: object
-      required: [enabled]
+      required: [enabled, confirmed, reason]
       additionalProperties: false
       properties:
         enabled: {type: boolean}
+        confirmed: {type: boolean, const: true}
         reason: {type: string, minLength: 2, maxLength: 300}
 
     DatasetPurpose:

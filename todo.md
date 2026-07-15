@@ -305,8 +305,232 @@
   - Agent 调用强制 Run/Approval UUID 成对且必须由服务端标记确认，否则返回 `409 TOOL_APPROVAL_INVALID`；M2 不导入 M5 contracts、Registry 或 Executor。
   - 全量 pytest `272 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 单 head及离线升降级通过；本任务无公共 REST API 契约差异。
 
+## M5 项目重审与契约基线
+
+- [x] [#62 M5：校正 M4 兼容契约与状态码](https://github.com/Doggod727/CampusPilot/issues/62)（2026-07-15）
+  - 复核 `docx/deliverables` 全套 V2.1/V0.5.0 文档：M4 的认证、RBAC、审计、配置、幂等、Request-Id 和扁平错误信封可直接复用，不需要推倒重构。
+  - 校正 M4 契约回归：登录禁用补充 403；账号锁定统一为 `423 ACCOUNT_LOCKED` + `Retry-After`，429 仅用于限流；Refresh/Logout Origin 拒绝为 `403 AUTH_FORBIDDEN`；登出对缺失、未知、已撤销或有效 Cookie 均幂等返回 200；`/health/ready` 失败为 503 扁平 `ErrorResponse`。
+  - 校正详细设计中的响应信封与稳定错误码：`AUTH_FORBIDDEN`、`MODERATION_CASE_NOT_FOUND`、`RESOURCE_VERSION_CONFLICT`、`SERVICE_NOT_READY`；终态审核案件再次决策为 409。
+  - 扩展 M5 兼容契约：敏感词 scope 增加 `tool_input/tool_output/agent_context`，审核目标模块增加 `agent_platform`；30 个 M5 外部操作均显式声明 401，并保留资源范围/权限拒绝的 403。
+  - M4 运行时仍需后续增量兼容：数据库 CHECK、Pydantic 枚举、M5 权限/角色/配置种子以及 M5 到 M4 的薄适配器；在这些完成前不得宣称 M4 已完全兼容 M5。
+  - 原迁移顺序曾固定为 `0002` 后接 M5 兼容迁移；M2 电费迁移合入后，未发布的 M5 兼容迁移已安全调整为 `0004_platform_m5_compat`。
+  - 下一开发目标已调整为在 M2 `0003_campus_service_electricity` 后建立 M5 `0004` 兼容与 `0005_agent_platform_schema`。
+  - OpenAPI lint、YAML 解析、136 个唯一 operationId、全量测试 `247 passed`、Python 编译、Alembic 单 head及离线升降级验证通过；真实依赖集成未在本任务执行。
+- [x] [#64 M5：添加平台运行时兼容迁移与种子](https://github.com/Doggod727/CampusPilot/issues/64)（2026-07-15）
+  - M2 PR #60 已普通 merge；后续 M2 电费 PR #76 继续占用 `0003`，M5 兼容迁移因此重编号为 `0004`。
+  - 增量迁移扩展 `tool_input/tool_output/agent_context` 敏感词 scope 和 `agent_platform` 审核目标，幂等写入 20 个权限、2 个系统角色、7 项 Agent/ModelOps 配置及规定角色映射。
+  - ORM CHECK、Pydantic Literal、审核服务白名单和演示种子同步完成；演示种子现包含 44 个权限、7 个系统角色、9 项配置，不创建 `agent_runtime` 普通用户或硬编码密码。
+  - downgrade 清理本 Revision 引入的权限/角色/配置和使用新增枚举的数据后恢复旧 CHECK，不删除既有用户或共享扩展。
+  - 全量测试 `257 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；离线 SQL 精确验证 20 个权限、2 个角色和7项配置。
+  - 执行迁移/种子后必须重新登录或刷新 Token 才能取得新增权限；真实 PostgreSQL 集成仍待环境可用后验证。
+- [x] [#65 M5：建立 Agent 与 Tool 公共强类型契约](https://github.com/Doggod727/CampusPilot/issues/65)（2026-07-15）
+  - 新增严格、冻结的 UserContext、AgentTask/Result、RouteDecision、ToolDefinition/Call、ApprovalRequest 与资源引用类型，复用统一 ErrorDetail。
+  - 集合统一去重稳定排序；校验 Tool 名称/语义版本/超时、路由置信度、候选 Agent、最大步骤和审批生命周期；敏感参数、幂等 Key 与审批 ID 不进入 repr。
+  - R2/R3 外部 Tool 必须确认；runtime_internal R2 可继承父调用确认且后续禁止 LLM 直接调用。
+  - 全量测试 `262 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；未新增 HTTP 契约差异。
+- [x] [#66 M5：冻结14个初始 Tool 强类型契约](https://github.com/Doggod727/CampusPilot/issues/66)（2026-07-15）
+  - 为14个 P0 Tool 建立严格输入/输出 Pydantic 模型和唯一 TOOL_CONTRACTS 目录，运行时 JSON Schema 仅由模型生成，并以 SHA-256 快照冻结。
+  - 按详细设计第7章固定字段、权限、风险和超时；4个用户写 Tool 为需确认 R2，governance.write_audit 保持继承父确认的 runtime_internal R2；全部 Tool 声明支持幂等调用。
+  - 校正 `013_agent_platform_seed.sql` 中的 room/category、amount、事件/失物字段、超时、风险、幂等和确认元数据；Python 强类型目录为后续 Adapter 的唯一事实源。
+  - 本任务发现并消除 SQL 013 与详细设计第7章的内部 Tool 契约差异，未改变公共 HTTP 状态码。
+  - 全量测试 `266 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过。
+- [x] [#67 M5：实现内存 ToolRegistry 与权限过滤](https://github.com/Doggod727/CampusPilot/issues/67)（2026-07-15）
+  - 实现 register/resolve/list_allowed，支持名称+语义版本精确解析、默认选择最高启用版本、重复注册拒绝、停用冲突和稳定排序。
+  - 目录同时应用 Agent allowlist、调用者全部权限和 visibility；runtime_internal 默认不进入 LLM/普通目录，空权限和未知 Tool 默认拒绝。
+  - 14个冻结 Tool 全部完成内存注册；Registry 不连接数据库、不管理事务、不写审计。
+  - 稳定错误为 `404 TOOL_NOT_FOUND`、`409 TOOL_DISABLED`；本任务未新增公共 HTTP 路由或契约差异。
+  - 全量测试 `271 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过。
+- [x] [#68 M5：实现14个确定性 Mock Tool Handler](https://github.com/Doggod727/CampusPilot/issues/68)（2026-07-15）
+  - 定义统一异步 ToolHandler 协议并实现14个无网络、无数据库 Mock；固定时间和 UUID 派生保证重复输入结果可预测，输出再次通过冻结 Pydantic Schema。
+  - 覆盖知识、指南、报修、电费、活动、失物和治理；模拟电费固定 CNY/mock/is_simulated，充值明确声明不产生真实扣款或到账。
+  - 房间、工单和失物匹配执行最小资源范围检查；输出不包含密码、Access/Refresh Token、Authorization、电话或未脱敏敏感文本。
+  - success/empty/conflict/dependency_unavailable/timeout 通过显式构造参数注入，不使用随机故障。
+  - 全量测试 `275 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；无公共 HTTP 契约差异。
+- [x] [#69 M5：实现 ToolExecutor 校验与执行管线](https://github.com/Doggod727/CampusPilot/issues/69)（2026-07-15）
+  - 实现 prepare/authorize/execute：Registry 解析、严格输入/输出 Schema 校验、Agent allowlist、调用者完整权限、R2/R3 幂等 Key 与审批校验、runtime_internal 受信调用限制。
+  - 执行统一使用 `asyncio.wait_for`；超时和依赖故障分别安全映射为 `504 TOOL_TIMEOUT`、`502 TOOL_DEPENDENCY_UNAVAILABLE`，权限拒绝为 `403 TOOL_FORBIDDEN`，参数/审批错误为稳定 422/409，不回显参数、Token、权限集合或内部异常。
+  - 注入 ContentSafetyPort、ApprovalVerifierPort、AuditPort，并提供离线内存实现；审批与用户、Tool、版本及 canonical 参数哈希绑定且单次消费，成功/失败/拒绝均记录安全审计摘要。
+  - 14个 Mock Tool 已通过同一 Registry/Executor 管线完成输入、输出、安全、授权、确认和审计冒烟；无有效确认时4个外部 R2写 Handler 不会被调用，runtime_internal 仅允许受信 runtime caller。
+  - 全量测试 `285 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；未新增公共 HTTP 路由或契约差异。
+- [x] [#70 M5：实现 M4 治理 Tool 适配器](https://github.com/Doggod727/CampusPilot/issues/70)（2026-07-15）
+  - 新增 M4 内容安全、确定性 Tool 授权和结构化审计薄适配器；仅依赖既有 M4 Application Service，并通过注入使用调用方事务，不在模块导入时建立数据库连接。
+  - 内容安全递归扫描 Tool 字符串字段，mask 后重新通过冻结输入/输出 Schema；review/block 统一安全拒绝为 `403 TOOL_FORBIDDEN`，不回显命中词、参数或规则。
+  - Executor 授权抽取为可注入端口，继续执行 Agent allowlist、完整权限、runtime_internal 受信调用默认拒绝；三个 governance 内部 Handler 直接调用 M4 服务，不递归调用 ToolExecutor。
+  - 契约台账：`TOOL_FORBIDDEN` 的内部语义扩展为权限、资源范围或安全策略拒绝；本任务无公共 HTTP 路由，M5 API 接入收尾时同步详细设计/OpenAPI 说明。
+  - 全量测试 `292 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
+- [x] [#71 M5：建立 Agent 运行时配置基线](https://github.com/Doggod727/CampusPilot/issues/71)（2026-07-15）
+  - Settings 新增 Router、Reranker、Agent 边界、Approval TTL、Tool 默认超时、MCP、模型/数据集对象根目录和训练设备开关；默认值与详细设计第18章一致并严格限制设计上限。
+  - `.env.example` 和 README 已补充非敏感运行时配置；路径只作为未来对象根目录，本任务不创建目录、加载模型或连接外部依赖，应用导入与 `/health/live` 无回归。
+  - 校正 SQL 013 的 Router 置信度阈值 `0.72 → 0.80`，消除种子与详细设计/环境模板差异；DeepSeek Key 等密钥仍只来自环境变量。
+  - 全量测试 `301 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；无公共 API 状态码差异。
+- [x] [#72 M5：实现内存 AgentRegistry](https://github.com/Doggod727/CampusPilot/issues/72)（2026-07-15）
+  - 新增严格冻结的 AgentDefinition/AgentVersion/AgentRegistration/AgentCatalogItem；Tool allowlist 去重稳定排序，完整 Prompt 和内部输出 Schema 不进入 repr 或普通目录。
+  - 注册 supervisor、knowledge/service/community/governance/modelops 六个 Agent，活动版本和 Tool allowlist 与 SQL 013 一致；实现 register/get_active/list_active/list_catalog，活动结果按 code 稳定排序。
+  - code+version 重复、定义冲突或第二个活动版本属于开发期注册错误；运行时不存在/停用分别使用内部稳定 `404 AGENT_NOT_FOUND`、`409 AGENT_DISABLED`。
+  - 契约台账：上述两个 Agent 错误码在公共 Catalog/Run API 接入时同步 OpenAPI 和详细设计；本任务无公共路由。
+  - 全量测试 `306 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
+- [x] [#73 M5：实现确定性 RouterService](https://github.com/Doggod727/CampusPilot/issues/73)（2026-07-15）
+  - 新增规则优先 Router，固定覆盖 knowledge/service/community/governance/modelops 五领域；单领域高置信直接路由，多领域最多返回3个稳定候选，无匹配安全进入 clarify。
+  - LocalRouterPort/DeepSeekRouterPort 均可注入；规则低置信时依次调用，本地/远程超时、异常、来源不符、非法标签或低置信均安全降级，不回显 Provider 异常或思维链。
+  - 输入空白或超过4000字符使用内部稳定 `422 AGENT_INPUT_INVALID`；公共 Agent Run API 接入时同步 OpenAPI/详细设计错误声明。
+  - 本任务仅使用确定性 Fake Port，不加载本地模型、不调用 DeepSeek、不写数据库或执行 Agent/Tool。
+  - 全量测试 `318 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
+- [x] [#74 M5：实现有界 Supervisor 任务规划器](https://github.com/Doggod727/CampusPilot/issues/74)（2026-07-15）
+  - 新增严格冻结 SupervisorPlan 和纯应用层 SupervisorPlanner；单领域生成一个任务，多领域最多生成3个去重专业 Agent 任务，后续任务只通过 parent/depends_on 引用前置任务。
+  - clarify 返回 `needs_input` 且不生成可执行任务；RouteTarget 固定映射到 AgentCode，规划前必须通过 AgentRegistry 验证活动版本。
+  - 任务 UUID 由 run/sequence/agent 确定性派生，结构化输入深拷贝且不进入 repr；契约拒绝重复 Agent、前向/循环依赖和 ready 空计划，不传递上一 Agent 的自由文本输出。
+  - 步数超过当前配置或设计上限6时返回既有 `409 AGENT_MAX_STEPS_EXCEEDED`；本任务不执行模型/Tool、不启动 Graph、不写数据库或 Trace。
+  - 全量测试 `325 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；无新增公共 HTTP 路由。
+- [x] [#79 M5：调整迁移链并建立 Agent Platform Schema](https://github.com/Doggod727/CampusPilot/issues/79)（2026-07-15）
+  - 合入 M2 电费 PR #76 后，将尚未合入主线或共享数据库执行的兼容迁移安全重编号为 `0004_platform_m5_compat`，形成 `0001 → 0002 → 0003 electricity → 0004 compat → 0005 agent_platform` 唯一链。
+  - `0005_agent_platform_schema` 严格转换 SQL 012，创建 Agent/Tool Catalog、数据集、训练、模型、评估、Run/Step/ToolCall、Approval 和 Handoff 共15张表及全部函数、约束、部分索引、触发器和注释。
+  - downgrade 按外键依赖逆序删除15张表、更新时间函数和 `agent_platform` Schema，不删除共享 `pgcrypto`；本任务不加入 SQL 013 种子、ORM、ApprovalService 或 Repository。
+  - 全量 pytest `345 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 唯一 head `0005_agent_platform_schema` 及离线升降级通过；真实 PostgreSQL 验证仍保留待办。
+- [x] [#80 M5：实现 M2 电费真实 Tool Adapter 与可信调用上下文](https://github.com/Doggod727/CampusPilot/issues/80)（2026-07-15）
+  - 新增冻结 `ToolInvocationContext`，由 Executor 在 Schema、授权、幂等与 Approval 校验后构造，携带 User、Run/Step、参数哈希、幂等 Key、Approval ID 和服务端确认结果；敏感完整性字段不进入 repr。
+  - 统一 Handler 协议升级完成，14个 Mock Handler 与3个 M4 治理 Handler 均消费可信调用上下文；无确认或无幂等 Key 的 R2 调用在 Handler 前拒绝。
+  - 新增 `electricity.get_balance` 与 `electricity.create_topup_request` 薄适配器，只映射冻结模型与可信上下文到 M2 ElectricityService，不访问 Repository、不提交事务；输出重新通过冻结 Schema并固定 CNY/mock/simulated 语义。
+  - 全量 pytest `349 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 唯一 head `0005_agent_platform_schema` 及离线升降级通过；未新增公共 HTTP API/状态码差异。
+- [x] [#81 M5：建立 Agent Platform 全量 ORM 基线](https://github.com/Doggod727/CampusPilot/issues/81)（2026-07-15）
+  - 严格映射 `0005_agent_platform_schema` 的15张表，保留 PostgreSQL 类型、默认值、CHECK、外键删除策略和部分唯一索引；不注册 Alembic target metadata。
+  - Prompt、Schema、参数哈希、运行/审批摘要均不进入实体 repr；不建立 relationship、Repository 或公共 API。
+  - 全量 pytest `352 passed`（11 条既有警告）、Python 编译、OpenAPI lint及 Alembic 单 head通过；无公共契约差异。
+- [x] [#82 M5：实现 Agent Platform 持久化种子命令](https://github.com/Doggod727/CampusPilot/issues/82)（2026-07-15）
+  - 新增 `python -m app.scripts.seed_agent_platform`，单事务幂等写入6个 Agent、14个冻结 Tool及4个模型版本。
+  - Tool JSON Schema 只由 Pydantic `TOOL_CONTRACTS` 生成并检测漂移；DeepSeek 仅保存环境变量名，不保存密钥或输出 Prompt/Schema。
+  - 全量 pytest `355 passed`、Python 编译及 Alembic 单 head通过；真实 PostgreSQL重复种子验证保留待办。
+- [x] [#83 M5：实现数据库 Catalog 仓储与 Registry Loader](https://github.com/Doggod727/CampusPilot/issues/83)（2026-07-15）
+  - CatalogRepository 稳定加载启用 Agent/Tool及活动版本，不管理 Session；Loader 校验数据库 Schema、权限、风险、超时和确认策略后构造内存 Registry。
+  - 任一冻结契约漂移安全返回内部 `409 CATALOG_CONTRACT_MISMATCH`；runtime_internal 继续由现有 Registry 默认隐藏。
+  - 全量 pytest `357 passed`、Python 编译及 Alembic 单 head通过；错误码待公共 Catalog API接入时同步文档。
+- [x] [#84 M5：实现持久化 Tool Approval](https://github.com/Doggod727/CampusPilot/issues/84)（2026-07-15）
+  - ApprovalRepository/Service 支持绑定 Run/ToolCall/用户/参数哈希创建、本人决策、一次性消费和原子过期；TTL 使用可注入配置与 UTC 时钟。
+  - 数据库 ApprovalVerifier 可直接替换 Executor 内存端口；未知、过期、已消费、用户/Tool版本/哈希不匹配统一为 `409 TOOL_APPROVAL_INVALID`。
+  - 全量 pytest `365 passed`、Python 编译及 Alembic 单 head通过；真实并发消费验证保留待办。
+- [x] [#85 M5：实现持久化 Agent Trace 基础](https://github.com/Doggod727/CampusPilot/issues/85)（2026-07-15）
+  - TraceRepository/Service 支持创建 Run、追加最多6个 Step、记录 Tool 状态、条件终态更新及3次批量详情加载，不管理事务。
+  - 仅保存递归脱敏摘要与哈希；终态、重复签名和步骤上限分别使用 `AGENT_RUN_STATE_CONFLICT`、`AGENT_LOOP_DETECTED`、`AGENT_MAX_STEPS_EXCEEDED`。
+  - 全量 pytest `368 passed`（11 条既有警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；公共 Run API接入时同步新增内部错误码。
+- [x] [#86 M5：实现 Agent Run 查询与安全 DTO](https://github.com/Doggod727/CampusPilot/issues/86)（2026-07-15）
+  - 新增本人/管理员作用域分页与四次批量详情查询，越权与不存在统一为 `404 AGENT_RUN_NOT_FOUND`，避免资源枚举。
+  - DTO 从聚合步骤提取最终回答、从冻结目录补充 Tool 风险并关联 Approval；摘要再次递归脱敏，不返回原始参数，仅向所属用户返回审批所必需的不可逆确认哈希。
+  - OpenAPI route 补充 governance/modelops/mixed/clarify，Step 输入输出摘要改为与持久化 JSONB 一致的结构化对象。
+  - 全量测试 `372 passed`（11 条既有 httpx 警告），编译、OpenAPI lint和Alembic离线回归通过。
+- [x] [#87 M5：实现 Agent 与 Tool 只读目录 API](https://github.com/Doggod727/CampusPilot/issues/87)（2026-07-15）
+  - 新增 Agent/Tool 列表与 Tool 详情路由；目录首次访问时从数据库严格校验并缓存 Registry，模块导入与存活检查不访问数据库。
+  - Agent 目录不返回 Prompt；Tool 按用户权限和全部活动 Agent allowlist 默认拒绝过滤，runtime_internal 永不进入普通目录。
+  - 公共目录错误同步为 `AGENT_NOT_FOUND/AGENT_DISABLED/TOOL_NOT_FOUND/TOOL_DISABLED/CATALOG_CONTRACT_MISMATCH`，OpenAPI补充409响应。
+  - 全量测试 `377 passed`（11 条既有警告），编译、OpenAPI lint和Alembic离线回归通过。
+- [x] [#88 M5：实现有界 Graph Runtime](https://github.com/Doggod727/CampusPilot/issues/88)（2026-07-15）
+  - 新增显式有界状态机和 Dispatcher/Specialist/Event Sink 端口，串联路由、Supervisor 计划、专业 Agent、Tool、审批暂停、聚合与安全终态。
+  - 继续由 TraceService 强制6步/3专业Agent/循环与终态边界；R2/R3确认缺失时在 Handler前暂停并持久化Approval。
+  - 内存 Event Sink 保证每个Run单调sequence；SSE、进程重启后的事件恢复和真实M1/M3 Specialist留给后续任务。
+  - 全量测试 `382 passed`（11 条既有警告），编译、OpenAPI lint和Alembic离线回归通过。
+- [x] [#89 M5：实现 Agent Run 创建、查询与取消 API](https://github.com/Doggod727/CampusPilot/issues/89)（2026-07-15）
+  - 新增创建(202)、本人/全局分页、详情和幂等取消路由；创建提交事务后才投递运行命令，健康检查与模块导入不连接数据库。
+  - 创建/取消复用M4幂等服务并原样重放首次信封；越权详情与不存在统一 `404 AGENT_RUN_NOT_FOUND`，非法状态使用 `409 AGENT_RUN_STATE_CONFLICT`。
+  - 权限保持种子/详细设计的 `agent:run` 并兼容未来细粒度 create/cancel 权限；OpenAPI同步422和调度依赖502响应。
+  - 全量测试 `388 passed`（11 条既有警告），编译、OpenAPI lint和Alembic离线回归通过。
+- [x] [#90 M5：实现审批决策与运行恢复 API](https://github.com/Doggod727/CampusPilot/issues/90)（2026-07-15）
+  - 新增本人专属、幂等的高风险Tool审批路由，严格绑定Run、ToolCall、用户、版本、参数哈希、状态和有效期；全部无效情况统一 `409 TOOL_APPROVAL_INVALID`。
+  - approve提交后投递恢复命令；reject在事务内将Tool/Step/Run收敛为安全终态且不调用Handler；评论正文不入库或审计，只记录是否提供。
+  - OpenAPI与详细设计同步审批422/409语义；Approval详情仅返回后续确认必需的不可逆argument_hash，不返回原始参数。
+  - 全量测试 `391 passed`（11 条既有警告），编译、OpenAPI lint和Alembic离线回归通过。
+- [x] [#91 M5：建立运行命令、Checkpoint 与事件迁移](https://github.com/Doggod727/CampusPilot/issues/91)（2026-07-15）
+  - 新增 `0006_agent_runtime_delivery`，提供事务Outbox、认证加密Checkpoint元数据和SSE单调事件三张表。
+  - 命令、状态、次数、领取/完成时间、CAS版本、TTL、事件类型和重放sequence均有数据库约束与索引；downgrade只逆序删除本Revision对象。
+  - 全量测试 `392 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#92 M5：实现运行交付 ORM 与仓储](https://github.com/Doggod727/CampusPilot/issues/92)（2026-07-15）
+  - 映射Outbox、Checkpoint、Event三表；仓储支持SKIP LOCKED领取、有限重试、CAS状态写入和按sequence重放。
+  - 事件追加先锁定Run分配单调序号并递归脱敏；所有仓储不管理调用方Session生命周期。
+  - 全量测试 `396 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#93 M5：实现认证加密的可恢复运行 Checkpoint](https://github.com/Doggod727/CampusPilot/issues/93)（2026-07-15）
+  - 新增独立 Checkpoint 密钥、Fernet 认证加密 Codec、TTL/CAS 数据库适配器及持久化事件 Sink；明文目标、上下文和 Tool 参数不进入数据库或对象表示。
+  - `BoundedGraphRuntime` 通过 Checkpoint 端口在路由、Step、等待审批与终态边界保存状态，支持另一运行时实例恢复审批后的调用，并在终态清除短期状态。
+  - 新增内部安全错误 `409 AGENT_CHECKPOINT_INVALID`；后续公开运行 API 不回显密文、摘要哈希或解密异常。
+  - 全量测试 `401 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#94 M5：实现事务 Outbox Dispatcher 与 Runtime Worker](https://github.com/Doggod727/CampusPilot/issues/94)（2026-07-15）
+  - Run 创建、取消和审批恢复均在原业务事务内追加安全命令元数据；不保存原始输入或 Tool 参数，提交后 Redis 唤醒失败不影响数据库轮询。
+  - Worker 使用新 Session 领取命令、指数退避有限重试，永久失败只保存稳定错误码并安全收敛 Run；超时领取可重新领取且 Checkpoint CAS 阻止重复恢复。
+  - 契约同步：创建接口请求阶段不再依赖外部队列，移除未实际使用的 502 声明；详细设计同步为事务 Outbox 语义。
+  - 全量测试 `406 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#95 M5：实现 Agent Run SSE 与事件重放](https://github.com/Doggod727/CampusPilot/issues/95)（2026-07-15）
+  - 新增 `/api/v1/agent-runs/{run_id}/stream`：所有权边界与详情一致，按持久化 sequence 重放、发送安全心跳并在 done/error 后关闭。
+  - 数字 `Last-Event-ID` 支持断线续传；非法或超前游标统一返回 `409 AGENT_EVENT_CURSOR_INVALID`，连接后内部错误只发送安全 error 事件。
+  - OpenAPI、M5 详细设计和 README 已同步固定事件类型、SSE 响应头、Request-Id、404 所有权隐藏和 409 游标语义。
+  - 全量测试 `411 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#96 M5：实现数据集产物隔离存储](https://github.com/Doggod727/CampusPilot/issues/96)（2026-07-15）
+  - 本地隔离存储仅接受 JSONL/CSV，流式限制100MiB、计算SHA-256并原子落盘；对象键由服务端UUID生成，防止路径穿越和符号链接访问。
+  - 上传默认TTL为3600秒；构造Store、模块导入和健康检查均不创建目录或访问文件系统。
+  - 全量测试 `414 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#97 M5：实现数据集仓储与应用服务](https://github.com/Doggod727/CampusPilot/issues/97)（2026-07-15）
+  - 支持分页、详情、名称冲突、行锁版本分配、版本登记/冻结、逻辑删除及活动训练引用保护；仓储不管理Session生命周期。
+  - 服务端重新校验对象键、SHA-256、格式、样本数和purpose最小结构；报告只保存安全计数/原因，无效或敏感版本不得冻结。
+  - 全量测试 `418 passed`（11 条既有警告），编译、OpenAPI lint和Alembic单head通过。
+- [x] [#98 M5：实现数据集管理 API](https://github.com/Doggod727/CampusPilot/issues/98)（2026-07-15）
+  - 实现数据集分页/创建/详情/删除、隔离上传、版本登记和冻结路由；读取/写入分别使用dataset:read/dataset:write，全部写请求要求幂等Key。
+  - 首次成功信封进入幂等记录，创建/删除/冻结写脱敏审计；OpenAPI和详细设计同步上传409及稳定数据集错误语义。
+  - 全量测试 `420 passed`（11 条既有警告），编译和OpenAPI lint通过；Alembic离线回归使用环境模板验证。
+- [x] [#99 M5：实现训练任务骨架与 API](https://github.com/Doggod727/CampusPilot/issues/99)（2026-07-15）
+  - 实现训练分页/创建/详情/幂等取消；仅冻结、有效且无敏感数据的版本可入队，DeepSeek和allowlist外模型安全拒绝。
+  - 创建固定queued且不启动GPU；仓储提供FOR UPDATE SKIP LOCKED领取端口，取消写入脱敏审计并且终态幂等。
+  - 全量测试 `423 passed`（11 条既有警告），编译、OpenAPI lint、迁移测试及Alembic单head通过。
+- [x] [#100 M5：实现模型注册与生命周期 API](https://github.com/Doggod727/CampusPilot/issues/100)（2026-07-15）
+  - 实现模型列表/登记/详情/激活/停用；local产物路径和哈希受控，DeepSeek仅存环境变量名，响应递归移除密钥字段。
+  - 激活要求成功模型评估并原子切换同purpose版本；complex_generation不允许失去DeepSeek兜底，生命周期变化写脱敏审计。
+  - 全量测试 `426 passed`（11 条既有警告），编译、OpenAPI lint、迁移测试及Alembic单head通过。
+- [x] [#101 M5：实现评估仓储与应用服务](https://github.com/Doggod727/CampusPilot/issues/101)（2026-07-15）
+  - 新增评估分页/详情、指标批量加载、冻结数据集校验、目标存在性校验和 `FOR UPDATE SKIP LOCKED` 领取能力；调用方继续持有事务和 Session 生命周期。
+  - 评估创建固定为 `queued` 并复用 M4 幂等与脱敏审计；配置入库前递归脱敏，比较仅接受2–5个不同且成功完成的评估，非 all 切片使用稳定 `name@slice` 指标键。
+  - 稳定领域错误为 `EVALUATION_NOT_FOUND`、`EVALUATION_TARGET_NOT_FOUND`、`EVALUATION_DATASET_NOT_READY`、`EVALUATION_NOT_COMPLETED`；公共响应声明在 #102 路由任务同步。
+  - 全量测试 `432 passed`（11 条既有警告），Python 编译和 OpenAPI lint 通过；Alembic 唯一 head `0006_agent_runtime_delivery`，离线升降级使用环境模板验证。
+- [x] [#102 M5：实现评估管理 API](https://github.com/Doggod727/CampusPilot/issues/102)（2026-07-15）
+  - 实现评估分页、幂等创建、详情和2～5项成功结果比较四个路由；读取/运行分别使用 `evaluation:read` 与 `evaluation:run`，创建固定返回202 queued。
+  - 请求严格校验目标、数据集成对字段、分页、未知字段和唯一比较ID；成功及重放均使用统一信封、UTC时间和一致 Request-Id。
+  - OpenAPI、M5详细设计和README已同步 `EVALUATION_NOT_FOUND`、`EVALUATION_TARGET_NOT_FOUND`、`EVALUATION_DATASET_NOT_READY`、`EVALUATION_NOT_COMPLETED` 的404/409语义。
+  - 全量测试 `435 passed`（11 条既有警告），Python编译、OpenAPI lint（3条既有文档警告）、Alembic单head及离线升降级通过。
+- [x] [#103 M5：实现可插拔评估 Worker 骨架](https://github.com/Doggod727/CampusPilot/issues/103)（2026-07-15）
+  - 新增严格 EvaluatorPort、结果/指标契约和按 agent/tool/model/rag/system 注册的评估器目录；缺失 Provider 默认拒绝。
+  - Worker 使用新 Session 与 `FOR UPDATE SKIP LOCKED` 单次领取，原子收敛 queued→running→succeeded/failed；终态和并发领取不会重复执行或重复写指标。
+  - 五类确定性 Fake Evaluator 仅生成固定离线测试指标；Provider异常统一只保存 `EVALUATION_PROVIDER_UNAVAILABLE`，不保存异常、样本、Prompt或密钥。
+  - 全量测试 `440 passed`（11 条既有警告），Python编译、OpenAPI lint（3条既有文档警告）、Alembic单head及离线升降级通过；真实评估器与常驻Worker仍为后续任务。
+- [x] [#104 M5：实现 Tool 启停与目录刷新 API](https://github.com/Doggod727/CampusPilot/issues/104)（2026-07-15）
+  - 新增 `PATCH /api/v1/tools/{tool_name}`，强制 `tool:catalog:write`、幂等键、confirmed=true和操作原因；事务内原子更新、脱敏审计，提交成功后失效目录缓存。
+  - Loader 保留停用 Tool 的活动冻结契约，Registry精确返回 `409 TOOL_DISABLED`，不再把合法停用误判为全目录契约漂移。
+  - OpenAPI与详细设计同步 `409 TOOL_STATE_CONFIRMATION_REQUIRED`、请求字段和422语义。
+- [x] [#105 M5：建立内部服务身份基线](https://github.com/Doggod727/CampusPilot/issues/105)（2026-07-15）
+  - 新增独立可脱敏 `INTERNAL_TOOL_SECRET` 与常量时间 Bearer 比较；内部OpenAPI使用 `internalServiceBearer`，不接受用户JWT或浏览器直调。
+  - 服务身份通过后仍按UUID重载 active 用户、当前角色和权限；无效凭证/用户状态统一安全拒绝，不回显用户或密钥。
+  - 配置按需读取，未配置只使内部入口返回503，不影响模块导入、公开API或 `/health/live`。
+  - 全量 `pytest` 444 项、`compileall`、OpenAPI lint、Alembic 单 Head 与离线升降级验证通过（Redocly 保留 3 条既有非阻断警告）。
+- [x] [#106 M5：实现内部 Tool 执行 API](https://github.com/Doggod727/CampusPilot/issues/106)（2026-07-15）
+  - 新增 `POST /internal/v1/tools/{tool_name}:invoke`；独立服务身份通过后校验用户状态、Run/Step 所有权、Agent allowlist、当前权限、冻结输入契约和幂等键。
+  - R2/R3 首次调用在同一事务中持久化 ToolCall 与 Approval 并返回 202；批准后复用原 ToolCall、审批只消费一次，同幂等调用可安全重放。
+  - M2 电费与 M4 治理使用真实应用服务适配器；尚未完成的 M1/M3 Handler 继续显式使用确定性 Mock，不伪装为真实跨模块结果。
+  - 稳定映射 `TOOL_NOT_FOUND/TOOL_DISABLED/TOOL_FORBIDDEN/TOOL_ARGUMENT_INVALID/TOOL_APPROVAL_INVALID/TOOL_TIMEOUT/TOOL_DEPENDENCY_UNAVAILABLE`，响应、Trace 和审计不保存原始参数或凭证。
+  - 全量 `pytest` 448 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 唯一 Head `0006_agent_runtime_delivery` 与离线升降级通过。
+- [x] [#107 M5：实现 DeepSeek Gateway 与专业 Agent Provider](https://github.com/Doggod727/CampusPilot/issues/107)（2026-07-15）
+  - 新增 OpenAI 兼容 Gateway，固定 `deepseek-v4-pro`、关闭 Thinking，API Key 不进入对象表示、响应或错误。
+  - 路由、专业 Agent 结果和 ToolCall 采用严格结构化解析；`reasoning_content`、非法标签和非法响应统一安全拒绝。
+  - 首个流式内容前支持有界重试，开始输出后禁止透明重试；稳定错误为 `502 AGENT_PROVIDER_UNAVAILABLE` 与 `504 AGENT_PROVIDER_TIMEOUT`。
+  - 测试使用可注入 Fake HTTP Client，不调用真实 DeepSeek；未接入 M1/M3 的领域能力继续明确使用 Mock Specialist。
+  - 全量 `pytest` 454 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 单 Head与离线升降级通过。
+- [x] [#108 M5：实现运行时装配、限流与 Worker 入口](https://github.com/Doggod727/CampusPilot/issues/108)（2026-07-15）
+  - 新增唯一 `RuntimeCompositionFactory`，统一装配持久化Catalog/Trace/Checkpoint/Approval、M4治理、M2电费、DeepSeek以及明确的M1/M3 Mock。
+  - Agent Run和内部Tool入口增加用户/IP双维度限流端口；生产使用Redis、测试使用内存实现，超限统一返回 `429 RATE_LIMITED` 与 `Retry-After`。
+  - 新增 `python -m app.scripts.runtime_worker` 与 `python -m app.scripts.evaluation_worker`；仅进程启动时读取配置和连接依赖，运行命令继续以PostgreSQL事务Outbox为事实源。
+  - 模块导入与 `/health/live` 不创建数据库、Redis或DeepSeek连接；未完成M1/M3仍为显式Mock，不宣称真实联调完成。
+  - 全量 `pytest` 458 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 单 Head与离线升降级通过。
+- [x] [#109 M5：最终验收与 PR 收尾](https://github.com/Doggod727/CampusPilot/issues/109)（2026-07-15）
+  - 自动比对 M5 31 个 OpenAPI `operationId`：全部由 FastAPI 实现且全局唯一；统一错误信封、Request-Id、审批/恢复/SSE、目录启停、DeepSeek Fake、ModelOps 和 Worker 回归纳入验收。
+  - M5详细设计升级至V0.3，README和契约明确：M2电费/M4治理是真实Adapter，M1知识/M3社区仍为显式Mock；P1不包含MCP、Reranker、真实LoRA/QLoRA、并行Agent、前端或Compose。
+  - PR #63 在最终验证后转为Ready并普通合并；真实PostgreSQL/Redis/DeepSeek并发与Provider验证继续作为显式待办，不虚报完成。
+  - 最终全量 `pytest` 459 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 唯一 Head `0006_agent_runtime_delivery` 与离线升降级通过。
+
 ## 待办
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
-- [ ] 前端、Docker Compose 和跨模块 M1/M2/M3 handler 联调不属于本仓库本次 M4 后端交付范围。
+- [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。
 - [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
+- [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
+- [ ] 真实 PostgreSQL/Redis/DeepSeek 环境可用后执行 M5 Outbox并发领取、Checkpoint恢复、审批一次消费、SSE重放、限流和Provider故障集成验证。

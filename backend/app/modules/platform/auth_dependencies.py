@@ -101,3 +101,16 @@ def require_permissions(
         return user
 
     return dependency
+
+
+def require_any_permission(
+    *permission_codes: str,
+) -> Callable[..., Awaitable[AuthenticatedUser]]:
+    if not permission_codes or any(not isinstance(code, str) or not code.strip() for code in permission_codes):
+        raise ValueError("Permission declarations must be non-empty strings.")
+    required = frozenset(permission_codes)
+    async def dependency(user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)]) -> AuthenticatedUser:
+        if required.isdisjoint(user.permissions):
+            raise PermissionDenied()
+        return user
+    return dependency

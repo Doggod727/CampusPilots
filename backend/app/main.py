@@ -15,6 +15,13 @@ from app.modules.platform.moderation_routes import router as moderation_router
 from app.modules.platform.audit_routes import router as audit_router
 from app.modules.platform.config_routes import router as config_router
 from app.modules.platform.dashboard_routes import router as dashboard_router
+from app.modules.agent_platform.catalog_routes import router as agent_catalog_router
+from app.modules.agent_platform.run_routes import router as agent_run_router
+from app.modules.agent_platform.dataset_routes import router as dataset_router
+from app.modules.agent_platform.training import router as training_router
+from app.modules.agent_platform.model_registry import router as model_router
+from app.modules.agent_platform.evaluation_routes import router as evaluation_router
+from app.modules.agent_platform.internal_tools import router as internal_tool_router
 
 
 def create_app() -> FastAPI:
@@ -50,6 +57,13 @@ def create_app() -> FastAPI:
     application.include_router(audit_router)
     application.include_router(config_router)
     application.include_router(dashboard_router)
+    application.include_router(agent_catalog_router)
+    application.include_router(agent_run_router)
+    application.include_router(dataset_router)
+    application.include_router(training_router)
+    application.include_router(model_router)
+    application.include_router(evaluation_router)
+    application.include_router(internal_tool_router)
     return application
 
 

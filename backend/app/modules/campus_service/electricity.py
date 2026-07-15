@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID, uuid4
 
@@ -40,6 +41,7 @@ class ElectricityBalance:
     currency: str
     source: str
     is_simulated: bool
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,7 @@ class ElectricityService:
             currency=account.currency.strip(),
             source=account.source,
             is_simulated=account.is_simulated,
+            updated_at=account.source_updated_at,
         )
 
     async def create_topup_request(

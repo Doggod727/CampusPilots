@@ -2,7 +2,7 @@
 
 ## 详细设计说明书 Part 5：智能体与模型工程（M5）
 
-文档版本：V0.2  
+文档版本：V0.3
 编制日期：2026-07-15  
 需求基线：《01-需求分析说明书》V2.1  
 概要设计：《02-概要设计说明书》V1.0  
@@ -32,7 +32,9 @@
 | Tools | 14 个内部事件 Tools | 查询类 MCP 映射 |
 | RAG | bge + Chroma + DeepSeek | 本地 Reranker |
 | 模型工程 | 数据集、模型注册、评估元数据和任务骨架 | 真实 LoRA/QLoRA 训练和发布 |
-| 管理页面 | Agent 运行、Tool Catalog、数据集/模型最小页面 | 完整训练参数和对比报表 |
+| 管理后端 | Agent Run、Tool Catalog、数据集、训练、模型、评估 API | 前端页面、完整训练执行和对比报表 |
+
+V0.3 P0 实现结论：M5 后端路由、目录、审批、可恢复运行、SSE、数据集、训练任务骨架、模型注册与评估任务骨架已闭环。M2 电费与 M4 治理为真实应用服务适配器；M1 知识与 M3 社区仍使用显式确定性 Mock，待对应模块完成后替换。MCP、Reranker、真实 LoRA/QLoRA、并行 Agent、前端和 Compose 不属于 P0 完成线。
 
 ## 1.3 M4 已完成时的兼容结论
 
@@ -538,7 +540,13 @@ API 前缀 `/api/v1`；内部 Tool 前缀 `/internal/v1/tools`。所有外部接
 | GET `/agent-runs/{run_id}` | `getAgentRun` | `agent:run:read_own` | 返回步骤、Tool 脱敏摘要、状态 |
 | GET `/agent-runs/{run_id}/stream` | `streamAgentRun` | `agent:run:read_own` | SSE；支持 `Last-Event-ID`/sequence |
 | POST `/agent-runs/{run_id}/cancel` | `cancelAgentRun` | `agent:run` | 终态不可取消 |
+
+实现约定：创建与取消均要求 `Idempotency-Key`；创建、取消及审批恢复命令与业务状态在同一 PostgreSQL 事务写入 Outbox，提交成功即保证命令持久化，因此请求阶段不依赖外部队列，也不声明 502。Worker 使用独立 Session 领取命令，Redis 仅作可选唤醒，失效时回退数据库轮询。同 Key 同请求原样重放，不同请求返回 `409 IDEMPOTENCY_CONFLICT`。本人读取使用 `agent:run:read_own`，具备 `agent:run:read_all` 时可读取全部；越权详情与不存在统一返回 `404 AGENT_RUN_NOT_FOUND`。取消使用既有 `agent:run` 权限并兼容未来细粒度 `agent:run:cancel`，重复取消返回当前终态。
+
+审批决策仅允许 Run 所属用户本人提交，并要求 `Idempotency-Key` 与服务端产生的 `argument_hash`。批准在同一事务写入恢复命令；拒绝在同一事务将 Tool、Step 与 Run 收敛到安全终态且不调用 Handler。未知、过期、已消费、越权或参数哈希不匹配统一返回 `409 TOOL_APPROVAL_INVALID`。评论正文不进入 Tool 参数或审计快照，审计仅记录是否提供评论。
 | POST `/agent-runs/{run_id}/approvals/{approval_id}` | `decideAgentToolApproval` | 本人 | `decision=approve/reject`，参数哈希校验与乐观并发 |
+
+SSE 以 PostgreSQL `agent_run_events` 为事实源，事件 sequence 在单个 Run 内单调递增。客户端可用数字 `Last-Event-ID` 重放缺失事件，非法或超前游标返回 `409 AGENT_EVENT_CURSOR_INVALID`。越权和不存在统一为 `404 AGENT_RUN_NOT_FOUND`。事件类型固定为 `meta/route/agent_step/tool_call/approval_required/handoff/delta/sources/done/error`，服务端发送安全心跳注释，终态 `done/error` 后关闭；连接建立后的内部异常只发送不含堆栈的安全 `error` 事件。SSE 仅下行，审批仍使用独立 HTTP 接口。
 
 创建请求：
 
@@ -560,7 +568,9 @@ API 前缀 `/api/v1`；内部 Tool 前缀 `/internal/v1/tools`。所有外部接
 | GET `/agents` | `agent:catalog:read` | 返回启用 Agent 和版本，不返回完整系统 Prompt 给普通用户 |
 | GET `/tools` | `tool:catalog:read` | 按用户权限过滤；内部 Tool 不返回 |
 | GET `/tools/{tool_name}` | `tool:catalog:read` | 返回 Schema、风险、确认和版本 |
-| PATCH `/tools/{tool_name}` | `tool:catalog:write` | 只允许启停/版本切换；二次确认和审计 |
+| PATCH `/tools/{tool_name}` | `tool:catalog:write` | 启停要求幂等键、`confirmed=true`、原因和审计；未确认返回 `409 TOOL_STATE_CONFIRMATION_REQUIRED` |
+
+停用只改变数据库运行状态，不删除冻结契约或活动版本。Catalog Loader 仍加载停用 Tool，使精确解析稳定返回 `409 TOOL_DISABLED`；目录缓存仅在事务成功后失效并按需重建，单个 Tool 停用不得触发 `CATALOG_CONTRACT_MISMATCH`。
 
 ## 9.3 Dataset/Training/Model/Evaluation
 
@@ -573,15 +583,19 @@ API 前缀 `/api/v1`；内部 Tool 前缀 `/internal/v1/tools`。所有外部接
 | `/models/{id}/activate` | 启用/回滚 | `model:activate` + 确认 |
 | `/evaluations` | create/list/get/compare | `evaluation:run/read` |
 
+评估创建只登记 `queued` 元数据并返回 202，不在 API 请求中执行模型或 GPU 工作；写请求必须携带 `Idempotency-Key`。数据集引用必须同时提供数据集 ID 和版本，且版本已冻结、校验有效并确认不含敏感数据。Agent、Tool、Model 目标必须存在。详情不存在返回 `404 EVALUATION_NOT_FOUND`，目标不存在返回 `404 EVALUATION_TARGET_NOT_FOUND`，数据集未就绪返回 `409 EVALUATION_DATASET_NOT_READY`。比较仅接受 2～5 个不同且 `succeeded` 的任务，未完成返回 `409 EVALUATION_NOT_COMPLETED`；非 `all` 指标切片使用稳定的 `name@slice` 键。
+
+评估执行通过 `EvaluatorPort` 按 target type 注入。Worker 每次在新 Session 中用 `FOR UPDATE SKIP LOCKED` 领取一个 queued 任务，状态只允许收敛为 `queued → running → succeeded/failed`；终态不会重新领取。Provider 缺失、超时或非法输出仅保存稳定错误码 `EVALUATION_PROVIDER_UNAVAILABLE`，不保存异常文本或原始样本。当前确定性 Fake Evaluator 仅用于离线管线验收，不代表真实模型评估；GPU、DeepSeek 和本地模型评估器必须由独立任务进程后续接入。
+
 ## 9.4 内部 Tool API
 
-内部 API 使用服务身份 + 用户上下文签名/可信进程调用，浏览器不可访问。统一路径：
+内部 API 使用独立 `INTERNAL_TOOL_SECRET` Bearer 服务身份，不接受普通用户 JWT。服务身份通过后仍按请求中的用户 UUID 从数据库重载 active 状态、角色和权限，浏览器不可访问。统一路径：
 
 ```text
 POST /internal/v1/tools/{tool_name}:invoke
 ```
 
-Body 为规范化 ToolCallRequest；响应为 ToolCallResult。模块化单体中可直接调用 Python Service，但仍执行同一 Schema、授权、确认和审计管线；内部 HTTP 只用于未来拆分和契约测试。
+Body 为规范化 ToolCallRequest；响应为 ToolCallResult。服务端校验 Run 所有权、Step 关联、Agent allowlist、当前权限、冻结输入契约和幂等键。R2/R3 缺少审批时先在同一事务中持久化 ToolCall 与 Approval 并返回 202；审批通过后复用同一 ToolCall 且只能消费一次。模块化单体中可直接调用 Python Service，但仍执行同一 Schema、授权、确认和审计管线；响应、Trace 和审计只保存脱敏摘要，不保存原始参数、服务凭证或内部异常文本。
 
 # 10. SSE 事件
 
@@ -603,6 +617,8 @@ Body 为规范化 ToolCallRequest；响应为 ToolCallResult。模块化单体�
 # 11. 模型工程详细设计
 
 ## 11.1 数据集格式
+
+数据集管理接口使用 `dataset:read/dataset:write`。所有写操作要求 `Idempotency-Key`；上传仅接受 JSONL/CSV、最大100MiB，并返回服务端隔离对象键而非本机路径。登记版本时服务端重新计算哈希、格式、样本数和最小结构；校验失败或包含敏感数据的版本不能冻结或训练。稳定错误包括 `DATASET_NOT_FOUND`、`DATASET_VERSION_NOT_FOUND`、`DATASET_VERSION_STATE_CONFLICT`、`DATASET_IN_USE` 和 `DATASET_ARTIFACT_INVALID`。
 
 路由数据集 JSONL：
 
@@ -635,12 +651,16 @@ Reranker 数据：`query/positive/negatives[]`。所有样本必须有来源、�
 
 ## 11.4 LoRA/QLoRA（P1）
 
+P0 训练接口只创建可查询、可取消的数据库队列骨架，不启动GPU或宣称训练完成。任务必须引用已冻结、校验通过且无敏感数据的数据集版本；基座模型来自 `LOCAL_TRAINING_BASE_MODELS` allowlist，默认仅 `Qwen/Qwen2.5-1.5B-Instruct`，DeepSeek API模型禁止本地训练。稳定错误为 `TRAINING_JOB_NOT_FOUND`、`TRAINING_DATASET_NOT_READY`、`TRAINING_BASE_MODEL_NOT_ALLOWED` 和 `TRAINING_STATE_CONFLICT`。
+
 - 基座必须在允许许可证、大小和资源范围内，不超过 3B。
 - 训练配置至少含 rank、alpha、dropout、target_modules、learning_rate、epochs、batch、gradient_accumulation、quantization、seed。
 - 资源上限从任务配置读取；OOM 标记 `TRAINING_RESOURCE_EXHAUSTED`，不能拖垮在线 API。
 - 产物保存 Adapter、Tokenizer/Chat Template 引用、配置、指标和 SHA-256；不复制无权分发的基座权重。
 
 ## 11.5 评估指标
+
+模型注册接口使用 `model:read/model:write/model:activate`。新版本固定为candidate；local产物必须位于 `MODEL_ARTIFACT_ROOT` 且SHA-256匹配，DeepSeek只保存环境变量名，不接受或返回密钥。激活要求已有成功模型评估，并在单事务内切换同purpose活动版本；复杂生成仅允许DeepSeek活动兜底。稳定错误为 `MODEL_NOT_FOUND`、`MODEL_EVALUATION_REQUIRED`、`MODEL_FALLBACK_REQUIRED`、`MODEL_STATE_CONFLICT` 和 `MODEL_ARTIFACT_INVALID`。
 
 | 对象 | 指标 |
 |---|---|
@@ -688,6 +708,10 @@ electricity:topup_request:create
 
 - Prompt/Tool 注入：系统指令与数据分区；Tool 名来自白名单；数据文本不能修改策略。
 - 最小上下文：只向 DeepSeek 发送当前任务必要字段；房间授权、真实权限不由模型判断。
+- DeepSeek Gateway 固定只接受 `deepseek-v4-pro` 并显式关闭 Thinking；路由、ToolCall 和最终回答必须通过强类型结构校验，`reasoning_content` 一律拒绝且不持久化。
+- 流式生成只允许在首个内容片段前有限重试；开始输出后不做透明重试。超时使用 `504 AGENT_PROVIDER_TIMEOUT`，依赖或非法响应使用 `502 AGENT_PROVIDER_UNAVAILABLE`。
+- Runtime Composition Factory 是生产运行时的唯一装配入口，统一构造持久化 Catalog、Trace、Checkpoint、Approval、M4 治理、M2 电费、DeepSeek 和明确 Mock Handler。Worker 启动时才读取配置和连接外部依赖。
+- Agent Run 与内部 Tool 采用用户/IP 双维度 Redis 限流，分别由环境变量配置；超限返回 `429 RATE_LIMITED` 与 `Retry-After`。Redis 不承担 Outbox 正确性，运行命令仍以 PostgreSQL 为事实源。
 - 写操作：确认、幂等、参数哈希、资源授权、审计缺一不可。
 - 敏感字段：电话、地址、匿名身份、Token、密钥、完整 Tool 参数默认不进轨迹。
 - 模型产物：路径只使用对象键，防目录穿越；上传模型/数据集校验大小、哈希和格式。

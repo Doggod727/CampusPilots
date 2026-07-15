@@ -30,10 +30,63 @@ CAMPUS_SERVICE_TABLES = (
     "work_order_events",
     "work_order_ratings",
 )
+M5_PERMISSION_CODES = (
+    "agent:run",
+    "agent:run:read_own",
+    "agent:run:read_all",
+    "agent:catalog:read",
+    "tool:catalog:read",
+    "tool:catalog:write",
+    "dataset:read",
+    "dataset:write",
+    "training:run",
+    "training:read",
+    "model:read",
+    "model:write",
+    "model:activate",
+    "evaluation:run",
+    "evaluation:read",
+    "moderation:execute",
+    "audit:write",
+    "service:read",
+    "electricity:read_own",
+    "electricity:topup_request:create",
+)
+M5_CONFIG_KEYS = (
+    "agent.max_steps",
+    "agent.max_specialists",
+    "agent.approval_ttl_seconds",
+    "agent.parallelism",
+    "modelops.router_confidence",
+    "modelops.reranker_enabled",
+    "mcp.enabled",
+)
 ELECTRICITY_TABLES = (
     "electricity_accounts",
     "electricity_account_members",
     "electricity_topup_requests",
+)
+AGENT_PLATFORM_TABLES = (
+    "agent_definitions",
+    "agent_versions",
+    "tool_definitions",
+    "tool_versions",
+    "datasets",
+    "dataset_versions",
+    "training_jobs",
+    "model_versions",
+    "evaluation_jobs",
+    "evaluation_metrics",
+    "agent_runs",
+    "agent_steps",
+    "tool_calls",
+    "approval_requests",
+    "agent_handoffs",
+)
+AGENT_RUNTIME_TABLES = (
+    "agent_runtime_commands",
+    "agent_runtime_checkpoints",
+    "agent_run_events",
 )
 
 
@@ -66,7 +119,7 @@ def run_alembic(*arguments: str) -> str:
 def test_migration_has_single_head() -> None:
     output = run_alembic("heads")
 
-    assert "0003_campus_service_electricity (head)" in output
+    assert "0006_agent_runtime_delivery (head)" in output
 
 
 def test_offline_upgrade_contains_complete_platform_schema() -> None:
@@ -119,6 +172,75 @@ def test_offline_downgrade_removes_campus_service_before_platform() -> None:
         "DROP TABLE platform.idempotency_records"
     )
     assert "DROP EXTENSION" not in output
+
+
+def test_m5_compatibility_revision_is_rendered_offline() -> None:
+    upgrade = run_alembic("upgrade", "head", "--sql")
+    downgrade = run_alembic("downgrade", "0004_platform_m5_compat:0003_campus_service_electricity", "--sql")
+
+    assert "tool_input" in upgrade
+    assert "tool_output" in upgrade
+    assert "agent_context" in upgrade
+    assert "agent_platform" in upgrade
+    for permission_code in M5_PERMISSION_CODES:
+        assert f"'{permission_code}'" in upgrade
+    for role_code in ("model_engineer", "agent_runtime"):
+        assert f"'{role_code}'" in upgrade
+    for config_key in M5_CONFIG_KEYS:
+        assert f"'{config_key}'" in upgrade
+    assert "ON CONFLICT (code) DO UPDATE" in upgrade
+    assert "ON CONFLICT (key) DO UPDATE" in upgrade
+
+    assert "DELETE FROM platform.sensitive_words" in downgrade
+    assert "DELETE FROM platform.moderation_cases" in downgrade
+    assert "DELETE FROM platform.user_roles" in downgrade
+    assert "DELETE FROM platform.role_permissions" in downgrade
+    assert "DELETE FROM platform.roles" in downgrade
+    assert "DELETE FROM platform.permissions" in downgrade
+    assert "DELETE FROM platform.app_configs" in downgrade
+    assert "CHECK (scope IN ('user_input', 'ai_output', 'community', 'all'))" in downgrade
+    assert "CHECK (target_module IN ('ai_knowledge', 'campus_service', 'community'))" in downgrade
+
+
+def test_agent_platform_revision_is_rendered_and_downgrades_safely() -> None:
+    upgrade = run_alembic("upgrade", "head", "--sql")
+    downgrade = run_alembic("downgrade", "0005_agent_platform_schema:0004_platform_m5_compat", "--sql")
+
+    assert "CREATE SCHEMA IF NOT EXISTS agent_platform" in upgrade
+    for table in AGENT_PLATFORM_TABLES:
+        assert f"CREATE TABLE IF NOT EXISTS agent_platform.{table}" in upgrade
+    assert "CREATE OR REPLACE FUNCTION agent_platform.set_updated_at()" in upgrade
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS uq_tool_calls_idempotency" in upgrade
+    assert "CREATE INDEX IF NOT EXISTS ix_approval_user_pending" in upgrade
+    assert "CREATE TRIGGER trg_agent_runs_updated_at" in upgrade
+    assert "COMMENT ON TABLE agent_platform.approval_requests" in upgrade
+
+    positions = [
+        downgrade.index(f"DROP TABLE agent_platform.{table}")
+        for table in reversed(AGENT_PLATFORM_TABLES)
+    ]
+    assert positions == sorted(positions)
+    assert positions[-1] < downgrade.index("DROP FUNCTION agent_platform.set_updated_at()")
+    assert downgrade.index("DROP FUNCTION agent_platform.set_updated_at()") < downgrade.index(
+        "DROP SCHEMA agent_platform"
+    )
+    assert "DROP EXTENSION" not in downgrade
+
+
+def test_agent_runtime_delivery_revision_is_rendered_and_downgrades_safely() -> None:
+    upgrade = run_alembic("upgrade", "head", "--sql")
+    downgrade = run_alembic("downgrade", "0006_agent_runtime_delivery:0005_agent_platform_schema", "--sql")
+    for table in AGENT_RUNTIME_TABLES:
+        assert f"CREATE TABLE IF NOT EXISTS agent_platform.{table}" in upgrade
+    for marker in (
+        "uq_runtime_command_active_action", "ix_runtime_commands_queue",
+        "ck_runtime_checkpoint_hash", "uq_agent_run_event_sequence",
+        "ix_agent_run_events_replay",
+    ):
+        assert marker in upgrade
+    positions = [downgrade.index(f"DROP TABLE agent_platform.{table}") for table in reversed(AGENT_RUNTIME_TABLES)]
+    assert positions == sorted(positions)
+    assert "DROP SCHEMA" not in downgrade and "DROP EXTENSION" not in downgrade
 
 
 def test_electricity_downgrade_precedes_base_campus_service_objects() -> None:

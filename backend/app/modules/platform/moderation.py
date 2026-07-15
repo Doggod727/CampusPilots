@@ -11,7 +11,9 @@ from app.modules.platform.models import ModerationCase
 from app.modules.platform.moderation_scan import ScanResult, SensitiveWordScanner
 from app.modules.platform.repositories import ModerationCaseRepository
 
-VALID_TARGET_MODULES = {"ai_knowledge", "campus_service", "community"}
+VALID_TARGET_MODULES = {
+    "ai_knowledge", "campus_service", "community", "agent_platform"
+}
 
 
 class InvalidModerationTarget(AppError):

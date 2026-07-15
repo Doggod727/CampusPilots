@@ -9,7 +9,9 @@ from app.shared.responses import SuccessResponse
 
 ModerationStatus = Literal["pending", "approved", "rejected", "escalated"]
 RiskLevel = Literal["low", "medium", "high", "critical"]
-TargetModule = Literal["ai_knowledge", "campus_service", "community"]
+TargetModule = Literal[
+    "ai_knowledge", "campus_service", "community", "agent_platform"
+]
 ModerationSort = Literal["created_at", "-created_at", "risk_level", "-risk_level"]
 
 

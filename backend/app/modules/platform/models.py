@@ -270,7 +270,8 @@ class SensitiveWord(Base):
             name="ck_sensitive_words_action",
         ),
         CheckConstraint(
-            "scope IN ('user_input', 'ai_output', 'community', 'all')",
+            "scope IN ('user_input', 'ai_output', 'community', 'all', "
+            "'tool_input', 'tool_output', 'agent_context')",
             name="ck_sensitive_words_scope",
         ),
         CheckConstraint(
@@ -317,7 +318,8 @@ class ModerationCase(Base):
     __tablename__ = "moderation_cases"
     __table_args__ = (
         CheckConstraint(
-            "target_module IN ('ai_knowledge', 'campus_service', 'community')",
+            "target_module IN ('ai_knowledge', 'campus_service', 'community', "
+            "'agent_platform')",
             name="ck_moderation_cases_target_module",
         ),
         CheckConstraint(

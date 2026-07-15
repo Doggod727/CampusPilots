@@ -2,7 +2,7 @@
 
 ## 详细设计说明书 Part 1：公共基础与平台治理（M4）
 
-**文档版本：** V0.11（M5 兼容补充版）  
+**文档版本：** V0.12（M5 契约校正版）
 **编制日期：** 2026-07-15  
 **适用迭代：** 10 天 Scrum 演示版  
 **关联基线：**《需求分析说明书》V2.1、《概要设计说明书》V1.0  
@@ -14,6 +14,7 @@
 | V0.9 | 2026-07-12 | 公共规范、认证授权、M4 平台治理详细设计及首版 API/SQL | 待小组评审 |
 | V0.10 | 2026-07-14 | 补充 M3 匿名身份专用权限、社区内容扫描动作和审核回写契约 | 已完成差距检查 |
 | V0.11 | 2026-07-15 | 补充 M5 Agent/Tool 授权、审计、内容扫描 scope 和模型工程角色兼容设计 | 已完成兼容性检查 |
+| V0.12 | 2026-07-15 | 以已实现 M4 契约校正响应信封、认证状态码、删除和审核冲突语义，并同步 M5 兼容枚举 | 已完成契约校正 |
 
 > 本文是分步详细设计的 Part 1。既有 M4 功能继续保留；V2.1 只降低完整用户/角色后台和运营看板的 Sprint 优先级，不要求删除已实现代码。M5 详细设计见 Part 5，接口字段、状态码和 Schema 以同目录 `openapi.yaml` 为机器可读单一事实源。
 
@@ -91,7 +92,7 @@ frontend/src/
 - JSON 使用 UTF-8；字段统一 `snake_case`；时间统一 ISO 8601 UTC，例如 `2026-07-12T08:30:00Z`。
 - 实体 ID 使用 UUID v4；前端一律按字符串处理。
 - 每个操作必须具有稳定 `operationId`，供 TypeScript 客户端代码生成。
-- 删除操作成功返回 `204 No Content`；其余成功响应使用统一信封。
+- 删除操作以 OpenAPI 的逐接口声明为准：M4 角色和敏感词删除返回 `200` 统一空数据信封；明确声明为 `204 No Content` 的业务接口不返回响应体。
 
 ## 3.2 请求头
 
@@ -109,8 +110,11 @@ frontend/src/
 
 ```json
 {
+  "code": "OK",
+  "message": "success",
   "data": {"id": "5db0..."},
-  "meta": {"request_id": "req_01", "timestamp": "2026-07-12T08:30:00Z"}
+  "request_id": "req_01",
+  "timestamp": "2026-07-12T08:30:00Z"
 }
 ```
 
@@ -118,12 +122,11 @@ frontend/src/
 
 ```json
 {
-  "error": {
-    "code": "VERSION_CONFLICT",
-    "message": "资源已被其他操作更新",
-    "details": [{"field": "If-Match", "reason": "expected=2, actual=3"}]
-  },
-  "meta": {"request_id": "req_01", "timestamp": "2026-07-12T08:30:01Z"}
+  "code": "RESOURCE_VERSION_CONFLICT",
+  "message": "资源已被其他操作更新",
+  "details": [{"field": "version", "reason": "expected=2, actual=3"}],
+  "request_id": "req_01",
+  "timestamp": "2026-07-12T08:30:01Z"
 }
 ```
 
@@ -134,14 +137,15 @@ frontend/src/
 | HTTP | 典型错误码 | 客户端行为 |
 |---|---|---|
 | 400 | `BAD_REQUEST`、`ILLEGAL_STATE_TRANSITION` | 展示业务提示，不重试 |
-| 401 | `INVALID_CREDENTIALS`、`TOKEN_EXPIRED`、`INVALID_REFRESH_TOKEN` | Access 过期时仅刷新一次；失败则退出 |
-| 403 | `ACCOUNT_DISABLED`、`PERMISSION_DENIED` | 跳转 403 或隐藏操作入口 |
-| 404 | `USER_NOT_FOUND`、`ROLE_NOT_FOUND`、`CASE_NOT_FOUND` | 展示资源不存在 |
-| 409 | `VERSION_CONFLICT`、`DUPLICATE_RESOURCE`、`IDEMPOTENCY_CONFLICT` | 刷新资源；不得自动覆盖 |
+| 401 | `INVALID_CREDENTIALS`、`AUTH_UNAUTHORIZED`、`INVALID_REFRESH_TOKEN` | Access 无效时仅刷新一次；失败则退出 |
+| 403 | `ACCOUNT_DISABLED`、`AUTH_FORBIDDEN`、`CONFIG_NOT_EDITABLE` | 跳转 403 或隐藏操作入口 |
+| 404 | `USER_NOT_FOUND`、`ROLE_NOT_FOUND`、`MODERATION_CASE_NOT_FOUND` | 展示资源不存在 |
+| 409 | `RESOURCE_VERSION_CONFLICT`、`DUPLICATE_RESOURCE`、`IDEMPOTENCY_CONFLICT` | 刷新资源；不得自动覆盖 |
 | 422 | `VALIDATION_ERROR` | 将 `details.field` 映射到表单项 |
-| 429 | `RATE_LIMITED`、`ACCOUNT_LOCKED` | 读取 `Retry-After` 后再试 |
+| 423 | `ACCOUNT_LOCKED` | 读取 `Retry-After` 后再试 |
+| 429 | `RATE_LIMITED` | 按通用限流策略等待后重试 |
 | 500 | `INTERNAL_ERROR` | 展示 Request-Id，禁止展示堆栈 |
-| 503 | `DEPENDENCY_UNAVAILABLE` | 健康页或稍后重试 |
+| 503 | `SERVICE_NOT_READY` | 健康页或稍后重试 |
 
 ## 3.5 幂等规则
 
@@ -171,7 +175,7 @@ frontend/src/
 ## 4.2 登录流程
 
 1. 按大小写不敏感用户名查询未软删用户。
-2. 若 `disabled` 返回 403；若 `locked_until > now()` 返回 429 并给出剩余秒数。
+2. 若 `disabled` 返回 403 `ACCOUNT_DISABLED`；若 `locked_until > now()` 返回 423 `ACCOUNT_LOCKED` 并通过 `Retry-After` 给出剩余秒数。429 仅用于通用限流。
 3. 使用 Argon2id 恒定成本校验密码；失败则原子增加 `failed_login_count`。
 4. 连续失败达到 `auth.max_failed_logins=5` 时设置 `locked_until=now()+15min`，状态可标记为 `locked`。
 5. 成功后清零失败计数、解除过期锁、更新 `last_login_at`。
@@ -334,7 +338,7 @@ with transaction:
   before = user_repo.get(user_id) or 404
   ensure requester cannot disable the last active super_admin
   updated = user_repo.update_if_version(user_id, expected, patch)
-  if not updated: raise VERSION_CONFLICT
+  if not updated: raise RESOURCE_VERSION_CONFLICT
   if status changed to disabled: token_repo.revoke_all(user_id)
   audit.record(before, updated)
 return UserEnvelope(updated)
@@ -410,7 +414,7 @@ return response
 | 安全 | 5 次失败锁定、Refresh 轮换/复用、禁用撤销、敏感字段不落日志 | 用例全部通过 |
 | 并发 | 同 Idempotency-Key 双请求、同版本双更新、同案件双决策 | 只产生一个结果，另一请求重放或 409 |
 
-重点验收用例：系统角色删除返回 409；不可编辑配置更新返回 403；已结束案件再次决策返回 400；非法 UUID/分页返回 422；普通学生访问 `/users` 返回 403；审计 before/after 中敏感字段被替换为 `***`。
+重点验收用例：系统角色删除返回 409；不可编辑配置更新返回 403；已结束案件再次决策返回 409 `MODERATION_CASE_ALREADY_DECIDED`；非法 UUID/分页返回 422；普通学生访问 `/users` 返回 403；审计 before/after 中敏感字段被替换为 `***`。
 
 # 11. 成员 D 的 10 天 Scrum 实施包
 
