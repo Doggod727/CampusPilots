@@ -386,6 +386,11 @@
   - `0005_agent_platform_schema` 严格转换 SQL 012，创建 Agent/Tool Catalog、数据集、训练、模型、评估、Run/Step/ToolCall、Approval 和 Handoff 共15张表及全部函数、约束、部分索引、触发器和注释。
   - downgrade 按外键依赖逆序删除15张表、更新时间函数和 `agent_platform` Schema，不删除共享 `pgcrypto`；本任务不加入 SQL 013 种子、ORM、ApprovalService 或 Repository。
   - 全量 pytest `345 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 唯一 head `0005_agent_platform_schema` 及离线升降级通过；真实 PostgreSQL 验证仍保留待办。
+- [x] [#80 M5：实现 M2 电费真实 Tool Adapter 与可信调用上下文](https://github.com/Doggod727/CampusPilot/issues/80)（2026-07-15）
+  - 新增冻结 `ToolInvocationContext`，由 Executor 在 Schema、授权、幂等与 Approval 校验后构造，携带 User、Run/Step、参数哈希、幂等 Key、Approval ID 和服务端确认结果；敏感完整性字段不进入 repr。
+  - 统一 Handler 协议升级完成，14个 Mock Handler 与3个 M4 治理 Handler 均消费可信调用上下文；无确认或无幂等 Key 的 R2 调用在 Handler 前拒绝。
+  - 新增 `electricity.get_balance` 与 `electricity.create_topup_request` 薄适配器，只映射冻结模型与可信上下文到 M2 ElectricityService，不访问 Repository、不提交事务；输出重新通过冻结 Schema并固定 CNY/mock/simulated 语义。
+  - 全量 pytest `349 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 唯一 head `0005_agent_platform_schema` 及离线升降级通过；未新增公共 HTTP API/状态码差异。
 
 ## 待办
 

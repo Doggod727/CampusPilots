@@ -4,7 +4,11 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
-from app.modules.agent_platform.domain.contracts import ToolDefinition, UserContext
+from app.modules.agent_platform.domain.contracts import (
+    ToolDefinition,
+    ToolInvocationContext,
+    UserContext,
+)
 from app.modules.agent_platform.tool_gateway.catalog import (
     GovernanceAuditInput,
     GovernanceAuditOutput,
@@ -141,8 +145,9 @@ class GovernanceCheckContentHandler:
         self._moderation = moderation
 
     async def __call__(
-        self, context: UserContext, payload: ToolModel
+        self, invocation: ToolInvocationContext, payload: ToolModel
     ) -> GovernanceCheckOutput:
+        context = invocation.user
         data = GovernanceCheckInput.model_validate(payload)
         result = await self._moderation.scan(scope=data.scope, text=data.text)
         return GovernanceCheckOutput(
@@ -170,8 +175,9 @@ class GovernanceAuthorizeToolHandler:
         self._agent_allowlists = agent_allowlists
 
     async def __call__(
-        self, context: UserContext, payload: ToolModel
+        self, invocation: ToolInvocationContext, payload: ToolModel
     ) -> GovernanceAuthorizeOutput:
+        context = invocation.user
         data = GovernanceAuthorizeInput.model_validate(payload)
         if data.user_id != context.user_id:
             return GovernanceAuthorizeOutput(
@@ -198,8 +204,9 @@ class GovernanceWriteAuditHandler:
         self._audit = audit
 
     async def __call__(
-        self, context: UserContext, payload: ToolModel
+        self, invocation: ToolInvocationContext, payload: ToolModel
     ) -> GovernanceAuditOutput:
+        context = invocation.user
         data = GovernanceAuditInput.model_validate(payload)
         if data.result == "success":
             entry = self._audit.record_success(

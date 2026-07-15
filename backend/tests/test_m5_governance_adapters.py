@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from app.core.errors import AppError
-from app.modules.agent_platform.domain.contracts import UserContext
+from app.modules.agent_platform.domain.contracts import ToolInvocationContext, UserContext
 from app.modules.agent_platform.tool_gateway.catalog import (
     GovernanceAuditInput,
     GovernanceAuthorizeInput,
@@ -37,6 +37,15 @@ def _context(*permissions: str) -> UserContext:
         roles=("student",),
         permissions=permissions,
         request_id="request-123",
+    )
+
+
+def _invocation(context: UserContext) -> ToolInvocationContext:
+    return ToolInvocationContext(
+        user=context,
+        agent_run_id=UUID("30000000-0000-4000-8000-000000000001"),
+        step_id=UUID("30000000-0000-4000-8000-000000000002"),
+        arguments_hash="b" * 64,
     )
 
 
@@ -161,7 +170,7 @@ def test_governance_handlers_call_m4_services_without_executor_recursion() -> No
 
     check = GovernanceCheckContentHandler(moderation)  # type: ignore[arg-type]
     check_result = asyncio.run(check(
-        context,
+        _invocation(context),
         GovernanceCheckInput(text="secret", scope="agent_context"),
     ))
     assert check_result.action == "mask"
@@ -173,14 +182,14 @@ def test_governance_handlers_call_m4_services_without_executor_recursion() -> No
         agent_allowlists={"knowledge_agent": ("knowledge.search",)},
     )
     allowed = asyncio.run(authorize(
-        context,
+        _invocation(context),
         GovernanceAuthorizeInput(
             user_id=USER_ID, agent_code="knowledge_agent",
             tool_name="knowledge.search",
         ),
     ))
     denied = asyncio.run(authorize(
-        context,
+        _invocation(context),
         GovernanceAuthorizeInput(
             user_id=UUID("10000000-0000-4000-8000-000000000002"),
             agent_code="knowledge_agent", tool_name="knowledge.search",
@@ -193,7 +202,7 @@ def test_governance_handlers_call_m4_services_without_executor_recursion() -> No
 
     write = GovernanceWriteAuditHandler(audit_service)
     result = asyncio.run(write(
-        context,
+        _invocation(context),
         GovernanceAuditInput(
             action="agent.approval.decide", request_id="request-123",
             result="denied", metadata={"token": "must-not-leak"},

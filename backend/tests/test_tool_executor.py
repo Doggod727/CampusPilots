@@ -321,7 +321,7 @@ def test_approval_is_hash_bound_and_consumed_once() -> None:
 
 
 def test_invalid_handler_output_is_safely_rejected_and_audited() -> None:
-    async def invalid_output(context, payload):
+    async def invalid_output(invocation, payload):
         return {"unexpected": "internal output"}
 
     context = _context()

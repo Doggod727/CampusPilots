@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.modules.agent_platform.domain.contracts import UserContext
+from app.modules.agent_platform.domain.contracts import ToolInvocationContext, UserContext
 from app.modules.agent_platform.tool_gateway.catalog import TOOL_CONTRACTS
 from app.modules.agent_platform.tool_gateway.mocks import (
     MockDependencyUnavailable,
@@ -27,6 +27,15 @@ def _context(room_id: UUID | None = None) -> UserContext:
         request_id="request-123",
         campus_id="main",
         room_ids=() if room_id is None else (room_id,),
+    )
+
+
+def _invocation(context: UserContext) -> ToolInvocationContext:
+    return ToolInvocationContext(
+        user=context,
+        agent_run_id=UUID("30000000-0000-4000-8000-000000000001"),
+        step_id=UUID("30000000-0000-4000-8000-000000000002"),
+        arguments_hash="a" * 64,
     )
 
 
@@ -72,7 +81,7 @@ def test_all_fourteen_mock_handlers_return_frozen_output_models() -> None:
         results = {}
         for name, contract in TOOL_CONTRACTS.items():
             payload = contract.input_model.model_validate(samples[name])
-            output = await handlers[name](context, payload)
+            output = await handlers[name](_invocation(context), payload)
             results[name] = contract.output_model.model_validate(output)
         return results
 
@@ -111,7 +120,7 @@ def test_empty_scenario_is_explicit_and_schema_valid() -> None:
         ):
             contract = TOOL_CONTRACTS[name]
             payload = contract.input_model.model_validate(samples[name])
-            outputs[name] = await handlers[name](context, payload)
+            outputs[name] = await handlers[name](_invocation(context), payload)
         return outputs
 
     outputs = asyncio.run(run_empty())
@@ -132,11 +141,11 @@ def test_failure_scenarios_are_explicit_and_deterministic() -> None:
     )["knowledge.search"]
 
     with pytest.raises(MockToolConflict):
-        asyncio.run(conflict(context, sample))
+        asyncio.run(conflict(_invocation(context), sample))
     with pytest.raises(MockDependencyUnavailable):
-        asyncio.run(dependency(context, sample))
+        asyncio.run(dependency(_invocation(context), sample))
     with pytest.raises(TimeoutError):
-        asyncio.run(asyncio.wait_for(timeout(context, sample), timeout=0.001))
+        asyncio.run(asyncio.wait_for(timeout(_invocation(context), sample), timeout=0.001))
 
 
 def test_room_and_owner_scopes_are_enforced() -> None:
@@ -152,6 +161,6 @@ def test_room_and_owner_scopes_are_enforced() -> None:
     )
 
     with pytest.raises(MockResourceForbidden):
-        asyncio.run(handlers["electricity.get_balance"](context, wrong_room))
+        asyncio.run(handlers["electricity.get_balance"](_invocation(context), wrong_room))
     with pytest.raises(MockResourceForbidden):
-        asyncio.run(handlers["lost_found.search_matches"](context, wrong_item))
+        asyncio.run(handlers["lost_found.search_matches"](_invocation(context), wrong_item))

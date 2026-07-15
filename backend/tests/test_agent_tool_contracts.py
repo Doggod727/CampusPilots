@@ -11,6 +11,7 @@ from app.modules.agent_platform.domain.contracts import (
     RouteDecision,
     ToolCallRequest,
     ToolDefinition,
+    ToolInvocationContext,
     UserContext,
 )
 
@@ -105,6 +106,24 @@ def test_sensitive_tool_fields_do_not_appear_in_repr() -> None:
     assert "secret" not in rendered
     assert "private-key" not in rendered
     assert str(request.approval_id) not in rendered
+
+    context = UserContext(
+        user_id=uuid4(), username="student01", request_id="request-123"
+    )
+    invocation = ToolInvocationContext(
+        user=context, agent_run_id=uuid4(), step_id=uuid4(),
+        idempotency_key="private-key", arguments_hash="a" * 64,
+        approval_id=uuid4(), approval_verified=True,
+    )
+    invocation_repr = repr(invocation)
+    assert "private-key" not in invocation_repr
+    assert "a" * 64 not in invocation_repr
+    assert str(invocation.approval_id) not in invocation_repr
+    with pytest.raises(ValidationError):
+        ToolInvocationContext(
+            user=context, agent_run_id=uuid4(), step_id=uuid4(),
+            arguments_hash="b" * 64, approval_verified=True,
+        )
 
 
 def test_approval_lifecycle_requires_consistent_decision_fields() -> None:

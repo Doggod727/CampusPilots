@@ -13,6 +13,7 @@ from app.modules.agent_platform.domain.contracts import (
     ToolCallRequest,
     ToolCallResult,
     ToolDefinition,
+    ToolInvocationContext,
     UserContext,
 )
 
@@ -31,5 +32,6 @@ __all__ = (
     "ToolCallRequest",
     "ToolCallResult",
     "ToolDefinition",
+    "ToolInvocationContext",
     "UserContext",
 )

@@ -50,6 +50,24 @@ class UserContext(FrozenContract):
         return tuple(sorted(set(value or ()), key=str))
 
 
+class ToolInvocationContext(FrozenContract):
+    """Trusted execution facts assembled only by ToolExecutor."""
+
+    user: UserContext
+    agent_run_id: UUID
+    step_id: UUID
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128, repr=False)
+    arguments_hash: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
+    approval_id: UUID | None = Field(default=None, repr=False)
+    approval_verified: bool = False
+
+    @model_validator(mode="after")
+    def validate_approval_facts(self) -> "ToolInvocationContext":
+        if self.approval_verified and self.approval_id is None:
+            raise ValueError("verified approval requires an approval id")
+        return self
+
+
 class ArtifactRef(FrozenContract):
     artifact_type: str = Field(min_length=1, max_length=50)
     artifact_id: UUID | None = None

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
@@ -36,6 +37,7 @@ def _account() -> ElectricityAccount:
         currency="CNY",
         source="mock",
         is_simulated=True,
+        source_updated_at=datetime(2026, 7, 15, tzinfo=UTC),
     )
 
 

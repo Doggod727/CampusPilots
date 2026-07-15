@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from app.modules.agent_platform.domain.contracts import UserContext
+from app.modules.agent_platform.domain.contracts import ToolInvocationContext, UserContext
 from app.modules.agent_platform.tool_gateway.catalog import (
     Citation,
     ElectricityBalanceInput,
@@ -81,7 +81,9 @@ class MockResourceForbidden(PermissionError):
 
 
 class ToolHandler(Protocol):
-    async def __call__(self, context: UserContext, payload: ToolModel) -> ToolModel: ...
+    async def __call__(
+        self, invocation: ToolInvocationContext, payload: ToolModel
+    ) -> ToolModel: ...
 
 
 HandlerFunction = Callable[[UserContext, ToolModel, bool], Awaitable[ToolModel]]
@@ -99,7 +101,9 @@ class MockToolHandler:
         self._timeout_seconds = timeout_seconds
         self.call_count = 0
 
-    async def __call__(self, context: UserContext, payload: ToolModel) -> ToolModel:
+    async def __call__(
+        self, invocation: ToolInvocationContext, payload: ToolModel
+    ) -> ToolModel:
         self.call_count += 1
         if self._scenario == MockScenario.CONFLICT:
             raise MockToolConflict("mock domain conflict")
@@ -108,7 +112,7 @@ class MockToolHandler:
         if self._scenario == MockScenario.TIMEOUT:
             await asyncio.sleep(self._timeout_seconds)
         return await self._function(
-            context, payload, self._scenario == MockScenario.EMPTY
+            invocation.user, payload, self._scenario == MockScenario.EMPTY
         )
 
 

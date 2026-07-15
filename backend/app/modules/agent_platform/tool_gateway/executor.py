@@ -14,6 +14,7 @@ from app.modules.agent_platform.domain.contracts import (
     ToolCallRequest,
     ToolCallResult,
     ToolDefinition,
+    ToolInvocationContext,
     UserContext,
 )
 from app.modules.agent_platform.tool_gateway.catalog import ToolContract, ToolModel
@@ -280,6 +281,16 @@ class ToolExecutor:
                 if not approved:
                     raise ToolApprovalInvalid()
 
+            invocation = ToolInvocationContext(
+                user=context,
+                agent_run_id=request.agent_run_id,
+                step_id=request.step_id,
+                idempotency_key=request.idempotency_key,
+                arguments_hash=prepared.arguments_hash,
+                approval_id=request.approval_id,
+                approval_verified=definition.requires_approval,
+            )
+
             safe_input = await self._content_safety.check_input(
                 context, definition, prepared.payload
             )
@@ -288,7 +299,7 @@ class ToolExecutor:
                 raise ToolDependencyUnavailable()
             try:
                 raw_output = await asyncio.wait_for(
-                    handler(context, safe_input),
+                    handler(invocation, safe_input),
                     timeout=definition.timeout_ms / 1000,
                 )
             except TimeoutError as exc:
