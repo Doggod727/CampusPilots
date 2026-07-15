@@ -395,6 +395,7 @@ paths:
               schema: {$ref: "#/components/schemas/RoleListResponse"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+        "422": {$ref: "#/components/responses/ValidationError"}
     post:
       tags: [Roles]
       operationId: createRole
@@ -947,6 +948,7 @@ paths:
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
         "429": {$ref: "#/components/responses/TooManyRequests"}
+        "502": {$ref: "#/components/responses/BadGateway"}
 
   /api/v1/posts/{post_id}:
     get:
@@ -2710,6 +2712,7 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/agent-runs/{run_id}/stream:
     get:
@@ -2756,6 +2759,7 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/agent-runs/{run_id}/approvals/{approval_id}:
     post:

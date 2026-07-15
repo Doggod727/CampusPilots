@@ -160,7 +160,7 @@ class AgentRunQueryService:
         rows, total = await self._repository.list_runs(**kwargs)
         page, page_size = kwargs["page"], kwargs["page_size"]
         return RunPageDTO(
-            items=tuple(_run_dto(row, ()) for row in rows),
+            items=tuple(run_dto(row, ()) for row in rows),
             pagination=PageMetaData(
                 page=page, page_size=page_size, total=total,
                 total_pages=ceil(total / page_size) if total else 0,
@@ -168,20 +168,23 @@ class AgentRunQueryService:
         )
 
     async def get_detail(self, **kwargs: Any) -> RunDetailDTO:
-        aggregate = await self._repository.get_aggregate(**kwargs)
+        aggregate = await self.get_aggregate(**kwargs)
         if aggregate is None:
             raise AgentRunNotFound()
         approval_by_call = {item.tool_call_id: item.id for item in aggregate.approvals}
         call_by_id = {item.id: item for item in aggregate.tool_calls}
         return RunDetailDTO(
-            run=_run_dto(aggregate.run, aggregate.steps),
+            run=run_dto(aggregate.run, aggregate.steps),
             steps=tuple(_step_dto(item) for item in aggregate.steps),
             tool_calls=tuple(_tool_dto(item, approval_by_call.get(item.id)) for item in aggregate.tool_calls),
             approvals=tuple(_approval_dto(item, call_by_id[item.tool_call_id]) for item in aggregate.approvals if item.tool_call_id in call_by_id),
         )
 
+    async def get_aggregate(self, **kwargs: Any) -> RunAggregate | None:
+        return await self._repository.get_aggregate(**kwargs)
 
-def _run_dto(run: AgentRun, steps: tuple[AgentStep, ...]) -> RunDTO:
+
+def run_dto(run: AgentRun, steps: tuple[AgentStep, ...]) -> RunDTO:
     route = run.route_decision or {}
     final_answer = None
     for step in reversed(steps):

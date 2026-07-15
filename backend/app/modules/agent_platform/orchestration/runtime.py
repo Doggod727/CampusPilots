@@ -202,3 +202,18 @@ class InProcessRuntimeDispatcher:
     async def start(self, run_id, user, objective, context): await self._runtime.start(run_id,user,objective,context)
     async def resume(self, run_id, approval_id): await self._runtime.resume(run_id,approval_id)
     async def cancel(self, run_id): await self._runtime.cancel(run_id)
+
+
+@dataclass(frozen=True)
+class RuntimeCommand:
+    action: str
+    run_id: UUID
+    approval_id: UUID | None = None
+
+
+class InMemoryCommandDispatcher:
+    """Demo command handoff; workers consume commands with fresh DB sessions."""
+    def __init__(self) -> None: self.commands: list[RuntimeCommand] = []
+    async def start(self, run_id, user, objective, context): self.commands.append(RuntimeCommand("start",run_id))
+    async def resume(self, run_id, approval_id): self.commands.append(RuntimeCommand("resume",run_id,approval_id))
+    async def cancel(self, run_id): self.commands.append(RuntimeCommand("cancel",run_id))

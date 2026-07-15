@@ -423,6 +423,10 @@
   - 新增显式有界状态机和 Dispatcher/Specialist/Event Sink 端口，串联路由、Supervisor 计划、专业 Agent、Tool、审批暂停、聚合与安全终态。
   - 继续由 TraceService 强制6步/3专业Agent/循环与终态边界；R2/R3确认缺失时在 Handler前暂停并持久化Approval。
   - 内存 Event Sink 保证每个Run单调sequence；SSE、进程重启后的事件恢复和真实M1/M3 Specialist留给后续任务。
+- [x] [#89 M5：实现 Agent Run 创建、查询与取消 API](https://github.com/Doggod727/CampusPilot/issues/89)（2026-07-15）
+  - 新增创建(202)、本人/全局分页、详情和幂等取消路由；创建提交事务后才投递运行命令，健康检查与模块导入不连接数据库。
+  - 创建/取消复用M4幂等服务并原样重放首次信封；越权详情与不存在统一 `404 AGENT_RUN_NOT_FOUND`，非法状态使用 `409 AGENT_RUN_STATE_CONFLICT`。
+  - 权限保持种子/详细设计的 `agent:run` 并兼容未来细粒度 create/cancel 权限；OpenAPI同步422和调度依赖502响应。
 
 ## 待办
 

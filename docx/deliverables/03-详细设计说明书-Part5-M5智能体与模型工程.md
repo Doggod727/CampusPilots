@@ -538,6 +538,8 @@ API 前缀 `/api/v1`；内部 Tool 前缀 `/internal/v1/tools`。所有外部接
 | GET `/agent-runs/{run_id}` | `getAgentRun` | `agent:run:read_own` | 返回步骤、Tool 脱敏摘要、状态 |
 | GET `/agent-runs/{run_id}/stream` | `streamAgentRun` | `agent:run:read_own` | SSE；支持 `Last-Event-ID`/sequence |
 | POST `/agent-runs/{run_id}/cancel` | `cancelAgentRun` | `agent:run` | 终态不可取消 |
+
+实现约定：创建与取消均要求 `Idempotency-Key`；创建在事务提交后投递运行命令并返回 202。同 Key 同请求原样重放，不同请求返回 `409 IDEMPOTENCY_CONFLICT`。本人读取使用 `agent:run:read_own`，具备 `agent:run:read_all` 时可读取全部；越权详情与不存在统一返回 `404 AGENT_RUN_NOT_FOUND`。取消使用既有 `agent:run` 权限并兼容未来细粒度 `agent:run:cancel`，重复取消返回当前终态。
 | POST `/agent-runs/{run_id}/approvals/{approval_id}` | `decideAgentToolApproval` | 本人 | `decision=approve/reject`，参数哈希校验与乐观并发 |
 
 创建请求：
