@@ -314,6 +314,12 @@
   - 集合统一去重稳定排序；校验 Tool 名称/语义版本/超时、路由置信度、候选 Agent、最大步骤和审批生命周期；敏感参数、幂等 Key 与审批 ID 不进入 repr。
   - R2/R3 外部 Tool 必须确认；runtime_internal R2 可继承父调用确认且后续禁止 LLM 直接调用。
   - 全量测试 `262 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；未新增 HTTP 契约差异。
+- [x] [#66 M5：冻结14个初始 Tool 强类型契约](https://github.com/Doggod727/CampusPilot/issues/66)（2026-07-15）
+  - 为14个 P0 Tool 建立严格输入/输出 Pydantic 模型和唯一 TOOL_CONTRACTS 目录，运行时 JSON Schema 仅由模型生成，并以 SHA-256 快照冻结。
+  - 按详细设计第7章固定字段、权限、风险和超时；4个用户写 Tool 为需确认 R2，governance.write_audit 保持继承父确认的 runtime_internal R2；全部 Tool 声明支持幂等调用。
+  - 校正 `013_agent_platform_seed.sql` 中的 room/category、amount、事件/失物字段、超时、风险、幂等和确认元数据；Python 强类型目录为后续 Adapter 的唯一事实源。
+  - 本任务发现并消除 SQL 013 与详细设计第7章的内部 Tool 契约差异，未改变公共 HTTP 状态码。
+  - 全量测试 `266 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过。
 
 ## 待办
 
