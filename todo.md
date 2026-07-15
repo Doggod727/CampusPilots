@@ -411,6 +411,10 @@
   - TraceRepository/Service 支持创建 Run、追加最多6个 Step、记录 Tool 状态、条件终态更新及3次批量详情加载，不管理事务。
   - 仅保存递归脱敏摘要与哈希；终态、重复签名和步骤上限分别使用 `AGENT_RUN_STATE_CONFLICT`、`AGENT_LOOP_DETECTED`、`AGENT_MAX_STEPS_EXCEEDED`。
   - 全量 pytest `368 passed`（11 条既有警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；公共 Run API接入时同步新增内部错误码。
+- [x] [#86 M5：实现 Agent Run 查询与安全 DTO](https://github.com/Doggod727/CampusPilot/issues/86)（2026-07-15）
+  - 新增本人/管理员作用域分页与四次批量详情查询，越权与不存在统一为 `404 AGENT_RUN_NOT_FOUND`，避免资源枚举。
+  - DTO 从聚合步骤提取最终回答、从冻结目录补充 Tool 风险并关联 Approval；摘要再次递归脱敏且不返回参数哈希或原始参数。
+  - OpenAPI route 补充 governance/modelops/mixed/clarify，Step 输入输出摘要改为与持久化 JSONB 一致的结构化对象。
 
 ## 待办
 

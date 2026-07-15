@@ -5607,7 +5607,7 @@ components:
       properties:
         input: {type: string, minLength: 2, maxLength: 4000}
         conversation_id: {type: [string, "null"], format: uuid}
-        mode: {type: string, enum: [auto, knowledge, service, community], default: auto}
+        mode: {type: string, enum: [auto, knowledge, service, community, governance, modelops], default: auto}
         context:
           type: object
           additionalProperties: true
@@ -5619,7 +5619,7 @@ components:
       properties:
         id: {type: string, format: uuid}
         status: {$ref: "#/components/schemas/AgentRunStatus"}
-        route: {type: [string, "null"], enum: [knowledge, service, community, mixed, null]}
+        route: {type: [string, "null"], enum: [knowledge, service, community, governance, modelops, mixed, clarify, null]}
         router_model: {type: [string, "null"]}
         router_confidence: {type: [number, "null"], minimum: 0, maximum: 1}
         input_summary: {type: string, maxLength: 1000}
@@ -5638,8 +5638,8 @@ components:
         agent_code: {type: string}
         step_type: {type: string, enum: [route, plan, handoff, tool, generate, merge, govern]}
         status: {type: string, enum: [created, running, awaiting_approval, succeeded, partial, failed, cancelled]}
-        input_summary: {type: [string, "null"]}
-        output_summary: {type: [string, "null"]}
+        input_summary: {type: object, additionalProperties: true}
+        output_summary: {type: object, additionalProperties: true}
         error_code: {type: [string, "null"]}
         started_at: {type: string, format: date-time}
         finished_at: {type: [string, "null"], format: date-time}
