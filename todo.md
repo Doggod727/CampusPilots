@@ -395,6 +395,10 @@
   - 严格映射 `0005_agent_platform_schema` 的15张表，保留 PostgreSQL 类型、默认值、CHECK、外键删除策略和部分唯一索引；不注册 Alembic target metadata。
   - Prompt、Schema、参数哈希、运行/审批摘要均不进入实体 repr；不建立 relationship、Repository 或公共 API。
   - 全量 pytest `352 passed`（11 条既有警告）、Python 编译、OpenAPI lint及 Alembic 单 head通过；无公共契约差异。
+- [x] [#82 M5：实现 Agent Platform 持久化种子命令](https://github.com/Doggod727/CampusPilot/issues/82)（2026-07-15）
+  - 新增 `python -m app.scripts.seed_agent_platform`，单事务幂等写入6个 Agent、14个冻结 Tool及4个模型版本。
+  - Tool JSON Schema 只由 Pydantic `TOOL_CONTRACTS` 生成并检测漂移；DeepSeek 仅保存环境变量名，不保存密钥或输出 Prompt/Schema。
+  - 全量 pytest `355 passed`、Python 编译及 Alembic 单 head通过；真实 PostgreSQL重复种子验证保留待办。
 
 ## 待办
 
