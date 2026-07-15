@@ -54,10 +54,21 @@ class PreparedToolCall:
 class ContentSafetyPort(Protocol):
     async def check_input(
         self, context: UserContext, definition: ToolDefinition, payload: ToolModel
-    ) -> None: ...
+    ) -> ToolModel: ...
 
     async def check_output(
         self, context: UserContext, definition: ToolDefinition, payload: ToolModel
+    ) -> ToolModel: ...
+
+
+class ToolAuthorizationPort(Protocol):
+    async def authorize(
+        self,
+        *,
+        context: UserContext,
+        definition: ToolDefinition,
+        agent_allowlist: Iterable[str],
+        trusted_runtime: bool,
     ) -> None: ...
 
 
@@ -88,13 +99,30 @@ class AuditPort(Protocol):
 class AllowContentSafety:
     async def check_input(
         self, context: UserContext, definition: ToolDefinition, payload: ToolModel
-    ) -> None:
-        return None
+    ) -> ToolModel:
+        return payload
 
     async def check_output(
         self, context: UserContext, definition: ToolDefinition, payload: ToolModel
+    ) -> ToolModel:
+        return payload
+
+
+class DeterministicToolAuthorization:
+    async def authorize(
+        self,
+        *,
+        context: UserContext,
+        definition: ToolDefinition,
+        agent_allowlist: Iterable[str],
+        trusted_runtime: bool,
     ) -> None:
-        return None
+        if definition.name not in set(agent_allowlist):
+            raise ToolForbidden()
+        if not set(definition.required_permissions) <= set(context.permissions):
+            raise ToolForbidden()
+        if definition.visibility == "runtime_internal" and not trusted_runtime:
+            raise ToolForbidden()
 
 
 class InMemoryApprovalVerifier:
@@ -173,12 +201,14 @@ class ToolExecutor:
         registry: ToolRegistry,
         handlers: Mapping[str, ToolHandler],
         content_safety: ContentSafetyPort,
+        authorization: ToolAuthorizationPort | None = None,
         approval_verifier: ApprovalVerifierPort,
         audit: AuditPort,
     ) -> None:
         self._registry = registry
         self._handlers = dict(handlers)
         self._content_safety = content_safety
+        self._authorization = authorization or DeterministicToolAuthorization()
         self._approval_verifier = approval_verifier
         self._audit = audit
 
@@ -200,7 +230,7 @@ class ToolExecutor:
             arguments_hash=canonical_arguments_hash(payload),
         )
 
-    def authorize(
+    async def authorize(
         self,
         context: UserContext,
         prepared: PreparedToolCall,
@@ -208,13 +238,12 @@ class ToolExecutor:
         *,
         trusted_runtime: bool,
     ) -> None:
-        definition = prepared.contract.definition
-        if definition.name not in set(agent_allowlist):
-            raise ToolForbidden()
-        if not set(definition.required_permissions) <= set(context.permissions):
-            raise ToolForbidden()
-        if definition.visibility == "runtime_internal" and not trusted_runtime:
-            raise ToolForbidden()
+        await self._authorization.authorize(
+            context=context,
+            definition=prepared.contract.definition,
+            agent_allowlist=agent_allowlist,
+            trusted_runtime=trusted_runtime,
+        )
 
     async def execute(
         self,
@@ -229,7 +258,7 @@ class ToolExecutor:
         definition = contract.definition
         try:
             prepared = self._validate_payload(contract, request)
-            self.authorize(
+            await self.authorize(
                 context, prepared, agent_allowlist, trusted_runtime=trusted_runtime
             )
             if (
@@ -251,7 +280,7 @@ class ToolExecutor:
                 if not approved:
                     raise ToolApprovalInvalid()
 
-            await self._content_safety.check_input(
+            safe_input = await self._content_safety.check_input(
                 context, definition, prepared.payload
             )
             handler = self._handlers.get(definition.name)
@@ -259,7 +288,7 @@ class ToolExecutor:
                 raise ToolDependencyUnavailable()
             try:
                 raw_output = await asyncio.wait_for(
-                    handler(context, prepared.payload),
+                    handler(context, safe_input),
                     timeout=definition.timeout_ms / 1000,
                 )
             except TimeoutError as exc:
@@ -283,7 +312,9 @@ class ToolExecutor:
                 output = prepared.contract.output_model.model_validate(raw_output)
             except ValidationError as exc:
                 raise ToolDependencyUnavailable() from exc
-            await self._content_safety.check_output(context, definition, output)
+            output = await self._content_safety.check_output(
+                context, definition, output
+            )
             duration_ms = max(0, int((perf_counter() - started) * 1000))
             audit_id = await self._audit.record(
                 context=context,

@@ -97,9 +97,11 @@ class RecordingSafety(AllowContentSafety):
 
     async def check_input(self, context, definition, payload) -> None:
         self.inputs.append(definition.name)
+        return payload
 
     async def check_output(self, context, definition, payload) -> None:
         self.outputs.append(definition.name)
+        return payload
 
 
 def _executor_with_safety(safety: RecordingSafety):

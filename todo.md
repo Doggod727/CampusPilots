@@ -338,6 +338,12 @@
   - 注入 ContentSafetyPort、ApprovalVerifierPort、AuditPort，并提供离线内存实现；审批与用户、Tool、版本及 canonical 参数哈希绑定且单次消费，成功/失败/拒绝均记录安全审计摘要。
   - 14个 Mock Tool 已通过同一 Registry/Executor 管线完成输入、输出、安全、授权、确认和审计冒烟；无有效确认时4个外部 R2写 Handler 不会被调用，runtime_internal 仅允许受信 runtime caller。
   - 全量测试 `285 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；未新增公共 HTTP 路由或契约差异。
+- [x] [#70 M5：实现 M4 治理 Tool 适配器](https://github.com/Doggod727/CampusPilot/issues/70)（2026-07-15）
+  - 新增 M4 内容安全、确定性 Tool 授权和结构化审计薄适配器；仅依赖既有 M4 Application Service，并通过注入使用调用方事务，不在模块导入时建立数据库连接。
+  - 内容安全递归扫描 Tool 字符串字段，mask 后重新通过冻结输入/输出 Schema；review/block 统一安全拒绝为 `403 TOOL_FORBIDDEN`，不回显命中词、参数或规则。
+  - Executor 授权抽取为可注入端口，继续执行 Agent allowlist、完整权限、runtime_internal 受信调用默认拒绝；三个 governance 内部 Handler 直接调用 M4 服务，不递归调用 ToolExecutor。
+  - 契约台账：`TOOL_FORBIDDEN` 的内部语义扩展为权限、资源范围或安全策略拒绝；本任务无公共 HTTP 路由，M5 API 接入收尾时同步详细设计/OpenAPI 说明。
+  - 全量测试 `292 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
 
 ## 待办
 
