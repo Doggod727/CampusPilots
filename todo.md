@@ -540,6 +540,8 @@
   - 实现全局权限、owner、member、public、department固定授权规则，以及分页、乐观锁、引用保护和逻辑删除。
 - [x] [#115 M1：知识库管理API](https://github.com/Doggod727/CampusPilot/issues/115)（2026-07-15）
   - 实现知识库list/create/get/update/delete五个OpenAPI操作，严格DTO、权限、统一信封、版本控制和204逻辑删除。
+- [x] [#116 M1：文档上传与生命周期API](https://github.com/Doggod727/CampusPilot/issues/116)（2026-07-15）
+  - 实现文档列表/批量上传/详情/删除/Chunk预览/发布/停用及入库任务查询/重试，上传固定202并执行文件边界保护。
 
 ## 待办
 
