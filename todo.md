@@ -454,6 +454,11 @@
   - Worker 使用新 Session 领取命令、指数退避有限重试，永久失败只保存稳定错误码并安全收敛 Run；超时领取可重新领取且 Checkpoint CAS 阻止重复恢复。
   - 契约同步：创建接口请求阶段不再依赖外部队列，移除未实际使用的 502 声明；详细设计同步为事务 Outbox 语义。
   - 全量测试 `406 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#95 M5：实现 Agent Run SSE 与事件重放](https://github.com/Doggod727/CampusPilot/issues/95)（2026-07-15）
+  - 新增 `/api/v1/agent-runs/{run_id}/stream`：所有权边界与详情一致，按持久化 sequence 重放、发送安全心跳并在 done/error 后关闭。
+  - 数字 `Last-Event-ID` 支持断线续传；非法或超前游标统一返回 `409 AGENT_EVENT_CURSOR_INVALID`，连接后内部错误只发送安全 error 事件。
+  - OpenAPI、M5 详细设计和 README 已同步固定事件类型、SSE 响应头、Request-Id、404 所有权隐藏和 409 游标语义。
+  - 全量测试 `411 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
 
 ## 待办
 

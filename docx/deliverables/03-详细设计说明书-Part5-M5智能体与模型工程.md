@@ -544,6 +544,8 @@ API 前缀 `/api/v1`；内部 Tool 前缀 `/internal/v1/tools`。所有外部接
 审批决策仅允许 Run 所属用户本人提交，并要求 `Idempotency-Key` 与服务端产生的 `argument_hash`。批准在同一事务写入恢复命令；拒绝在同一事务将 Tool、Step 与 Run 收敛到安全终态且不调用 Handler。未知、过期、已消费、越权或参数哈希不匹配统一返回 `409 TOOL_APPROVAL_INVALID`。评论正文不进入 Tool 参数或审计快照，审计仅记录是否提供评论。
 | POST `/agent-runs/{run_id}/approvals/{approval_id}` | `decideAgentToolApproval` | 本人 | `decision=approve/reject`，参数哈希校验与乐观并发 |
 
+SSE 以 PostgreSQL `agent_run_events` 为事实源，事件 sequence 在单个 Run 内单调递增。客户端可用数字 `Last-Event-ID` 重放缺失事件，非法或超前游标返回 `409 AGENT_EVENT_CURSOR_INVALID`。越权和不存在统一为 `404 AGENT_RUN_NOT_FOUND`。事件类型固定为 `meta/route/agent_step/tool_call/approval_required/handoff/delta/sources/done/error`，服务端发送安全心跳注释，终态 `done/error` 后关闭；连接建立后的内部异常只发送不含堆栈的安全 `error` 事件。SSE 仅下行，审批仍使用独立 HTTP 接口。
+
 创建请求：
 
 ```json

@@ -45,6 +45,10 @@ Agent Run 的启动、恢复和取消使用 PostgreSQL 事务 Outbox。HTTP 事�
 已持久化，Worker 可在崩溃后重新领取；Redis 通知仅用于降低唤醒延迟，不可用时继续按
 `AGENT_RUNTIME_POLL_SECONDS` 轮询数据库。
 
+Agent Run 事件使用 `GET /api/v1/agent-runs/{run_id}/stream` 下行 SSE。客户端可在
+`Last-Event-ID` 传入上次收到的数字 sequence 进行重放；非法或超前游标返回
+`409 AGENT_EVENT_CURSOR_INVALID`。SSE 不接收审批，审批仍调用对应的 HTTP 接口。
+
 运行当前后端测试：
 
 ```powershell

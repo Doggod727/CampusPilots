@@ -2718,26 +2718,34 @@ paths:
       tags: [AgentRuns]
       operationId: streamAgentRun
       summary: 订阅 Agent 运行 SSE 事件
-      description: 支持 Last-Event-ID 断线续传；事件类型见 AgentStreamEvent.event。
+      description: 支持数字 Last-Event-ID 按持久化 sequence 断线续传；非法或超前游标返回 AGENT_EVENT_CURSOR_INVALID。终态 done/error 发送后关闭连接。
       parameters:
         - $ref: "#/components/parameters/AgentRunId"
         - name: Last-Event-ID
           in: header
           required: false
-          schema: {type: string, maxLength: 100}
+          schema: {type: string, pattern: "^[0-9]+$", maxLength: 100}
         - $ref: "#/components/parameters/XRequestId"
       responses:
         "200":
           description: SSE 事件流，每条 data 是 AgentStreamEvent JSON
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-cache}
+            X-Accel-Buffering:
+              schema: {type: string, const: "no"}
+            X-Request-Id:
+              schema: {type: string}
           x-event-payload-schema:
             $ref: "#/components/schemas/AgentStreamEvent"
           content:
             text/event-stream:
               schema: {type: string}
-              example: "id: 17\nevent: tool.completed\ndata: {\"run_id\":\"21000000-0000-4000-8000-000000000010\",\"sequence\":17}\n\n"
+              example: "id: 17\nevent: tool_call\ndata: {\"run_id\":\"21000000-0000-4000-8000-000000000010\",\"sequence\":17,\"event\":\"tool_call\",\"occurred_at\":\"2026-07-15T08:00:00Z\",\"data\":{\"status\":\"succeeded\"}}\n\n"
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /api/v1/agent-runs/{run_id}/cancel:
     post:

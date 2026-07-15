@@ -3,14 +3,19 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import JSONResponse
+from starlette.responses import StreamingResponse
 
 from app.core.config import get_settings
 from app.core.request_id import REQUEST_ID_HEADER
+from app.infrastructure.database import Database
+from app.modules.agent_platform.event_stream import AgentEventCursorInvalid, AgentRunEventAccessRepository, AgentRunEventStreamService
+from app.modules.agent_platform.runtime_persistence import RuntimeEventRepository
 from app.modules.agent_platform.run_queries import RunDTO, RunDetailDTO, RunPageDTO
 from app.modules.agent_platform.run_service import AgentRunService, agent_run_service_context
 from app.modules.agent_platform.approval_decision import ApprovalDecisionService, approval_decision_service_context
@@ -51,6 +56,19 @@ async def get_approval_service() -> AsyncIterator[ApprovalDecisionService]:
     async with approval_decision_service_context(get_settings()) as service: yield service
 
 
+async def get_event_stream_service() -> AsyncIterator[AgentRunEventStreamService]:
+    settings = get_settings()
+    database = Database.from_settings(settings)
+    try:
+        async with database.session() as session:
+            yield AgentRunEventStreamService(
+                access=AgentRunEventAccessRepository(session),
+                events=RuntimeEventRepository(session),
+            )
+    finally:
+        await database.dispose()
+
+
 @router.post("",operation_id="createAgentRun",status_code=202,response_model=RunResponse)
 async def create_run(payload:AgentRunCreateRequest,request:Request,actor:Annotated[AuthenticatedUser,Depends(require_any_permission("agent:run","agent:run:create"))],service:Annotated[AgentRunService,Depends(get_run_service)],idempotency_key:Annotated[str,Header(alias="Idempotency-Key",min_length=1,max_length=128)]) -> JSONResponse:
     result=await service.create(actor=actor,input_text=payload.input,conversation_id=payload.conversation_id,mode=payload.mode,context=payload.context,idempotency_key=idempotency_key,request_id=request.state.request_id)
@@ -67,6 +85,35 @@ async def list_runs(request:Request,actor:Annotated[AuthenticatedUser,Depends(re
 async def get_run(run_id:UUID,request:Request,actor:Annotated[AuthenticatedUser,Depends(require_any_permission("agent:run:read_own","agent:run:read_all"))],service:Annotated[AgentRunService,Depends(get_run_service)]) -> RunDetailResponse:
     data=await service.detail(actor=actor,run_id=run_id)
     return SuccessResponse(data=data,request_id=request.state.request_id,timestamp=datetime.now(UTC))
+
+
+@router.get("/{run_id}/stream",operation_id="streamAgentRun")
+async def stream_run(
+    run_id: UUID,
+    request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_any_permission("agent:run:read_own", "agent:run:read_all"))],
+    service: Annotated[AgentRunEventStreamService, Depends(get_event_stream_service)],
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID", max_length=100)] = None,
+) -> StreamingResponse:
+    if last_event_id is None:
+        cursor = 0
+    elif re.fullmatch(r"[0-9]+", last_event_id) is None:
+        raise AgentEventCursorInvalid()
+    else:
+        cursor = int(last_event_id)
+    prepared = await service.prepare(
+        run_id=run_id, user_id=actor.user_id,
+        can_read_all="agent:run:read_all" in actor.permissions,
+        after_sequence=cursor, request_id=request.state.request_id,
+    )
+    return StreamingResponse(
+        service.iterate(prepared), media_type="text/event-stream",
+        headers={
+            REQUEST_ID_HEADER: request.state.request_id,
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/{run_id}/cancel",operation_id="cancelAgentRun",response_model=RunResponse)
