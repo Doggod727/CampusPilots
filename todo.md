@@ -344,6 +344,11 @@
   - Executor 授权抽取为可注入端口，继续执行 Agent allowlist、完整权限、runtime_internal 受信调用默认拒绝；三个 governance 内部 Handler 直接调用 M4 服务，不递归调用 ToolExecutor。
   - 契约台账：`TOOL_FORBIDDEN` 的内部语义扩展为权限、资源范围或安全策略拒绝；本任务无公共 HTTP 路由，M5 API 接入收尾时同步详细设计/OpenAPI 说明。
   - 全量测试 `292 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
+- [x] [#71 M5：建立 Agent 运行时配置基线](https://github.com/Doggod727/CampusPilot/issues/71)（2026-07-15）
+  - Settings 新增 Router、Reranker、Agent 边界、Approval TTL、Tool 默认超时、MCP、模型/数据集对象根目录和训练设备开关；默认值与详细设计第18章一致并严格限制设计上限。
+  - `.env.example` 和 README 已补充非敏感运行时配置；路径只作为未来对象根目录，本任务不创建目录、加载模型或连接外部依赖，应用导入与 `/health/live` 无回归。
+  - 校正 SQL 013 的 Router 置信度阈值 `0.72 → 0.80`，消除种子与详细设计/环境模板差异；DeepSeek Key 等密钥仍只来自环境变量。
+  - 全量测试 `301 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；无公共 API 状态码差异。
 
 ## 待办
 

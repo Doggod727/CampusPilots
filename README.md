@@ -26,6 +26,17 @@ API 使用全局 CORS：仅允许 `FRONTEND_ORIGIN`（自动兼容末尾 `/`）�
 `Authorization`、`Content-Type`、`X-Request-Id`、`Idempotency-Key` 请求头。刷新和登出
 仍额外校验 `Origin`，不因全局 CORS 放宽 Cookie 会话安全边界。
 
+## M5 Agent 运行时配置
+
+M5 的 Router、Agent、Approval、Tool、Reranker 和模型/数据集对象根目录均通过
+`.env` 注入；完整非敏感模板见 `.env.example`。默认采用规则/本地 Router 置信度
+`0.80`、最多 6 步和 3 个专业 Agent，MCP 默认关闭。路径配置只作为未来运行时的
+对象根目录，本任务不会自动创建目录、加载模型或启动训练。DeepSeek API Key 仍只从
+环境变量读取，不写入数据库、日志或配置响应。
+
+这些配置只在显式构造 M5 运行时服务时读取；导入应用和调用 `/health/live` 不会因此
+加载模型、连接数据库或访问外部服务。
+
 运行当前后端测试：
 
 ```powershell
@@ -39,7 +50,7 @@ python -m pytest
 均使用 OpenAPI 中的 `x-permissions` 权限码、统一成功/错误信封和 `X-Request-Id`。
 写操作按契约使用幂等键或乐观锁；配置只允许 `editable=true` 项更新，敏感快照会递归脱敏。
 接口路径、请求字段和稳定错误码以
-[`docx/03-API接口/API接口定义+M1-M4.yaml`](docx/03-API接口/API接口定义+M1-M4.yaml)
+[`docx/deliverables/openapi.yaml`](docx/deliverables/openapi.yaml)
 为准。
 
 ## M4 数据库迁移

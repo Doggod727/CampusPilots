@@ -148,7 +148,7 @@ VALUES
      '{"api_key_env":"DEEPSEEK_API_KEY","timeout_seconds":60,"max_retries":2}'::jsonb,
      '{}'::jsonb, 'active', now()),
     ('local-agent-router', 'agent_router', 'rule', 'rule-router-v1', '1.0.0', NULL,
-     '{"fallback_provider":"deepseek","confidence_threshold":0.72}'::jsonb,
+     '{"fallback_provider":"deepseek","confidence_threshold":0.80}'::jsonb,
      '{"demo_intent_accuracy":1.0}'::jsonb, 'active', now()),
     ('local-rag-reranker', 'rag_reranker', 'local', 'BAAI/bge-reranker-base', 'demo-1', 'int8',
      '{"device":"cpu","max_candidates":20}'::jsonb,
