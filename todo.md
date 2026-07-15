@@ -440,6 +440,10 @@
   - 新增 `0006_agent_runtime_delivery`，提供事务Outbox、认证加密Checkpoint元数据和SSE单调事件三张表。
   - 命令、状态、次数、领取/完成时间、CAS版本、TTL、事件类型和重放sequence均有数据库约束与索引；downgrade只逆序删除本Revision对象。
   - 全量测试 `392 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#92 M5：实现运行交付 ORM 与仓储](https://github.com/Doggod727/CampusPilot/issues/92)（2026-07-15）
+  - 映射Outbox、Checkpoint、Event三表；仓储支持SKIP LOCKED领取、有限重试、CAS状态写入和按sequence重放。
+  - 事件追加先锁定Run分配单调序号并递归脱敏；所有仓储不管理调用方Session生命周期。
+  - 全量测试 `396 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
 
 ## 待办
 

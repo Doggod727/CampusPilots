@@ -140,3 +140,51 @@ class AgentHandoff(Base):
     __table_args__ = (CheckConstraint("from_agent <> to_agent", name="ck_handoff_distinct_agents"), CheckConstraint("jsonb_typeof(structured_context) = 'object'", name="ck_handoff_context"), CheckConstraint("jsonb_typeof(constraints) = 'array'", name="ck_handoff_constraints"), CheckConstraint("jsonb_typeof(artifact_refs) = 'array'", name="ck_handoff_artifacts"), CheckConstraint("status IN ('created', 'accepted', 'running', 'succeeded', 'failed', 'cancelled')", name="ck_handoff_status"), Index("ix_handoffs_run_created", "run_id", "created_at"), {"schema": SCHEMA})
     id: Mapped[UUID] = _uuid_pk(); run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey(f"{SCHEMA}.agent_runs.id", ondelete="CASCADE")); from_agent: Mapped[str] = mapped_column(String(50)); to_agent: Mapped[str] = mapped_column(String(50)); task_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True)); context_summary: Mapped[str] = mapped_column(String(1000)); structured_context: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb")); constraints: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb")); artifact_refs: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb")); status: Mapped[str] = mapped_column(String(16), server_default=text("'created'")); error_code: Mapped[str | None] = mapped_column(String(100)); created_at: Mapped[datetime] = _timestamp(); completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+
+class AgentRuntimeCommand(Base):
+    __tablename__ = "agent_runtime_commands"
+    __table_args__ = (
+        CheckConstraint("action IN ('start', 'resume', 'cancel')", name="ck_runtime_command_action"),
+        CheckConstraint("(action = 'resume' AND approval_id IS NOT NULL) OR (action <> 'resume' AND approval_id IS NULL)", name="ck_runtime_command_approval"),
+        CheckConstraint("jsonb_typeof(payload) = 'object'", name="ck_runtime_command_payload"),
+        CheckConstraint("status IN ('pending', 'processing', 'succeeded', 'failed')", name="ck_runtime_command_status"),
+        CheckConstraint("attempt_count >= 0 AND max_attempts BETWEEN 1 AND 10 AND attempt_count <= max_attempts", name="ck_runtime_command_attempts"),
+        CheckConstraint(
+            "(status = 'processing' AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL) OR status <> 'processing'",
+            name="ck_runtime_command_claim",
+        ),
+        CheckConstraint(
+            "(status IN ('succeeded', 'failed') AND completed_at IS NOT NULL) OR "
+            "(status NOT IN ('succeeded', 'failed') AND completed_at IS NULL)",
+            name="ck_runtime_command_completion",
+        ),
+        Index("ix_runtime_commands_queue", "status", "available_at", "created_at"),
+        Index("ix_runtime_commands_run", "run_id", "created_at"),
+        Index("uq_runtime_command_active_action", "run_id", "action", text("COALESCE(approval_id, '00000000-0000-0000-0000-000000000000'::uuid)"), unique=True, postgresql_where=text("status IN ('pending', 'processing')")),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[UUID] = _uuid_pk(); run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey(f"{SCHEMA}.agent_runs.id", ondelete="CASCADE")); action: Mapped[str] = mapped_column(String(16)); approval_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey(f"{SCHEMA}.approval_requests.id", ondelete="SET NULL")); payload: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb")); status: Mapped[str] = mapped_column(String(16), server_default=text("'pending'")); attempt_count: Mapped[int] = mapped_column(SmallInteger, server_default=text("0")); max_attempts: Mapped[int] = mapped_column(SmallInteger, server_default=text("3")); available_at: Mapped[datetime] = _timestamp(); claimed_by: Mapped[str | None] = mapped_column(String(100)); claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True)); completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True)); error_code: Mapped[str | None] = mapped_column(String(100)); created_at: Mapped[datetime] = _timestamp(); updated_at: Mapped[datetime] = _timestamp()
+
+
+class AgentRuntimeCheckpoint(Base):
+    __tablename__ = "agent_runtime_checkpoints"
+    __table_args__ = (
+        CheckConstraint("state_version > 0", name="ck_runtime_checkpoint_version"),
+        CheckConstraint("state_sha256 ~ '^[0-9a-f]{64}$'", name="ck_runtime_checkpoint_hash"),
+        CheckConstraint("expires_at > updated_at", name="ck_runtime_checkpoint_expiry"),
+        Index("ix_runtime_checkpoints_expiry", "expires_at"), {"schema": SCHEMA},
+    )
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey(f"{SCHEMA}.agent_runs.id", ondelete="CASCADE"), primary_key=True); state_version: Mapped[int] = mapped_column(Integer); encrypted_state: Mapped[str] = mapped_column(Text); state_sha256: Mapped[str] = mapped_column(CHAR(64)); expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True)); updated_at: Mapped[datetime] = _timestamp()
+
+
+class AgentRunEvent(Base):
+    __tablename__ = "agent_run_events"
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence", name="uq_agent_run_event_sequence"),
+        CheckConstraint("sequence > 0", name="ck_agent_run_event_sequence"),
+        CheckConstraint("event IN ('meta', 'route', 'agent_step', 'tool_call', 'approval_required', 'handoff', 'delta', 'sources', 'done', 'error')", name="ck_agent_run_event_type"),
+        CheckConstraint("jsonb_typeof(data) = 'object'", name="ck_agent_run_event_data"),
+        Index("ix_agent_run_events_replay", "run_id", "sequence"), {"schema": SCHEMA},
+    )
+    id: Mapped[UUID] = _uuid_pk(); run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey(f"{SCHEMA}.agent_runs.id", ondelete="CASCADE")); sequence: Mapped[int] = mapped_column(Integer); event: Mapped[str] = mapped_column(String(32)); data: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb")); request_id: Mapped[str | None] = mapped_column(String(64)); occurred_at: Mapped[datetime] = _timestamp()
+

@@ -9,10 +9,11 @@ EXPECTED = {
     "datasets", "dataset_versions", "training_jobs", "model_versions",
     "evaluation_jobs", "evaluation_metrics", "agent_runs", "agent_steps",
     "tool_calls", "approval_requests", "agent_handoffs",
+    "agent_runtime_commands", "agent_runtime_checkpoints", "agent_run_events",
 }
 
 
-def test_agent_platform_metadata_contains_all_fifteen_tables() -> None:
+def test_agent_platform_metadata_contains_all_eighteen_tables() -> None:
     assert {table.name for table in Base.metadata.tables.values() if table.schema == "agent_platform"} == EXPECTED
 
 
@@ -35,7 +36,8 @@ def test_sensitive_model_values_are_not_exposed_by_repr() -> None:
         models.ToolVersion(input_schema={"password": "x"}, output_schema={}, required_permissions=[]),
         models.ToolCall(arguments_hash="a" * 64, arguments_summary={"token": "x"}, result_summary={}),
         models.ApprovalRequestModel(arguments_hash="b" * 64, display_summary="private approval"),
+        models.AgentRuntimeCheckpoint(encrypted_state="ciphertext", state_sha256="c" * 64),
     ]
     rendered = " ".join(map(repr, values))
-    for secret in ("secret prompt", "password", "a" * 64, "b" * 64, "private approval"):
+    for secret in ("secret prompt", "password", "a" * 64, "b" * 64, "private approval", "ciphertext"):
         assert secret not in rendered
