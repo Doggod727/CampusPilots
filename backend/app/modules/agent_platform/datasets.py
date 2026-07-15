@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv, io, json, re
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import ceil
@@ -96,8 +97,8 @@ class DatasetValidator:
         return bool(row)
 
 class DatasetService:
-    def __init__(self,session:AsyncSession,repository:DatasetRepository,store:DatasetArtifactStore,validator:DatasetValidator|None=None,now=None):
-        self._session=session;self._repo=repository;self._store=store;self._validator=validator or DatasetValidator();self._now=now or(lambda:datetime.now(UTC))
+    def __init__(self,session:AsyncSession,repository:DatasetRepository,store:DatasetArtifactStore,validator:DatasetValidator|None=None,now=None,manage_transaction:bool=True):
+        self._session=session;self._repo=repository;self._store=store;self._validator=validator or DatasetValidator();self._now=now or(lambda:datetime.now(UTC));self._manage_transaction=manage_transaction
     async def list(self,page,page_size):
         rows,versions,total=await self._repo.list(page,page_size);return DatasetPageDTO(items=tuple(_dataset(x,versions.get(x.id)) for x in rows),pagination=PageMetaData(page=page,page_size=page_size,total=total,total_pages=ceil(total/page_size) if total else 0))
     async def detail(self,dataset_id):
@@ -105,12 +106,12 @@ class DatasetService:
         if item is None:raise DatasetNotFound()
         versions=await self._repo.versions(dataset_id);return DatasetDetailDTO(dataset=_dataset(item,versions[0].version if versions else None),versions=tuple(_version(v) for v in versions))
     async def create(self,*,name,purpose,description,actor_id):
-        async with self._session.begin():
+        async with self._transaction():
             if await self._repo.get_by_name(name):raise DuplicateDataset()
             now=self._utc();item=Dataset(id=uuid4(),name=name,purpose=purpose,description=description,owner_user_id=actor_id,created_at=now,updated_at=now);self._repo.add(item)
         return _dataset(item,None)
     async def create_version(self,*,dataset_id,artifact_key,artifact_sha256,fmt,claimed_count,split_config,declared_sensitive,actor_id):
-        async with self._session.begin():
+        async with self._transaction():
             dataset=await self._repo.get(dataset_id,lock=True)
             if dataset is None:raise DatasetNotFound()
             data=await self._store.read(artifact_key,expected_sha256=artifact_sha256)
@@ -119,7 +120,7 @@ class DatasetService:
             now=self._utc();item=DatasetVersion(id=uuid4(),dataset_id=dataset_id,version=await self._repo.next_version(dataset_id),artifact_key=artifact_key,artifact_sha256=artifact_sha256,format=fmt,sample_count=count,split_config=dict(split_config),validation_status=status,validation_report=report,contains_sensitive_data=declared_sensitive or detected,created_by=actor_id,created_at=now);self._repo.add(item)
         return _version(item)
     async def freeze(self,dataset_id,version):
-        async with self._session.begin():
+        async with self._transaction():
             dataset=await self._repo.get(dataset_id,lock=True)
             if dataset is None:raise DatasetNotFound()
             item=await self._repo.version(dataset_id,version)
@@ -129,13 +130,18 @@ class DatasetService:
             item.frozen_at=self._utc()
         return _version(item)
     async def delete(self,dataset_id):
-        async with self._session.begin():
+        async with self._transaction():
             item=await self._repo.get(dataset_id,lock=True)
             if item is None:raise DatasetNotFound()
             if await self._repo.in_use(dataset_id):raise DatasetInUse()
             item.deleted_at=self._utc();item.updated_at=self._utc()
     def _utc(self):
         v=self._now();return v if v.tzinfo else v.replace(tzinfo=UTC)
+    @asynccontextmanager
+    async def _transaction(self):
+        if self._manage_transaction:
+            async with self._session.begin(): yield
+        else: yield
 
 def _dataset(x,latest):return DatasetDTO(id=x.id,name=x.name,purpose=x.purpose,description=x.description,latest_version=latest,created_at=x.created_at,updated_at=x.updated_at)
 def _version(x):return DatasetVersionDTO(version=x.version,artifact_sha256=x.artifact_sha256,format=x.format,sample_count=x.sample_count,split_config=x.split_config,validation_status=x.validation_status,validation_report=x.validation_report,contains_sensitive_data=x.contains_sensitive_data,frozen_at=x.frozen_at,created_at=x.created_at)

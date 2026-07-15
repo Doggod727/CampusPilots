@@ -610,6 +610,8 @@ Body 为规范化 ToolCallRequest；响应为 ToolCallResult。模块化单体�
 
 ## 11.1 数据集格式
 
+数据集管理接口使用 `dataset:read/dataset:write`。所有写操作要求 `Idempotency-Key`；上传仅接受 JSONL/CSV、最大100MiB，并返回服务端隔离对象键而非本机路径。登记版本时服务端重新计算哈希、格式、样本数和最小结构；校验失败或包含敏感数据的版本不能冻结或训练。稳定错误包括 `DATASET_NOT_FOUND`、`DATASET_VERSION_NOT_FOUND`、`DATASET_VERSION_STATE_CONFLICT`、`DATASET_IN_USE` 和 `DATASET_ARTIFACT_INVALID`。
+
 路由数据集 JSONL：
 
 ```json

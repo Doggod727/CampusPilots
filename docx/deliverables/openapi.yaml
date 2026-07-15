@@ -2984,6 +2984,7 @@ paths:
         "404": {$ref: "#/components/responses/NotFound"}
         "413": {$ref: "#/components/responses/PayloadTooLarge"}
         "415": {$ref: "#/components/responses/UnsupportedMediaType"}
+        "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
 
   /api/v1/datasets/{dataset_id}/versions:
