@@ -587,7 +587,7 @@ SSE 以 PostgreSQL `agent_run_events` 为事实源，事件 sequence 在单个 R
 
 ## 9.4 内部 Tool API
 
-内部 API 使用服务身份 + 用户上下文签名/可信进程调用，浏览器不可访问。统一路径：
+内部 API 使用独立 `INTERNAL_TOOL_SECRET` Bearer 服务身份，不接受普通用户 JWT。服务身份通过后仍按请求中的用户 UUID 从数据库重载 active 状态、角色和权限，浏览器不可访问。统一路径：
 
 ```text
 POST /internal/v1/tools/{tool_name}:invoke

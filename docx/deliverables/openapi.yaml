@@ -3306,7 +3306,7 @@ paths:
       summary: Agent Runtime 统一调用 Tool
       description: 仅允许服务间凭证；复用用户身份和 run_id，不接受前端直接调用。
       security:
-        - bearerAuth: []
+        - internalServiceBearer: []
       parameters:
         - $ref: "#/components/parameters/ToolName"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -3343,6 +3343,11 @@ components:
       type: apiKey
       in: cookie
       name: refresh_token
+    internalServiceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-token
+      description: 仅受信 Agent Runtime 使用的独立服务凭证，不接受用户 JWT
   headers:
     XRequestId:
       description: 服务端确认的链路请求 ID

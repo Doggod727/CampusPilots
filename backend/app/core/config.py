@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr
     frontend_origin: AnyHttpUrl
     deepseek_api_key: SecretStr
+    internal_tool_secret: SecretStr | None = None
 
     access_token_minutes: int = Field(default=15, gt=0)
     refresh_token_days: int = Field(default=7, gt=0)

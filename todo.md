@@ -498,6 +498,11 @@
   - 新增 `PATCH /api/v1/tools/{tool_name}`，强制 `tool:catalog:write`、幂等键、confirmed=true和操作原因；事务内原子更新、脱敏审计，提交成功后失效目录缓存。
   - Loader 保留停用 Tool 的活动冻结契约，Registry精确返回 `409 TOOL_DISABLED`，不再把合法停用误判为全目录契约漂移。
   - OpenAPI与详细设计同步 `409 TOOL_STATE_CONFIRMATION_REQUIRED`、请求字段和422语义。
+- [x] [#105 M5：建立内部服务身份基线](https://github.com/Doggod727/CampusPilot/issues/105)（2026-07-15）
+  - 新增独立可脱敏 `INTERNAL_TOOL_SECRET` 与常量时间 Bearer 比较；内部OpenAPI使用 `internalServiceBearer`，不接受用户JWT或浏览器直调。
+  - 服务身份通过后仍按UUID重载 active 用户、当前角色和权限；无效凭证/用户状态统一安全拒绝，不回显用户或密钥。
+  - 配置按需读取，未配置只使内部入口返回503，不影响模块导入、公开API或 `/health/live`。
+  - 全量 `pytest` 444 项、`compileall`、OpenAPI lint、Alembic 单 Head 与离线升降级验证通过（Redocly 保留 3 条既有非阻断警告）。
 
 ## 待办
 
