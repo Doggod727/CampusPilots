@@ -43,7 +43,10 @@ class DatasetApiService:
   return status,body,request_id
  async def upload(self,actor,key,request_id,dataset_id,file):
   artifact=await self.store.store(file);dto=UploadDTO(**artifact.__dict__)
-  try:return await self.mutation(actor=actor,key=key,request_id=request_id,endpoint=f"POST /api/v1/datasets/{dataset_id}/uploads",request_body={"dataset_id":str(dataset_id),"sha256":artifact.artifact_sha256,"format":artifact.format},status=201,resource_type="dataset_upload",operation=lambda:_value(dto))
+  try:
+   result=await self.mutation(actor=actor,key=key,request_id=request_id,endpoint=f"POST /api/v1/datasets/{dataset_id}/uploads",request_body={"dataset_id":str(dataset_id),"sha256":artifact.artifact_sha256,"format":artifact.format},status=201,resource_type="dataset_upload",operation=lambda:_value(dto))
+   if result[1].get("data",{}).get("artifact_key")!=artifact.artifact_key:await self.store.delete(artifact.artifact_key)
+   return result
   except BaseException:
    await self.store.delete(artifact.artifact_key);raise
 

@@ -475,6 +475,10 @@
   - 实现训练分页/创建/详情/幂等取消；仅冻结、有效且无敏感数据的版本可入队，DeepSeek和allowlist外模型安全拒绝。
   - 创建固定queued且不启动GPU；仓储提供FOR UPDATE SKIP LOCKED领取端口，取消写入脱敏审计并且终态幂等。
   - 全量测试 `423 passed`（11 条既有警告），编译、OpenAPI lint、迁移测试及Alembic单head通过。
+- [x] [#100 M5：实现模型注册与生命周期 API](https://github.com/Doggod727/CampusPilot/issues/100)（2026-07-15）
+  - 实现模型列表/登记/详情/激活/停用；local产物路径和哈希受控，DeepSeek仅存环境变量名，响应递归移除密钥字段。
+  - 激活要求成功模型评估并原子切换同purpose版本；complex_generation不允许失去DeepSeek兜底，生命周期变化写脱敏审计。
+  - 全量测试 `426 passed`（11 条既有警告），编译、OpenAPI lint、迁移测试及Alembic单head通过。
 
 ## 待办
 

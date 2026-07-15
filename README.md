@@ -55,6 +55,9 @@ Agent Run 事件使用 `GET /api/v1/agent-runs/{run_id}/stream` 下行 SSE。客
 训练 API 当前是 P0 数据库队列骨架：创建只返回 `queued`，不会启动 GPU 或真实微调。
 允许的本地基座模型由 `LOCAL_TRAINING_BASE_MODELS` 配置；DeepSeek API 模型不会进入本地训练。
 
+模型注册只保存受控对象键和哈希；响应会移除密钥、Token和Secret配置。模型激活要求已有
+成功评估，`complex_generation` 始终保留DeepSeek活动兜底。
+
 运行当前后端测试：
 
 ```powershell

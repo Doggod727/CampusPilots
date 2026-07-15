@@ -73,16 +73,19 @@ class TrainingService:
    if payload.base_model not in self.allowed or payload.base_model.lower().startswith("deepseek"):raise TrainingBaseModelNotAllowed()
    version=await self.repo.ready_version(payload.dataset_id,payload.dataset_version)
    if version is None:raise TrainingDatasetNotReady()
-   now=self.now();x=TrainingJob(id=uuid4(),dataset_version_id=version.id,base_model=payload.base_model,method=payload.method,config=payload.config.model_dump(),resource_limits=payload.resource_limits,status="queued",progress=0,metrics={},created_by=actor.user_id,created_at=now,updated_at=now);self.repo.add(x);data=_dto(x);response=SuccessResponse(data=data,request_id=request_id,timestamp=now).model_dump(mode="json");await self.idem.complete(record_id=d.record_id,response_status=202,response_body=response,resource_type="training_job",resource_id=str(x.id))
+   now=self.now();x=TrainingJob(id=uuid4(),dataset_version_id=version.id,base_model=payload.base_model,method=payload.method,config=payload.config.model_dump(),resource_limits=payload.resource_limits,status="queued",progress=0,metrics={},created_by=actor.user_id,created_at=now,updated_at=now);self.repo.add(x);data=_dto(x);response=SuccessResponse(data=data,request_id=request_id,timestamp=now).model_dump(mode="json")
+   if not await self.idem.complete(record_id=d.record_id,response_status=202,response_body=response,resource_type="training_job",resource_id=str(x.id)):raise IdempotencyConflict()
   return 202,response,request_id
  async def cancel(self,actor,id,key,request_id):
   async with self.session.begin():
    d=await self.idem.begin(user_id=actor.user_id,endpoint=f"POST /api/v1/training-jobs/{id}/cancel",idempotency_key=key,request_body={"id":str(id)})
    if d.replay:return d.replay.response_status,dict(d.replay.response_body),str(d.replay.response_body["request_id"])
+   if d.pending:raise IdempotencyConflict()
    x=await self.repo.get(id,lock=True)
    if x is None:raise TrainingJobNotFound()
    if x.status in self.ACTIVE:x.status="cancelled";x.finished_at=self.now();x.updated_at=self.now()
-   data=_dto(x);response=SuccessResponse(data=data,request_id=request_id,timestamp=self.now()).model_dump(mode="json");self.audit.record_success(action="training.cancel",resource_type="training_job",resource_id=str(id),request_id=request_id,actor_user_id=actor.user_id,actor_username=actor.username,after_data={"status":x.status});await self.idem.complete(record_id=d.record_id,response_status=200,response_body=response,resource_type="training_job",resource_id=str(id))
+   data=_dto(x);response=SuccessResponse(data=data,request_id=request_id,timestamp=self.now()).model_dump(mode="json");self.audit.record_success(action="training.cancel",resource_type="training_job",resource_id=str(id),request_id=request_id,actor_user_id=actor.user_id,actor_username=actor.username,after_data={"status":x.status})
+   if not await self.idem.complete(record_id=d.record_id,response_status=200,response_body=response,resource_type="training_job",resource_id=str(id)):raise IdempotencyConflict()
   return 200,response,request_id
 
 router=APIRouter(prefix="/api/v1/training-jobs",tags=["Training"]);TrainingResponse=SuccessResponse[TrainingDTO];TrainingListResponse=SuccessResponse[TrainingPageDTO]

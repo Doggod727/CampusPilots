@@ -652,6 +652,8 @@ P0 训练接口只创建可查询、可取消的数据库队列骨架，不启�
 
 ## 11.5 评估指标
 
+模型注册接口使用 `model:read/model:write/model:activate`。新版本固定为candidate；local产物必须位于 `MODEL_ARTIFACT_ROOT` 且SHA-256匹配，DeepSeek只保存环境变量名，不接受或返回密钥。激活要求已有成功模型评估，并在单事务内切换同purpose活动版本；复杂生成仅允许DeepSeek活动兜底。稳定错误为 `MODEL_NOT_FOUND`、`MODEL_EVALUATION_REQUIRED`、`MODEL_FALLBACK_REQUIRED`、`MODEL_STATE_CONFLICT` 和 `MODEL_ARTIFACT_INVALID`。
+
 | 对象 | 指标 |
 |---|---|
 | Router | accuracy、macro-F1、低置信召回、混淆矩阵、P95 |
