@@ -5,7 +5,8 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from app.main import create_app
 from app.modules.agent_platform.run_queries import RunDTO, RunDetailDTO, RunPageDTO
-from app.modules.agent_platform.run_routes import get_approval_service, get_run_service
+from app.modules.agent_platform.run_routes import get_approval_service, get_run_service, get_agent_rate_limiter, get_agent_run_rate_limit
+from app.modules.agent_platform.rate_limit import InMemoryRateLimiter
 from app.modules.agent_platform.approval_decision import ApprovalMutationResult
 from app.modules.agent_platform.run_service import RunMutationResult
 from app.modules.platform.auth import AuthenticatedRole, AuthenticatedUser
@@ -23,6 +24,8 @@ def make_client(perms,service,approval_service=None):
     async def get_approval(): yield approval_service or MagicMock()
     app.dependency_overrides[get_authenticated_user]=auth; app.dependency_overrides[get_run_service]=get_service
     app.dependency_overrides[get_approval_service]=get_approval
+    app.dependency_overrides[get_agent_rate_limiter]=lambda:InMemoryRateLimiter()
+    app.dependency_overrides[get_agent_run_rate_limit]=lambda:100
     return TestClient(app)
 
 def test_create_returns_202_and_preserves_request_id():

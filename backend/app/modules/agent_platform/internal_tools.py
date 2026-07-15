@@ -21,7 +21,7 @@ from app.modules.agent_platform.approvals import (
     ApprovalService,
     DatabaseApprovalVerifier,
 )
-from app.modules.agent_platform.catalog_routes import get_catalogs
+from app.modules.agent_platform.composition import RuntimeCompositionFactory
 from app.modules.agent_platform.domain.contracts import ToolCallRequest, UserContext
 from app.modules.agent_platform.internal_auth import (
     InternalServicePrincipal,
@@ -62,6 +62,8 @@ from app.modules.platform.repositories import (
     UserRepository,
 )
 from app.shared.responses import SuccessResponse
+from app.modules.agent_platform.rate_limit import RateLimitPort, RedisRateLimiter
+from redis.asyncio import Redis
 
 router = APIRouter(prefix="/internal/v1", tags=["InternalTools"])
 
@@ -353,44 +355,14 @@ class InternalToolService:
 
 
 async def get_internal_tool_service() -> AsyncIterator[InternalToolService]:
-    database = Database.from_settings(get_settings())
+    settings = get_settings()
+    database = Database.from_settings(settings)
     try:
         async with database.session() as session:
-            agents, tools = await get_catalogs()
-            approval_service = ApprovalService(ApprovalRepository(session))
-            audit_service = AuditService(AuditLogRepository(session))
-            moderation = ModerationService(
-                session=session,
-                scanner=SensitiveWordScanner(SensitiveWordRepository(session)),
-                repository=ModerationCaseRepository(session),
-                audit_service=audit_service,
-            )
-            authorization = M4ToolAuthorizationAdapter()
-            electricity = ElectricityService(ElectricityRepository(session))
-            handlers = build_mock_handlers()
-            handlers.update(
-                {
-                    "electricity.get_balance": ElectricityBalanceToolHandler(electricity),
-                    "electricity.create_topup_request": ElectricityTopupToolHandler(electricity),
-                    "governance.check_content": GovernanceCheckContentHandler(moderation),
-                    "governance.authorize_tool": GovernanceAuthorizeToolHandler(
-                        registry=tools,
-                        authorization=authorization,
-                        agent_allowlists={
-                            item.definition.code: item.version.tool_allowlist
-                            for item in agents.list_active()
-                        },
-                    ),
-                    "governance.write_audit": GovernanceWriteAuditHandler(audit_service),
-                }
-            )
-            executor = ToolExecutor(
-                registry=tools,
-                handlers=handlers,
-                content_safety=M4ContentSafetyAdapter(moderation),
-                authorization=authorization,
-                approval_verifier=DatabaseApprovalVerifier(approval_service),
-                audit=M4AuditAdapter(audit_service),
+            factory = RuntimeCompositionFactory(settings)
+            agents, tools = await factory.load_catalogs(session)
+            executor, approval_service, _moderation = await factory.build_tool_executor(
+                session, (agents, tools)
             )
             yield InternalToolService(
                 session=session,
@@ -408,6 +380,19 @@ async def get_internal_tool_service() -> AsyncIterator[InternalToolService]:
         await database.dispose()
 
 
+async def get_internal_tool_rate_limiter() -> AsyncIterator[RateLimitPort]:
+    settings = get_settings()
+    client = Redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        yield RedisRateLimiter(client)
+    finally:
+        await client.aclose()
+
+
+def get_internal_tool_rate_limit() -> int:
+    return get_settings().internal_tool_rate_limit_per_minute
+
+
 @router.post(
     "/tools/{tool_name}:invoke",
     operation_id="invokeInternalTool",
@@ -419,10 +404,18 @@ async def invoke_internal_tool(
     request: Request,
     _principal: Annotated[InternalServicePrincipal, Depends(get_internal_service_principal)],
     service: Annotated[InternalToolService, Depends(get_internal_tool_service)],
+    limiter: Annotated[RateLimitPort, Depends(get_internal_tool_rate_limiter)],
+    rate_limit: Annotated[int, Depends(get_internal_tool_rate_limit)],
     idempotency_key: Annotated[
         str, Header(alias="Idempotency-Key", min_length=8, max_length=128)
     ],
 ) -> JSONResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    await limiter.check(
+        scope="internal_tool",
+        subjects=(str(payload.user_id), client_ip),
+        limit=rate_limit,
+    )
     status, data = await service.invoke(
         tool_name=tool_name,
         payload=payload,

@@ -3332,6 +3332,7 @@ paths:
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
+        "429": {$ref: "#/components/responses/TooManyRequests"}
         "502": {$ref: "#/components/responses/BadGateway"}
         "504": {$ref: "#/components/responses/GatewayTimeout"}
 

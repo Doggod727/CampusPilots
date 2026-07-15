@@ -515,6 +515,12 @@
   - 首个流式内容前支持有界重试，开始输出后禁止透明重试；稳定错误为 `502 AGENT_PROVIDER_UNAVAILABLE` 与 `504 AGENT_PROVIDER_TIMEOUT`。
   - 测试使用可注入 Fake HTTP Client，不调用真实 DeepSeek；未接入 M1/M3 的领域能力继续明确使用 Mock Specialist。
   - 全量 `pytest` 454 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 单 Head与离线升降级通过。
+- [x] [#108 M5：实现运行时装配、限流与 Worker 入口](https://github.com/Doggod727/CampusPilot/issues/108)（2026-07-15）
+  - 新增唯一 `RuntimeCompositionFactory`，统一装配持久化Catalog/Trace/Checkpoint/Approval、M4治理、M2电费、DeepSeek以及明确的M1/M3 Mock。
+  - Agent Run和内部Tool入口增加用户/IP双维度限流端口；生产使用Redis、测试使用内存实现，超限统一返回 `429 RATE_LIMITED` 与 `Retry-After`。
+  - 新增 `python -m app.scripts.runtime_worker` 与 `python -m app.scripts.evaluation_worker`；仅进程启动时读取配置和连接依赖，运行命令继续以PostgreSQL事务Outbox为事实源。
+  - 模块导入与 `/health/live` 不创建数据库、Redis或DeepSeek连接；未完成M1/M3仍为显式Mock，不宣称真实联调完成。
+  - 全量 `pytest` 458 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 单 Head与离线升降级通过。
 
 ## 待办
 

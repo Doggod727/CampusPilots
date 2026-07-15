@@ -12,7 +12,10 @@ from app.modules.agent_platform.internal_tools import (
     ApprovalData,
     ToolInvokeData,
     get_internal_tool_service,
+    get_internal_tool_rate_limiter,
+    get_internal_tool_rate_limit,
 )
+from app.modules.agent_platform.rate_limit import InMemoryRateLimiter
 from app.modules.agent_platform.tool_gateway.errors import ToolForbidden
 
 
@@ -56,6 +59,8 @@ def _client(service):
     app = create_app()
     app.dependency_overrides[get_internal_service_principal] = lambda: InternalServicePrincipal()
     app.dependency_overrides[get_internal_tool_service] = lambda: service
+    app.dependency_overrides[get_internal_tool_rate_limiter] = lambda: InMemoryRateLimiter()
+    app.dependency_overrides[get_internal_tool_rate_limit] = lambda: 100
     return TestClient(app)
 
 

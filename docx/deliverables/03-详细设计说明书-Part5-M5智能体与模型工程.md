@@ -708,6 +708,8 @@ electricity:topup_request:create
 - 最小上下文：只向 DeepSeek 发送当前任务必要字段；房间授权、真实权限不由模型判断。
 - DeepSeek Gateway 固定只接受 `deepseek-v4-pro` 并显式关闭 Thinking；路由、ToolCall 和最终回答必须通过强类型结构校验，`reasoning_content` 一律拒绝且不持久化。
 - 流式生成只允许在首个内容片段前有限重试；开始输出后不做透明重试。超时使用 `504 AGENT_PROVIDER_TIMEOUT`，依赖或非法响应使用 `502 AGENT_PROVIDER_UNAVAILABLE`。
+- Runtime Composition Factory 是生产运行时的唯一装配入口，统一构造持久化 Catalog、Trace、Checkpoint、Approval、M4 治理、M2 电费、DeepSeek 和明确 Mock Handler。Worker 启动时才读取配置和连接外部依赖。
+- Agent Run 与内部 Tool 采用用户/IP 双维度 Redis 限流，分别由环境变量配置；超限返回 `429 RATE_LIMITED` 与 `Retry-After`。Redis 不承担 Outbox 正确性，运行命令仍以 PostgreSQL 为事实源。
 - 写操作：确认、幂等、参数哈希、资源授权、审计缺一不可。
 - 敏感字段：电话、地址、匿名身份、Token、密钥、完整 Tool 参数默认不进轨迹。
 - 模型产物：路径只使用对象键，防目录穿越；上传模型/数据集校验大小、哈希和格式。

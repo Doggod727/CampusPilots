@@ -6,6 +6,7 @@ from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
+from redis.asyncio import Redis
 
 from app.modules.agent_platform.domain.contracts import UserContext
 from app.modules.agent_platform.models import AgentRuntimeCommand
@@ -16,6 +17,25 @@ from app.modules.agent_platform.traces import AgentRunStateConflict, TraceReposi
 
 class RuntimeWakeupPort(Protocol):
     async def notify(self) -> None: ...
+    async def wait(self, timeout: float) -> None: ...
+
+
+class RedisRuntimeWakeup:
+    CHANNEL = "campuspilot:agent-runtime:wakeup"
+
+    def __init__(self, redis: Redis) -> None:
+        self._redis = redis
+
+    async def notify(self) -> None:
+        await self._redis.publish(self.CHANNEL, "runtime-command")
+
+    async def wait(self, timeout: float) -> None:
+        pubsub = self._redis.pubsub()
+        try:
+            await pubsub.subscribe(self.CHANNEL)
+            await pubsub.get_message(ignore_subscribe_messages=True, timeout=timeout)
+        finally:
+            await pubsub.aclose()
 
 
 class RuntimeCommandProcessorPort(Protocol):
@@ -107,7 +127,8 @@ class RuntimeWorker:
     def __init__(self, *, sessions: SessionContextFactory, processor_factory: ProcessorFactory,
                  worker_id: str, claim_timeout: timedelta = timedelta(seconds=60),
                  poll_interval: float = 2.0, now: Callable[[], datetime] | None = None,
-                 failures: RuntimeFailurePort | None = None) -> None:
+                 failures: RuntimeFailurePort | None = None,
+                 wakeup: RuntimeWakeupPort | None = None) -> None:
         self._sessions = sessions
         self._processor_factory = processor_factory
         self._worker_id = worker_id
@@ -115,6 +136,7 @@ class RuntimeWorker:
         self._poll_interval = poll_interval
         self._now = now or (lambda: datetime.now(UTC))
         self._failures = failures
+        self._wakeup = wakeup
 
     async def run_once(self, *, limit: int = 10) -> int:
         async with self._sessions() as session:
@@ -150,6 +172,12 @@ class RuntimeWorker:
         while not stop.is_set():
             processed = await self.run_once()
             if processed == 0:
+                if self._wakeup is not None:
+                    try:
+                        await self._wakeup.wait(self._poll_interval)
+                        continue
+                    except Exception:
+                        pass
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=self._poll_interval)
                 except TimeoutError:

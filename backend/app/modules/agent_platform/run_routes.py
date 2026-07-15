@@ -23,6 +23,8 @@ from app.modules.agent_platform.run_queries import ApprovalDTO
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import get_authenticated_user, require_any_permission
 from app.shared.responses import SuccessResponse
+from app.modules.agent_platform.rate_limit import RateLimitPort, RedisRateLimiter
+from redis.asyncio import Redis
 
 router=APIRouter(prefix="/api/v1/agent-runs",tags=["AgentRuns"])
 
@@ -69,8 +71,23 @@ async def get_event_stream_service() -> AsyncIterator[AgentRunEventStreamService
         await database.dispose()
 
 
+async def get_agent_rate_limiter() -> AsyncIterator[RateLimitPort]:
+    settings = get_settings()
+    client = Redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        yield RedisRateLimiter(client)
+    finally:
+        await client.aclose()
+
+
+def get_agent_run_rate_limit() -> int:
+    return get_settings().agent_run_rate_limit_per_minute
+
+
 @router.post("",operation_id="createAgentRun",status_code=202,response_model=RunResponse)
-async def create_run(payload:AgentRunCreateRequest,request:Request,actor:Annotated[AuthenticatedUser,Depends(require_any_permission("agent:run","agent:run:create"))],service:Annotated[AgentRunService,Depends(get_run_service)],idempotency_key:Annotated[str,Header(alias="Idempotency-Key",min_length=1,max_length=128)]) -> JSONResponse:
+async def create_run(payload:AgentRunCreateRequest,request:Request,actor:Annotated[AuthenticatedUser,Depends(require_any_permission("agent:run","agent:run:create"))],service:Annotated[AgentRunService,Depends(get_run_service)],limiter:Annotated[RateLimitPort,Depends(get_agent_rate_limiter)],rate_limit:Annotated[int,Depends(get_agent_run_rate_limit)],idempotency_key:Annotated[str,Header(alias="Idempotency-Key",min_length=1,max_length=128)]) -> JSONResponse:
+    client_ip=request.client.host if request.client else "unknown"
+    await limiter.check(scope="agent_run",subjects=(str(actor.user_id),client_ip),limit=rate_limit)
     result=await service.create(actor=actor,input_text=payload.input,conversation_id=payload.conversation_id,mode=payload.mode,context=payload.context,idempotency_key=idempotency_key,request_id=request.state.request_id)
     return JSONResponse(result.body,status_code=result.status_code,headers={REQUEST_ID_HEADER:result.request_id})
 

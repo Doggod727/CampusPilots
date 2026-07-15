@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     agent_runtime_max_attempts: int = Field(default=3, ge=1, le=10)
     agent_runtime_claim_timeout_seconds: int = Field(default=60, gt=0, le=3600)
     agent_runtime_poll_seconds: float = Field(default=2.0, gt=0, le=60)
+    agent_run_rate_limit_per_minute: int = Field(default=20, gt=0, le=1000)
+    internal_tool_rate_limit_per_minute: int = Field(default=60, gt=0, le=5000)
     approval_ttl_seconds: int = Field(default=600, gt=0, le=3600)
     tool_default_timeout_ms: int = Field(default=10000, ge=100, le=60000)
     mcp_enabled: bool = False

@@ -58,6 +58,18 @@ Agent Run 的启动、恢复和取消使用 PostgreSQL 事务 Outbox。HTTP 事�
 已持久化，Worker 可在崩溃后重新领取；Redis 通知仅用于降低唤醒延迟，不可用时继续按
 `AGENT_RUNTIME_POLL_SECONDS` 轮询数据库。
 
+运行时与评估 Worker 仅在显式进程启动时读取配置和连接依赖：
+
+```powershell
+cd backend
+python -m app.scripts.runtime_worker
+python -m app.scripts.evaluation_worker
+```
+
+Agent Run 与内部 Tool 入口分别受 `AGENT_RUN_RATE_LIMIT_PER_MINUTE`、
+`INTERNAL_TOOL_RATE_LIMIT_PER_MINUTE` 的用户/IP 双维度限制，超限统一返回
+`429 RATE_LIMITED` 和 `Retry-After`。生产实现使用 Redis；离线测试使用确定性内存端口。
+
 Agent Run 事件使用 `GET /api/v1/agent-runs/{run_id}/stream` 下行 SSE。客户端可在
 `Last-Event-ID` 传入上次收到的数字 sequence 进行重放；非法或超前游标返回
 `409 AGENT_EVENT_CURSOR_INVALID`。SSE 不接收审批，审批仍调用对应的 HTTP 接口。

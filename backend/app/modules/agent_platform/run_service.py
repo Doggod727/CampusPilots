@@ -15,6 +15,8 @@ from app.modules.agent_platform.run_queries import AgentRunQueryRepository, Agen
 from app.modules.agent_platform.traces import AgentRunNotFound, AgentRunStateConflict, TraceRepository, TraceService
 from app.modules.agent_platform.runtime_persistence import RuntimeCommandRepository
 from app.modules.agent_platform.runtime_worker import OutboxRuntimeDispatcher
+from app.modules.agent_platform.runtime_worker import RedisRuntimeWakeup
+from redis.asyncio import Redis
 from app.modules.platform.audit import redact
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.idempotency import IdempotencyConflict, IdempotencyService
@@ -92,10 +94,12 @@ def _user_context(user:AuthenticatedUser,request_id:str) -> UserContext:
 @asynccontextmanager
 async def agent_run_service_context(settings:Settings):
     database=Database.from_settings(settings)
+    redis=Redis.from_url(settings.redis_url,decode_responses=True)
     try:
         async with database.session() as session:
             query_repo=AgentRunQueryRepository(session)
-            dispatcher=OutboxRuntimeDispatcher(RuntimeCommandRepository(session),max_attempts=settings.agent_runtime_max_attempts)
+            dispatcher=OutboxRuntimeDispatcher(RuntimeCommandRepository(session),max_attempts=settings.agent_runtime_max_attempts,wakeup=RedisRuntimeWakeup(redis))
             yield AgentRunService(session=session,trace=TraceService(TraceRepository(session)),queries=AgentRunQueryService(query_repo),idempotency=IdempotencyService(session=session,repository=IdempotencyRecordRepository(session)),dispatcher=dispatcher)
     finally:
+        await redis.aclose()
         await database.dispose()
