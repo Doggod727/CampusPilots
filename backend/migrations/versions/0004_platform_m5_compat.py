@@ -1,15 +1,15 @@
 """Add M5 compatibility to the platform schema.
 
-Revision ID: 0003_platform_m5_compat
-Revises: 0002_campus_service_schema
+Revision ID: 0004_platform_m5_compat
+Revises: 0003_campus_service_electricity
 """
 
 from collections.abc import Iterator, Sequence
 
 from alembic import op
 
-revision: str = "0003_platform_m5_compat"
-down_revision: str | None = "0002_campus_service_schema"
+revision: str = "0004_platform_m5_compat"
+down_revision: str | None = "0003_campus_service_electricity"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

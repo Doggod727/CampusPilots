@@ -290,6 +290,20 @@
   - 映射 `campuses`、`departments`、`department_contacts`、`guide_categories`，字段、默认值、检查约束、外键删除策略和联系人有效部分索引与 `0002` 迁移一致。
   - 不注册 Alembic metadata、不新增 Revision/relationship；PostgreSQL 方言 DDL及实体敏感联系信息 repr 验证通过。
   - 全量 pytest `252 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 单 head和离线 upgrade/downgrade 通过；未发现 API 契约差异。
+- [x] [#75 M2：添加电费数据库迁移](https://github.com/Doggod727/CampusPilot/issues/75)（2026-07-15）
+  - 新增 `0003_campus_service_electricity`，创建 Mock 电费账户、用户逻辑成员和模拟充值申请三张表，完整保留 SQL 010 的金额/币种/模拟状态/Agent-Approval 成对约束、索引、触发器和注释。
+  - user_id、agent_run_id、approval_id 均保持逻辑 UUID，不建立跨 Schema 外键；downgrade 只逆序删除本 Revision 三张表，保留 campus_service 函数、Schema 和共享扩展。
+  - 全量 pytest `254 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 唯一 head `0003_campus_service_electricity` 及离线升降级通过；真实 PostgreSQL 验证仍待环境可用后执行。
+- [x] [#77 M2：实现电费 ORM、仓储与演示绑定](https://github.com/Doggod727/CampusPilot/issues/77)（2026-07-15）
+  - 映射 `electricity_accounts`、`electricity_account_members`、`electricity_topup_requests`，Numeric/CHAR/UUID/时区时间、联合主键、检查约束、索引及外键删除策略与 `0003` 一致。
+  - `ElectricityRepository` 提供用户房间作用域查询、用户+幂等键行锁读取和首次充值记录追加，不提交、flush、回滚或关闭调用方 Session。
+  - 演示种子幂等创建 `main` 校区、固定 Mock 电费账户，并通过 `platform.users` 查询将 `student01/student02` 的真实 UUID 绑定到房间；命令输出不包含用户 UUID、宿舍详情或密码。
+  - 全量 pytest `261 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 单 head及离线升降级通过；未发现 API/状态码契约差异。
+- [x] [#78 M2：实现 ElectricityService](https://github.com/Doggod727/CampusPilot/issues/78)（2026-07-15）
+  - `get_balance` 同时校验调用上下文 room_ids 与数据库成员关系；越权或不存在房间均返回安全的 `403 TOOL_FORBIDDEN`，避免房间枚举。
+  - `create_topup_request` 限制 1–500 CNY，固定 mock/simulated 且不修改余额；同用户同 Key 同哈希重放，不同哈希返回 `409 IDEMPOTENCY_CONFLICT`。
+  - Agent 调用强制 Run/Approval UUID 成对且必须由服务端标记确认，否则返回 `409 TOOL_APPROVAL_INVALID`；M2 不导入 M5 contracts、Registry 或 Executor。
+  - 全量 pytest `272 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 单 head及离线升降级通过；本任务无公共 REST API 契约差异。
 
 ## M5 项目重审与契约基线
 
@@ -299,11 +313,11 @@
   - 校正详细设计中的响应信封与稳定错误码：`AUTH_FORBIDDEN`、`MODERATION_CASE_NOT_FOUND`、`RESOURCE_VERSION_CONFLICT`、`SERVICE_NOT_READY`；终态审核案件再次决策为 409。
   - 扩展 M5 兼容契约：敏感词 scope 增加 `tool_input/tool_output/agent_context`，审核目标模块增加 `agent_platform`；30 个 M5 外部操作均显式声明 401，并保留资源范围/权限拒绝的 403。
   - M4 运行时仍需后续增量兼容：数据库 CHECK、Pydantic 枚举、M5 权限/角色/配置种子以及 M5 到 M4 的薄适配器；在这些完成前不得宣称 M4 已完全兼容 M5。
-  - 迁移顺序固定：先合并/变基 M2 PR #60 的 `0002_campus_service_schema`，M5 的 M4 兼容迁移再使用 `0003_platform_m5_compat`，避免两个分支竞争 `0002`。
-  - 下一开发目标：M5 控制面基础——先完成 `0003_platform_m5_compat` 与种子兼容，再冻结 Tool/Agent 强类型契约并让 14 个 Mock Tools 贯通 ToolExecutor、授权、审批和审计链路。
+  - 原迁移顺序曾固定为 `0002` 后接 M5 兼容迁移；M2 电费迁移合入后，未发布的 M5 兼容迁移已安全调整为 `0004_platform_m5_compat`。
+  - 下一开发目标已调整为在 M2 `0003_campus_service_electricity` 后建立 M5 `0004` 兼容与 `0005_agent_platform_schema`。
   - OpenAPI lint、YAML 解析、136 个唯一 operationId、全量测试 `247 passed`、Python 编译、Alembic 单 head及离线升降级验证通过；真实依赖集成未在本任务执行。
 - [x] [#64 M5：添加平台运行时兼容迁移与种子](https://github.com/Doggod727/CampusPilot/issues/64)（2026-07-15）
-  - 先同步并验证 M2 PR #60，以普通 merge 合入 `main`，固定 `0002_campus_service_schema`；`m5` 随后合入主线并新增唯一 head `0003_platform_m5_compat`。
+  - M2 PR #60 已普通 merge；后续 M2 电费 PR #76 继续占用 `0003`，M5 兼容迁移因此重编号为 `0004`。
   - 增量迁移扩展 `tool_input/tool_output/agent_context` 敏感词 scope 和 `agent_platform` 审核目标，幂等写入 20 个权限、2 个系统角色、7 项 Agent/ModelOps 配置及规定角色映射。
   - ORM CHECK、Pydantic Literal、审核服务白名单和演示种子同步完成；演示种子现包含 44 个权限、7 个系统角色、9 项配置，不创建 `agent_runtime` 普通用户或硬编码密码。
   - downgrade 清理本 Revision 引入的权限/角色/配置和使用新增枚举的数据后恢复旧 CHECK，不删除既有用户或共享扩展。
@@ -367,10 +381,15 @@
   - 任务 UUID 由 run/sequence/agent 确定性派生，结构化输入深拷贝且不进入 repr；契约拒绝重复 Agent、前向/循环依赖和 ready 空计划，不传递上一 Agent 的自由文本输出。
   - 步数超过当前配置或设计上限6时返回既有 `409 AGENT_MAX_STEPS_EXCEEDED`；本任务不执行模型/Tool、不启动 Graph、不写数据库或 Trace。
   - 全量测试 `325 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；无新增公共 HTTP 路由。
+- [x] [#79 M5：调整迁移链并建立 Agent Platform Schema](https://github.com/Doggod727/CampusPilot/issues/79)（2026-07-15）
+  - 合入 M2 电费 PR #76 后，将尚未合入主线或共享数据库执行的兼容迁移安全重编号为 `0004_platform_m5_compat`，形成 `0001 → 0002 → 0003 electricity → 0004 compat → 0005 agent_platform` 唯一链。
+  - `0005_agent_platform_schema` 严格转换 SQL 012，创建 Agent/Tool Catalog、数据集、训练、模型、评估、Run/Step/ToolCall、Approval 和 Handoff 共15张表及全部函数、约束、部分索引、触发器和注释。
+  - downgrade 按外键依赖逆序删除15张表、更新时间函数和 `agent_platform` Schema，不删除共享 `pgcrypto`；本任务不加入 SQL 013 种子、ORM、ApprovalService 或 Repository。
+  - 全量 pytest `345 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 唯一 head `0005_agent_platform_schema` 及离线升降级通过；真实 PostgreSQL 验证仍保留待办。
 
 ## 待办
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
 - [ ] 前端、Docker Compose 和跨模块 M1/M2/M3 handler 联调不属于本仓库本次 M4 后端交付范围。
 - [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
-- [ ] PostgreSQL 可用后，在真实数据库执行 `0003_platform_m5_compat` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
+- [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。

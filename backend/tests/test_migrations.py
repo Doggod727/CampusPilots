@@ -61,6 +61,28 @@ M5_CONFIG_KEYS = (
     "modelops.reranker_enabled",
     "mcp.enabled",
 )
+ELECTRICITY_TABLES = (
+    "electricity_accounts",
+    "electricity_account_members",
+    "electricity_topup_requests",
+)
+AGENT_PLATFORM_TABLES = (
+    "agent_definitions",
+    "agent_versions",
+    "tool_definitions",
+    "tool_versions",
+    "datasets",
+    "dataset_versions",
+    "training_jobs",
+    "model_versions",
+    "evaluation_jobs",
+    "evaluation_metrics",
+    "agent_runs",
+    "agent_steps",
+    "tool_calls",
+    "approval_requests",
+    "agent_handoffs",
+)
 
 
 def migration_environment() -> dict[str, str]:
@@ -92,7 +114,7 @@ def run_alembic(*arguments: str) -> str:
 def test_migration_has_single_head() -> None:
     output = run_alembic("heads")
 
-    assert "0003_platform_m5_compat (head)" in output
+    assert "0005_agent_platform_schema (head)" in output
 
 
 def test_offline_upgrade_contains_complete_platform_schema() -> None:
@@ -112,6 +134,12 @@ def test_offline_upgrade_contains_complete_platform_schema() -> None:
     assert "CREATE OR REPLACE FUNCTION campus_service.set_updated_at()" in output
     assert "CREATE INDEX IF NOT EXISTS ix_guide_materials_condition_gin" in output
     assert "CREATE TRIGGER trg_work_orders_updated_at" in output
+    for table in ELECTRICITY_TABLES:
+        assert f"CREATE TABLE IF NOT EXISTS campus_service.{table}" in output
+    assert "CONSTRAINT ck_electricity_topup_agent_approval" in output
+    assert "CREATE INDEX IF NOT EXISTS ix_electricity_members_user" in output
+    assert "CREATE INDEX IF NOT EXISTS ix_electricity_topup_user_created" in output
+    assert "CREATE TRIGGER trg_electricity_accounts_updated_at" in output
 
 
 def test_offline_downgrade_removes_owned_objects_but_keeps_extensions() -> None:
@@ -143,7 +171,7 @@ def test_offline_downgrade_removes_campus_service_before_platform() -> None:
 
 def test_m5_compatibility_revision_is_rendered_offline() -> None:
     upgrade = run_alembic("upgrade", "head", "--sql")
-    downgrade = run_alembic("downgrade", "head:0002_campus_service_schema", "--sql")
+    downgrade = run_alembic("downgrade", "0004_platform_m5_compat:0003_campus_service_electricity", "--sql")
 
     assert "tool_input" in upgrade
     assert "tool_output" in upgrade
@@ -167,3 +195,41 @@ def test_m5_compatibility_revision_is_rendered_offline() -> None:
     assert "DELETE FROM platform.app_configs" in downgrade
     assert "CHECK (scope IN ('user_input', 'ai_output', 'community', 'all'))" in downgrade
     assert "CHECK (target_module IN ('ai_knowledge', 'campus_service', 'community'))" in downgrade
+
+
+def test_agent_platform_revision_is_rendered_and_downgrades_safely() -> None:
+    upgrade = run_alembic("upgrade", "head", "--sql")
+    downgrade = run_alembic("downgrade", "0005_agent_platform_schema:0004_platform_m5_compat", "--sql")
+
+    assert "CREATE SCHEMA IF NOT EXISTS agent_platform" in upgrade
+    for table in AGENT_PLATFORM_TABLES:
+        assert f"CREATE TABLE IF NOT EXISTS agent_platform.{table}" in upgrade
+    assert "CREATE OR REPLACE FUNCTION agent_platform.set_updated_at()" in upgrade
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS uq_tool_calls_idempotency" in upgrade
+    assert "CREATE INDEX IF NOT EXISTS ix_approval_user_pending" in upgrade
+    assert "CREATE TRIGGER trg_agent_runs_updated_at" in upgrade
+    assert "COMMENT ON TABLE agent_platform.approval_requests" in upgrade
+
+    positions = [
+        downgrade.index(f"DROP TABLE agent_platform.{table}")
+        for table in reversed(AGENT_PLATFORM_TABLES)
+    ]
+    assert positions == sorted(positions)
+    assert positions[-1] < downgrade.index("DROP FUNCTION agent_platform.set_updated_at()")
+    assert downgrade.index("DROP FUNCTION agent_platform.set_updated_at()") < downgrade.index(
+        "DROP SCHEMA agent_platform"
+    )
+    assert "DROP EXTENSION" not in downgrade
+
+
+def test_electricity_downgrade_precedes_base_campus_service_objects() -> None:
+    output = run_alembic("downgrade", "head:base", "--sql")
+
+    positions = [
+        output.index(f"DROP TABLE campus_service.{table}")
+        for table in reversed(ELECTRICITY_TABLES)
+    ]
+    assert positions == sorted(positions)
+    assert positions[-1] < output.index("DROP TABLE campus_service.work_order_ratings")
+    assert "DROP FUNCTION campus_service.set_updated_at()" in output
+    assert "DROP EXTENSION" not in output

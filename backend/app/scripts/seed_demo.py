@@ -3,11 +3,16 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select, true
+from sqlalchemy import delete, select, text, true
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database import Database
+from app.modules.campus_service.models import (
+    Campus,
+    ElectricityAccount,
+    ElectricityAccountMember,
+)
 from app.modules.platform.models import (
     AppConfig,
     Permission,
@@ -205,6 +210,8 @@ CONFIGS = (
     ("mcp.enabled", "agent", False, "boolean", "是否启用 P1 MCP Server"),
 )
 
+DEMO_ELECTRICITY_ROOM_ID = "21000000-0000-4000-8000-000000000001"
+
 
 def require_demo_seed_password(environ: Mapping[str, str] | None = None) -> str:
     password = (environ if environ is not None else os.environ).get(
@@ -360,6 +367,68 @@ def _clear_user_roles_statement(usernames: tuple[str, ...]):
     )
 
 
+def _campus_upsert_statement():
+    statement = insert(Campus).values(
+        code="main", name="主校区", address="演示校区", enabled=True, sort_order=0
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[Campus.code],
+        set_={
+            "name": statement.excluded.name,
+            "address": statement.excluded.address,
+            "enabled": statement.excluded.enabled,
+            "sort_order": statement.excluded.sort_order,
+        },
+    )
+
+
+def _electricity_account_upsert_statement():
+    statement = insert(ElectricityAccount).values(
+        room_id=DEMO_ELECTRICITY_ROOM_ID,
+        campus_code="main",
+        dormitory_area="演示宿舍区",
+        building="A",
+        room="101",
+        balance=88.50,
+        currency="CNY",
+        source="mock",
+        is_simulated=True,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[ElectricityAccount.room_id],
+        set_={
+            "campus_code": statement.excluded.campus_code,
+            "dormitory_area": statement.excluded.dormitory_area,
+            "building": statement.excluded.building,
+            "room": statement.excluded.room,
+            "balance": statement.excluded.balance,
+            "currency": statement.excluded.currency,
+            "source": statement.excluded.source,
+            "is_simulated": statement.excluded.is_simulated,
+        },
+    )
+
+
+def _electricity_members_insert_statement():
+    return (
+        insert(ElectricityAccountMember)
+        .from_select(
+            ["room_id", "user_id", "member_role"],
+            select(
+                ElectricityAccount.room_id,
+                User.id,
+                text("'resident'"),
+            )
+            .join(User, true())
+            .where(
+                ElectricityAccount.room_id == DEMO_ELECTRICITY_ROOM_ID,
+                User.username.in_(("student01", "student02")),
+            ),
+        )
+        .on_conflict_do_nothing()
+    )
+
+
 async def seed_demo(
     session: AsyncSession,
     password: str,
@@ -391,6 +460,9 @@ async def seed_demo(
         await session.execute(_clear_user_roles_statement(usernames))
         for account in DEMO_ACCOUNTS:
             await session.execute(_user_role_insert_statement(account))
+        await session.execute(_campus_upsert_statement())
+        await session.execute(_electricity_account_upsert_statement())
+        await session.execute(_electricity_members_insert_statement())
 
     return usernames
 
