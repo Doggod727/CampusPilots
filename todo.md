@@ -436,6 +436,10 @@
   - approve提交后投递恢复命令；reject在事务内将Tool/Step/Run收敛为安全终态且不调用Handler；评论正文不入库或审计，只记录是否提供。
   - OpenAPI与详细设计同步审批422/409语义；Approval详情仅返回后续确认必需的不可逆argument_hash，不返回原始参数。
   - 全量测试 `391 passed`（11 条既有警告），编译、OpenAPI lint和Alembic离线回归通过。
+- [x] [#91 M5：建立运行命令、Checkpoint 与事件迁移](https://github.com/Doggod727/CampusPilot/issues/91)（2026-07-15）
+  - 新增 `0006_agent_runtime_delivery`，提供事务Outbox、认证加密Checkpoint元数据和SSE单调事件三张表。
+  - 命令、状态、次数、领取/完成时间、CAS版本、TTL、事件类型和重放sequence均有数据库约束与索引；downgrade只逆序删除本Revision对象。
+  - 全量测试 `392 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
 
 ## 待办
 

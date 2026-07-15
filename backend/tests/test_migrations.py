@@ -83,6 +83,11 @@ AGENT_PLATFORM_TABLES = (
     "approval_requests",
     "agent_handoffs",
 )
+AGENT_RUNTIME_TABLES = (
+    "agent_runtime_commands",
+    "agent_runtime_checkpoints",
+    "agent_run_events",
+)
 
 
 def migration_environment() -> dict[str, str]:
@@ -114,7 +119,7 @@ def run_alembic(*arguments: str) -> str:
 def test_migration_has_single_head() -> None:
     output = run_alembic("heads")
 
-    assert "0005_agent_platform_schema (head)" in output
+    assert "0006_agent_runtime_delivery (head)" in output
 
 
 def test_offline_upgrade_contains_complete_platform_schema() -> None:
@@ -220,6 +225,22 @@ def test_agent_platform_revision_is_rendered_and_downgrades_safely() -> None:
         "DROP SCHEMA agent_platform"
     )
     assert "DROP EXTENSION" not in downgrade
+
+
+def test_agent_runtime_delivery_revision_is_rendered_and_downgrades_safely() -> None:
+    upgrade = run_alembic("upgrade", "head", "--sql")
+    downgrade = run_alembic("downgrade", "0006_agent_runtime_delivery:0005_agent_platform_schema", "--sql")
+    for table in AGENT_RUNTIME_TABLES:
+        assert f"CREATE TABLE IF NOT EXISTS agent_platform.{table}" in upgrade
+    for marker in (
+        "uq_runtime_command_active_action", "ix_runtime_commands_queue",
+        "ck_runtime_checkpoint_hash", "uq_agent_run_event_sequence",
+        "ix_agent_run_events_replay",
+    ):
+        assert marker in upgrade
+    positions = [downgrade.index(f"DROP TABLE agent_platform.{table}") for table in reversed(AGENT_RUNTIME_TABLES)]
+    assert positions == sorted(positions)
+    assert "DROP SCHEMA" not in downgrade and "DROP EXTENSION" not in downgrade
 
 
 def test_electricity_downgrade_precedes_base_campus_service_objects() -> None:
