@@ -536,6 +536,8 @@
   - 映射ai_knowledge全部11张表，保留PostgreSQL UUID/JSONB/Numeric/时区时间、核心约束、索引与外键删除策略；敏感内容和哈希不进入repr。
 - [x] [#113 M1：知识文件隔离存储与配置](https://github.com/Doggod727/CampusPilot/issues/113)（2026-07-15）
   - 增加上传、切分、检索和历史轮数配置；隔离存储使用服务端UUID对象键、流式SHA-256、20MiB上限及路径/符号链接防护，模块导入不创建目录。
+- [x] [#114 M1：知识库仓储与授权服务](https://github.com/Doggod727/CampusPilot/issues/114)（2026-07-15）
+  - 实现全局权限、owner、member、public、department固定授权规则，以及分页、乐观锁、引用保护和逻辑删除。
 
 ## 待办
 
