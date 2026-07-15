@@ -444,6 +444,11 @@
   - 映射Outbox、Checkpoint、Event三表；仓储支持SKIP LOCKED领取、有限重试、CAS状态写入和按sequence重放。
   - 事件追加先锁定Run分配单调序号并递归脱敏；所有仓储不管理调用方Session生命周期。
   - 全量测试 `396 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#93 M5：实现认证加密的可恢复运行 Checkpoint](https://github.com/Doggod727/CampusPilot/issues/93)（2026-07-15）
+  - 新增独立 Checkpoint 密钥、Fernet 认证加密 Codec、TTL/CAS 数据库适配器及持久化事件 Sink；明文目标、上下文和 Tool 参数不进入数据库或对象表示。
+  - `BoundedGraphRuntime` 通过 Checkpoint 端口在路由、Step、等待审批与终态边界保存状态，支持另一运行时实例恢复审批后的调用，并在终态清除短期状态。
+  - 新增内部安全错误 `409 AGENT_CHECKPOINT_INVALID`；后续公开运行 API 不回显密文、摘要哈希或解密异常。
+  - 全量测试 `401 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
 
 ## 待办
 

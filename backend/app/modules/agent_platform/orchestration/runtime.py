@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID
@@ -32,6 +32,12 @@ class RuntimeEventSinkPort(Protocol):
     async def publish(self, run_id: UUID, event: str, data: Mapping[str, Any]) -> RuntimeEvent: ...
 
 
+class RuntimeCheckpointPort(Protocol):
+    async def load(self, run_id: UUID) -> "RuntimeCheckpoint | None": ...
+    async def save(self, run_id: UUID, state: "RuntimeCheckpoint") -> None: ...
+    async def delete(self, run_id: UUID) -> None: ...
+
+
 class SpecialistAgentPort(Protocol):
     async def invoke(self, task: AgentTask, user: UserContext) -> "SpecialistOutcome": ...
 
@@ -55,17 +61,36 @@ class SpecialistOutcome:
 
 @dataclass
 class RuntimeCheckpoint:
-    user: UserContext
-    objective: str
-    context: dict[str, Any]
-    plan: SupervisorPlan
+    user: UserContext = field(repr=False)
+    objective: str = field(repr=False)
+    context: dict[str, Any] = field(repr=False)
+    plan: SupervisorPlan = field(repr=False)
     next_task: int = 0
     pending_step_id: UUID | None = None
     pending_tool_call_id: UUID | None = None
-    pending_request: ToolCallRequest | None = None
+    pending_request: ToolCallRequest | None = field(default=None, repr=False)
     pending_agent_code: str | None = None
     terminal: bool = False
     had_failures: bool = False
+    checkpoint_version: int = 0
+
+
+class InMemoryRuntimeCheckpointStore:
+    def __init__(self) -> None:
+        self._states: dict[UUID, RuntimeCheckpoint] = {}
+
+    async def load(self, run_id: UUID) -> RuntimeCheckpoint | None:
+        return self._states.get(run_id)
+
+    async def save(self, run_id: UUID, state: RuntimeCheckpoint) -> None:
+        current = self._states.get(run_id)
+        if current is not None and current is not state and current.checkpoint_version != state.checkpoint_version:
+            raise AgentRunStateConflict()
+        state.checkpoint_version += 1
+        self._states[run_id] = state
+
+    async def delete(self, run_id: UUID) -> None:
+        self._states.pop(run_id, None)
 
 
 class InMemoryRuntimeEventSink:
@@ -108,57 +133,72 @@ class BoundedGraphRuntime:
                  events: RuntimeEventSinkPort, tool_executor: ToolExecutor | None = None,
                  approval_service: ApprovalService | None = None,
                  agent_allowlists: Mapping[str, tuple[str, ...]] | None = None,
-                 safety: AgentSafetyPort | None = None) -> None:
+                 safety: AgentSafetyPort | None = None,
+                 checkpoints: RuntimeCheckpointPort | None = None) -> None:
         self._router=router; self._planner=planner; self._specialists=dict(specialists)
         self._trace=trace; self._events=events; self._tools=tool_executor; self._approvals=approval_service
         self._agent_allowlists=dict(agent_allowlists or {})
         self._safety=safety or AllowAgentSafety()
-        self._checkpoints: dict[UUID, RuntimeCheckpoint] = {}
+        self._checkpoints=checkpoints or InMemoryRuntimeCheckpointStore()
+        self._handled_runs: set[UUID] = set()
+        self._terminal_runs: set[UUID] = set()
 
     async def start(self, run_id: UUID, user: UserContext, objective: str, context: Mapping[str, Any]) -> None:
-        if run_id in self._checkpoints:
+        if run_id in self._handled_runs or await self._checkpoints.load(run_id) is not None:
             raise AgentRunStateConflict()
+        self._handled_runs.add(run_id)
         objective, safe_context = await self._safety.check_input(user, objective, context)
         await self._trace.transition_run(run_id, {"created"}, "routing", started_at=datetime.now(UTC))
         route=await self._router.route(objective)
         await self._events.publish(run_id,"route",route.model_dump(mode="json"))
         plan=self._planner.plan(agent_run_id=run_id,route=route,objective=objective,structured_input=safe_context)
         checkpoint=RuntimeCheckpoint(user,objective,dict(safe_context),plan)
-        self._checkpoints[run_id]=checkpoint
+        await self._checkpoints.save(run_id,checkpoint)
         if plan.status=="needs_input":
             await self._trace.finalize(run_id,"partial",finish_reason="clarification_required")
             checkpoint.terminal=True
+            self._terminal_runs.add(run_id)
+            await self._checkpoints.save(run_id,checkpoint)
             await self._events.publish(run_id,"done",{"status":"partial","reason":"clarification_required"})
+            await self._checkpoints.delete(run_id)
             return
         await self._trace.transition_run(run_id,{"routing"},"running",route_decision=route.model_dump(mode="json"))
         await self._continue(run_id)
 
     async def resume(self, run_id: UUID, approval_id: UUID) -> None:
-        state=self._checkpoints.get(run_id)
+        state=await self._checkpoints.load(run_id)
         if state is None or state.terminal or state.pending_request is None or state.pending_step_id is None:
             raise AgentRunStateConflict()
         request=state.pending_request.model_copy(update={"approval_id":approval_id})
         await self._trace.transition_run(run_id,{"awaiting_approval"},"running")
         await self._execute_tool(state,state.pending_step_id,state.pending_tool_call_id,request,state.pending_agent_code or "")
         state.pending_request=None; state.pending_step_id=None; state.pending_tool_call_id=None; state.pending_agent_code=None; state.next_task+=1
+        await self._checkpoints.save(run_id,state)
         await self._continue(run_id)
 
     async def cancel(self, run_id: UUID) -> None:
-        state=self._checkpoints.get(run_id)
+        if run_id in self._terminal_runs:
+            return
+        state=await self._checkpoints.load(run_id)
         if state is not None and state.terminal:
             return
         await self._trace.finalize(run_id,"cancelled",finish_reason="user_cancelled")
         if state is not None: state.terminal=True
+        self._terminal_runs.add(run_id)
+        if state is not None: await self._checkpoints.save(run_id,state)
         await self._events.publish(run_id,"done",{"status":"cancelled"})
+        await self._checkpoints.delete(run_id)
 
     async def _continue(self, run_id: UUID) -> None:
-        state=self._checkpoints[run_id]
+        state=await self._checkpoints.load(run_id)
+        if state is None:
+            raise AgentRunStateConflict()
         while state.next_task < len(state.plan.tasks):
             task=state.plan.tasks[state.next_task]
             specialist=self._specialists.get(task.target_agent)
             if specialist is None:
                 await self._trace.finalize(run_id,"failed",error_code="AGENT_NOT_FOUND")
-                state.terminal=True; return
+                state.terminal=True; self._terminal_runs.add(run_id); await self._checkpoints.save(run_id,state); await self._checkpoints.delete(run_id); return
             step=await self._trace.append_step(run_id=run_id,agent_code=task.target_agent,task_type="generate",input_summary=task.structured_input)
             await self._trace.transition_step(step.id,{"created"},"running",started_at=datetime.now(UTC))
             outcome=await specialist.invoke(task,state.user)
@@ -177,17 +217,22 @@ class BoundedGraphRuntime:
                     await self._trace.transition_step(step.id,{"running"},"awaiting_approval")
                     await self._trace.transition_run(run_id,{"running"},"awaiting_approval")
                     state.pending_request=request; state.pending_step_id=step.id; state.pending_tool_call_id=call.id; state.pending_agent_code=task.target_agent
+                    await self._checkpoints.save(run_id,state)
                     await self._events.publish(run_id,"approval_required",{"approval_id":str(approval.id),"tool_name":request.tool_name})
                     return
             else:
                 await self._trace.transition_step(step.id,{"running"},outcome.result.status if outcome.result.status in {"succeeded","partial","failed"} else "partial",output_summary=outcome.result.structured_output,finished_at=datetime.now(UTC),error_code=outcome.result.error.reason if outcome.result.error else None)
                 state.had_failures = state.had_failures or outcome.result.status in {"partial", "failed"}
             state.next_task+=1
+            await self._checkpoints.save(run_id,state)
             await self._events.publish(run_id,"agent_step",{"sequence":state.next_task,"agent_code":task.target_agent,"status":outcome.result.status})
         final_status = "partial" if state.had_failures else "succeeded"
         await self._trace.finalize(run_id,final_status,finish_reason="completed")
         state.terminal=True
+        self._terminal_runs.add(run_id)
+        await self._checkpoints.save(run_id,state)
         await self._events.publish(run_id,"done",{"status":final_status})
+        await self._checkpoints.delete(run_id)
 
     async def _execute_tool(self,state:RuntimeCheckpoint,step_id:UUID,call_id:UUID|None,request:ToolCallRequest,agent_code:str) -> None:
         if self._tools is None or call_id is None: raise AgentRunStateConflict()

@@ -37,6 +37,10 @@ M5 的 Router、Agent、Approval、Tool、Reranker 和模型/数据集对象根�
 这些配置只在显式构造 M5 运行时服务时读取；导入应用和调用 `/health/live` 不会因此
 加载模型、连接数据库或访问外部服务。
 
+可恢复运行时使用独立的 `AGENT_CHECKPOINT_SECRET` 对短期 Checkpoint 做认证加密，
+不得与 JWT 或外部 API 密钥复用；`AGENT_CHECKPOINT_TTL_SECONDS` 默认 3600 秒。
+密钥只在显式构造持久化运行时组件时读取，不写入数据库、日志或对象表示。
+
 运行当前后端测试：
 
 ```powershell

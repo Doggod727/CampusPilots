@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     agent_max_specialists: int = Field(default=3, ge=1, le=3)
     agent_parallelism: int = Field(default=3, ge=1, le=3)
     agent_run_timeout_seconds: int = Field(default=120, gt=0, le=3600)
+    agent_checkpoint_secret: SecretStr | None = None
+    agent_checkpoint_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
     approval_ttl_seconds: int = Field(default=600, gt=0, le=3600)
     tool_default_timeout_ms: int = Field(default=10000, ge=100, le=60000)
     mcp_enabled: bool = False

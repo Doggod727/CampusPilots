@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from app.modules.agent_platform.domain.contracts import AgentResult, RouteDecision, ToolCallRequest, UserContext
-from app.modules.agent_platform.orchestration.runtime import BoundedGraphRuntime, DeterministicMockSpecialist, InMemoryRuntimeEventSink, SpecialistOutcome
+from app.modules.agent_platform.orchestration.runtime import BoundedGraphRuntime, DeterministicMockSpecialist, InMemoryRuntimeCheckpointStore, InMemoryRuntimeEventSink, SpecialistOutcome
 from app.modules.agent_platform.tool_gateway.errors import ToolApprovalRequired
 from app.modules.agent_platform.traces import AgentRunStateConflict
 
@@ -64,3 +64,17 @@ def test_required_approval_pauses_before_runtime_can_finish() -> None:
     asyncio.run(runtime.start(RUN,USER,"充值",{}))
     assert events.list(RUN)[-1].event=="approval_required"
     approvals.create.assert_awaited_once(); trace.finalize.assert_not_awaited()
+
+
+def test_another_runtime_instance_can_resume_from_checkpoint() -> None:
+    router,planner,trace,events,_=components(); step_id=uuid4(); call_id=uuid4(); approval_id=uuid4()
+    trace.append_step.return_value=MagicMock(id=step_id); trace.append_tool.return_value=MagicMock(id=call_id)
+    request=ToolCallRequest(agent_run_id=RUN,step_id=step_id,tool_name="electricity.create_topup_request",tool_version="1.0.0",arguments={"room_id":str(uuid4()),"amount_cny":"10.00"},idempotency_key="idem-1")
+    specialist=MagicMock(); specialist.invoke=AsyncMock(return_value=SpecialistOutcome(AgentResult(task_id=planner.plan.return_value.tasks[0].task_id,agent_code="service_agent",status="succeeded",summary="prepared"),request))
+    executor=MagicMock(); executor.prepare.return_value=MagicMock(arguments_hash="a"*64); executor.execute=AsyncMock(side_effect=[ToolApprovalRequired(),MagicMock(status="succeeded",data={"status":"simulated"},duration_ms=1,audit_id=None)])
+    approvals=MagicMock(); approvals.create=AsyncMock(return_value=MagicMock(id=approval_id)); checkpoints=InMemoryRuntimeCheckpointStore()
+    first=BoundedGraphRuntime(router=router,planner=planner,specialists={"service_agent":specialist},trace=trace,events=events,tool_executor=executor,approval_service=approvals,agent_allowlists={"service_agent":("electricity.create_topup_request",)},checkpoints=checkpoints)
+    asyncio.run(first.start(RUN,USER,"充值",{}))
+    second=BoundedGraphRuntime(router=router,planner=planner,specialists={"service_agent":specialist},trace=trace,events=events,tool_executor=executor,approval_service=approvals,agent_allowlists={"service_agent":("electricity.create_topup_request",)},checkpoints=checkpoints)
+    asyncio.run(second.resume(RUN,approval_id))
+    assert events.list(RUN)[-1].data["status"]=="succeeded" and executor.execute.await_count==2
