@@ -509,6 +509,12 @@
   - M2 电费与 M4 治理使用真实应用服务适配器；尚未完成的 M1/M3 Handler 继续显式使用确定性 Mock，不伪装为真实跨模块结果。
   - 稳定映射 `TOOL_NOT_FOUND/TOOL_DISABLED/TOOL_FORBIDDEN/TOOL_ARGUMENT_INVALID/TOOL_APPROVAL_INVALID/TOOL_TIMEOUT/TOOL_DEPENDENCY_UNAVAILABLE`，响应、Trace 和审计不保存原始参数或凭证。
   - 全量 `pytest` 448 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 唯一 Head `0006_agent_runtime_delivery` 与离线升降级通过。
+- [x] [#107 M5：实现 DeepSeek Gateway 与专业 Agent Provider](https://github.com/Doggod727/CampusPilot/issues/107)（2026-07-15）
+  - 新增 OpenAI 兼容 Gateway，固定 `deepseek-v4-pro`、关闭 Thinking，API Key 不进入对象表示、响应或错误。
+  - 路由、专业 Agent 结果和 ToolCall 采用严格结构化解析；`reasoning_content`、非法标签和非法响应统一安全拒绝。
+  - 首个流式内容前支持有界重试，开始输出后禁止透明重试；稳定错误为 `502 AGENT_PROVIDER_UNAVAILABLE` 与 `504 AGENT_PROVIDER_TIMEOUT`。
+  - 测试使用可注入 Fake HTTP Client，不调用真实 DeepSeek；未接入 M1/M3 的领域能力继续明确使用 Mock Specialist。
+  - 全量 `pytest` 454 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 单 Head与离线升降级通过。
 
 ## 待办
 

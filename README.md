@@ -34,6 +34,10 @@ M5 的 Router、Agent、Approval、Tool、Reranker 和模型/数据集对象根�
 对象根目录，本任务不会自动创建目录、加载模型或启动训练。DeepSeek API Key 仍只从
 环境变量读取，不写入数据库、日志或配置响应。
 
+DeepSeek 运行时只接受 `deepseek-v4-pro`，请求显式关闭 Thinking，结构化路由、ToolCall
+和最终回答均执行严格 Schema 校验；`reasoning_content` 不进入响应、轨迹或持久化数据。
+首个流式内容前允许有界重试，一旦开始输出便不做透明重试。
+
 内部 Tool HTTP 入口使用独立 `INTERNAL_TOOL_SECRET` Bearer 服务凭证，不接受浏览器或普通
 用户 JWT。该密钥只在内部端点实际调用时读取；未配置时内部端点安全不可用，但应用导入、
 公开 API 和 `/health/live` 不受影响。生产环境必须使用独立随机值，禁止与 JWT、Checkpoint
