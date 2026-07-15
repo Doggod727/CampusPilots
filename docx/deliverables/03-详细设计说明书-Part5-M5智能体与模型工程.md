@@ -643,6 +643,8 @@ Reranker 数据：`query/positive/negatives[]`。所有样本必须有来源、�
 
 ## 11.4 LoRA/QLoRA（P1）
 
+P0 训练接口只创建可查询、可取消的数据库队列骨架，不启动GPU或宣称训练完成。任务必须引用已冻结、校验通过且无敏感数据的数据集版本；基座模型来自 `LOCAL_TRAINING_BASE_MODELS` allowlist，默认仅 `Qwen/Qwen2.5-1.5B-Instruct`，DeepSeek API模型禁止本地训练。稳定错误为 `TRAINING_JOB_NOT_FOUND`、`TRAINING_DATASET_NOT_READY`、`TRAINING_BASE_MODEL_NOT_ALLOWED` 和 `TRAINING_STATE_CONFLICT`。
+
 - 基座必须在允许许可证、大小和资源范围内，不超过 3B。
 - 训练配置至少含 rank、alpha、dropout、target_modules、learning_rate、epochs、batch、gradient_accumulation、quantization、seed。
 - 资源上限从任务配置读取；OOM 标记 `TRAINING_RESOURCE_EXHAUSTED`，不能拖垮在线 API。

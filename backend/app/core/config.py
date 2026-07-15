@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     dataset_artifact_root: Path = Path("/data/datasets")
     dataset_upload_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
     training_gpu_enabled: bool = False
+    local_training_base_models: str = "Qwen/Qwen2.5-1.5B-Instruct"
 
 
 @lru_cache

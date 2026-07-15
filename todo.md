@@ -471,6 +471,10 @@
   - 实现数据集分页/创建/详情/删除、隔离上传、版本登记和冻结路由；读取/写入分别使用dataset:read/dataset:write，全部写请求要求幂等Key。
   - 首次成功信封进入幂等记录，创建/删除/冻结写脱敏审计；OpenAPI和详细设计同步上传409及稳定数据集错误语义。
   - 全量测试 `420 passed`（11 条既有警告），编译和OpenAPI lint通过；Alembic离线回归使用环境模板验证。
+- [x] [#99 M5：实现训练任务骨架与 API](https://github.com/Doggod727/CampusPilot/issues/99)（2026-07-15）
+  - 实现训练分页/创建/详情/幂等取消；仅冻结、有效且无敏感数据的版本可入队，DeepSeek和allowlist外模型安全拒绝。
+  - 创建固定queued且不启动GPU；仓储提供FOR UPDATE SKIP LOCKED领取端口，取消写入脱敏审计并且终态幂等。
+  - 全量测试 `423 passed`（11 条既有警告），编译、OpenAPI lint、迁移测试及Alembic单head通过。
 
 ## 待办
 

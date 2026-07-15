@@ -52,6 +52,9 @@ Agent Run 事件使用 `GET /api/v1/agent-runs/{run_id}/stream` 下行 SSE。客
 数据集上传写入 `DATASET_ARTIFACT_ROOT` 下的隔离区，默认保留 3600 秒且最大 100 MiB。
 仅服务端生成的对象键进入数据库和 API；原始文件名不会作为磁盘路径。
 
+训练 API 当前是 P0 数据库队列骨架：创建只返回 `queued`，不会启动 GPU 或真实微调。
+允许的本地基座模型由 `LOCAL_TRAINING_BASE_MODELS` 配置；DeepSeek API 模型不会进入本地训练。
+
 运行当前后端测试：
 
 ```powershell
