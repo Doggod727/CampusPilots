@@ -479,6 +479,11 @@
   - 实现模型列表/登记/详情/激活/停用；local产物路径和哈希受控，DeepSeek仅存环境变量名，响应递归移除密钥字段。
   - 激活要求成功模型评估并原子切换同purpose版本；complex_generation不允许失去DeepSeek兜底，生命周期变化写脱敏审计。
   - 全量测试 `426 passed`（11 条既有警告），编译、OpenAPI lint、迁移测试及Alembic单head通过。
+- [x] [#101 M5：实现评估仓储与应用服务](https://github.com/Doggod727/CampusPilot/issues/101)（2026-07-15）
+  - 新增评估分页/详情、指标批量加载、冻结数据集校验、目标存在性校验和 `FOR UPDATE SKIP LOCKED` 领取能力；调用方继续持有事务和 Session 生命周期。
+  - 评估创建固定为 `queued` 并复用 M4 幂等与脱敏审计；配置入库前递归脱敏，比较仅接受2–5个不同且成功完成的评估，非 all 切片使用稳定 `name@slice` 指标键。
+  - 稳定领域错误为 `EVALUATION_NOT_FOUND`、`EVALUATION_TARGET_NOT_FOUND`、`EVALUATION_DATASET_NOT_READY`、`EVALUATION_NOT_COMPLETED`；公共响应声明在 #102 路由任务同步。
+  - 全量测试 `432 passed`（11 条既有警告），Python 编译和 OpenAPI lint 通过；Alembic 唯一 head `0006_agent_runtime_delivery`，离线升降级使用环境模板验证。
 
 ## 待办
 
