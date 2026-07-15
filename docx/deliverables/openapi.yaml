@@ -2799,6 +2799,7 @@ paths:
               schema: {$ref: "#/components/schemas/AgentCatalogResponse"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /api/v1/tools:
     get:
@@ -2821,6 +2822,7 @@ paths:
               schema: {$ref: "#/components/schemas/ToolCatalogResponse"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /api/v1/tools/{tool_name}:
     get:
@@ -2839,6 +2841,7 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
     patch:
       tags: [ToolCatalog]
       operationId: updateToolRuntimeState

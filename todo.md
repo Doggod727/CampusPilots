@@ -415,6 +415,10 @@
   - 新增本人/管理员作用域分页与四次批量详情查询，越权与不存在统一为 `404 AGENT_RUN_NOT_FOUND`，避免资源枚举。
   - DTO 从聚合步骤提取最终回答、从冻结目录补充 Tool 风险并关联 Approval；摘要再次递归脱敏且不返回参数哈希或原始参数。
   - OpenAPI route 补充 governance/modelops/mixed/clarify，Step 输入输出摘要改为与持久化 JSONB 一致的结构化对象。
+- [x] [#87 M5：实现 Agent 与 Tool 只读目录 API](https://github.com/Doggod727/CampusPilot/issues/87)（2026-07-15）
+  - 新增 Agent/Tool 列表与 Tool 详情路由；目录首次访问时从数据库严格校验并缓存 Registry，模块导入与存活检查不访问数据库。
+  - Agent 目录不返回 Prompt；Tool 按用户权限和全部活动 Agent allowlist 默认拒绝过滤，runtime_internal 永不进入普通目录。
+  - 公共目录错误同步为 `AGENT_NOT_FOUND/AGENT_DISABLED/TOOL_NOT_FOUND/TOOL_DISABLED/CATALOG_CONTRACT_MISMATCH`，OpenAPI补充409响应。
 
 ## 待办
 
