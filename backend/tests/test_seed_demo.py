@@ -76,7 +76,7 @@ def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
     assert usernames == tuple(account.username for account in seed_demo.DEMO_ACCOUNTS)
     assert hasher.passwords == ["local-password"] * len(seed_demo.DEMO_ACCOUNTS)
     session.begin.assert_called_once_with()
-    assert session.execute.await_count == 22
+    assert session.execute.await_count == 25
 
 
 def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
@@ -125,6 +125,20 @@ def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
     assert "SELECT platform.users.id" in user_clear_sql
 
 
+def test_seed_electricity_statements_are_idempotent_and_bind_real_demo_users() -> None:
+    campus_sql = _compiled_postgresql(seed_demo._campus_upsert_statement())
+    account_sql = _compiled_postgresql(seed_demo._electricity_account_upsert_statement())
+    members_sql = _compiled_postgresql(seed_demo._electricity_members_insert_statement())
+
+    assert "ON CONFLICT (code) DO UPDATE" in campus_sql
+    assert "ON CONFLICT (room_id) DO UPDATE" in account_sql
+    assert "source = excluded.source" in account_sql
+    assert "ON CONFLICT DO NOTHING" in members_sql
+    assert "platform.users" in members_sql
+    assert "student01" in members_sql and "student02" in members_sql
+    assert "electricity_account_members" in members_sql
+
+
 def test_missing_seed_password_stops_before_database_initialization() -> None:
     with patch.object(seed_demo.Database, "from_settings") as from_settings:
         with patch.dict(os.environ, {"DEMO_SEED_PASSWORD": ""}):
@@ -139,3 +153,5 @@ def test_seed_result_does_not_include_the_password() -> None:
 
     assert output == "Seeded demo accounts: admin01, student01"
     assert "local-password" not in output
+    assert seed_demo.DEMO_ELECTRICITY_ROOM_ID not in output
+    assert "演示宿舍区" not in output

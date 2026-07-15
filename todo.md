@@ -294,6 +294,11 @@
   - 新增 `0003_campus_service_electricity`，创建 Mock 电费账户、用户逻辑成员和模拟充值申请三张表，完整保留 SQL 010 的金额/币种/模拟状态/Agent-Approval 成对约束、索引、触发器和注释。
   - user_id、agent_run_id、approval_id 均保持逻辑 UUID，不建立跨 Schema 外键；downgrade 只逆序删除本 Revision 三张表，保留 campus_service 函数、Schema 和共享扩展。
   - 全量 pytest `254 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 唯一 head `0003_campus_service_electricity` 及离线升降级通过；真实 PostgreSQL 验证仍待环境可用后执行。
+- [x] [#77 M2：实现电费 ORM、仓储与演示绑定](https://github.com/Doggod727/CampusPilot/issues/77)（2026-07-15）
+  - 映射 `electricity_accounts`、`electricity_account_members`、`electricity_topup_requests`，Numeric/CHAR/UUID/时区时间、联合主键、检查约束、索引及外键删除策略与 `0003` 一致。
+  - `ElectricityRepository` 提供用户房间作用域查询、用户+幂等键行锁读取和首次充值记录追加，不提交、flush、回滚或关闭调用方 Session。
+  - 演示种子幂等创建 `main` 校区、固定 Mock 电费账户，并通过 `platform.users` 查询将 `student01/student02` 的真实 UUID 绑定到房间；命令输出不包含用户 UUID、宿舍详情或密码。
+  - 全量 pytest `261 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 单 head及离线升降级通过；未发现 API/状态码契约差异。
 
 ## 待办
 
