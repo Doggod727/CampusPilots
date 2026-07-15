@@ -403,6 +403,10 @@
   - CatalogRepository 稳定加载启用 Agent/Tool及活动版本，不管理 Session；Loader 校验数据库 Schema、权限、风险、超时和确认策略后构造内存 Registry。
   - 任一冻结契约漂移安全返回内部 `409 CATALOG_CONTRACT_MISMATCH`；runtime_internal 继续由现有 Registry 默认隐藏。
   - 全量 pytest `357 passed`、Python 编译及 Alembic 单 head通过；错误码待公共 Catalog API接入时同步文档。
+- [x] [#84 M5：实现持久化 Tool Approval](https://github.com/Doggod727/CampusPilot/issues/84)（2026-07-15）
+  - ApprovalRepository/Service 支持绑定 Run/ToolCall/用户/参数哈希创建、本人决策、一次性消费和原子过期；TTL 使用可注入配置与 UTC 时钟。
+  - 数据库 ApprovalVerifier 可直接替换 Executor 内存端口；未知、过期、已消费、用户/Tool版本/哈希不匹配统一为 `409 TOOL_APPROVAL_INVALID`。
+  - 全量 pytest `365 passed`、Python 编译及 Alembic 单 head通过；真实并发消费验证保留待办。
 
 ## 待办
 
