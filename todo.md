@@ -279,7 +279,21 @@
   - OpenAPI 共 103 个 operationId 且唯一；当前应用已实现的 M4 29 个 operationId 与契约逐项匹配；统一错误信封、Request-Id 和敏感字段脱敏回归通过。
   - Issue #41–#57 均已关闭；Draft PR #8 汇总全部提交并在本任务后转 Ready。真实 PostgreSQL/Redis/Chroma 集成仍保留为环境可用后的独立待办。
 
+## M5 项目重审与契约基线
+
+- [x] [#62 M5：校正 M4 兼容契约与状态码](https://github.com/Doggod727/CampusPilot/issues/62)（2026-07-15）
+  - 复核 `docx/deliverables` 全套 V2.1/V0.5.0 文档：M4 的认证、RBAC、审计、配置、幂等、Request-Id 和扁平错误信封可直接复用，不需要推倒重构。
+  - 校正 M4 契约回归：登录禁用补充 403；账号锁定统一为 `423 ACCOUNT_LOCKED` + `Retry-After`，429 仅用于限流；Refresh/Logout Origin 拒绝为 `403 AUTH_FORBIDDEN`；登出对缺失、未知、已撤销或有效 Cookie 均幂等返回 200；`/health/ready` 失败为 503 扁平 `ErrorResponse`。
+  - 校正详细设计中的响应信封与稳定错误码：`AUTH_FORBIDDEN`、`MODERATION_CASE_NOT_FOUND`、`RESOURCE_VERSION_CONFLICT`、`SERVICE_NOT_READY`；终态审核案件再次决策为 409。
+  - 扩展 M5 兼容契约：敏感词 scope 增加 `tool_input/tool_output/agent_context`，审核目标模块增加 `agent_platform`；30 个 M5 外部操作均显式声明 401，并保留资源范围/权限拒绝的 403。
+  - M4 运行时仍需后续增量兼容：数据库 CHECK、Pydantic 枚举、M5 权限/角色/配置种子以及 M5 到 M4 的薄适配器；在这些完成前不得宣称 M4 已完全兼容 M5。
+  - 迁移顺序固定：先合并/变基 M2 PR #60 的 `0002_campus_service_schema`，M5 的 M4 兼容迁移再使用 `0003_platform_m5_compat`，避免两个分支竞争 `0002`。
+  - 下一开发目标：M5 控制面基础——先完成 `0003_platform_m5_compat` 与种子兼容，再冻结 Tool/Agent 强类型契约并让 14 个 Mock Tools 贯通 ToolExecutor、授权、审批和审计链路。
+  - OpenAPI lint、YAML 解析、136 个唯一 operationId、全量测试 `247 passed`、Python 编译、Alembic 单 head及离线升降级验证通过；真实依赖集成未在本任务执行。
+
 ## 待办
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
 - [ ] 前端、Docker Compose 和跨模块 M1/M2/M3 handler 联调不属于本仓库本次 M4 后端交付范围。
+- [ ] 合并或变基 M2 Draft PR #60 后，在 `m5` 分支实现 `0003_platform_m5_compat`；不得创建与 M2 冲突的第二个 `0002` Revision。
+- [ ] 为 M5 增量实现 M4 运行时兼容：新敏感词 scope、`agent_platform` 审核目标、M5 权限/角色/配置种子，并要求已有演示账号重新登录以刷新 JWT 权限 Claims。
