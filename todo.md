@@ -309,6 +309,11 @@
   - downgrade 清理本 Revision 引入的权限/角色/配置和使用新增枚举的数据后恢复旧 CHECK，不删除既有用户或共享扩展。
   - 全量测试 `257 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；离线 SQL 精确验证 20 个权限、2 个角色和7项配置。
   - 执行迁移/种子后必须重新登录或刷新 Token 才能取得新增权限；真实 PostgreSQL 集成仍待环境可用后验证。
+- [x] [#65 M5：建立 Agent 与 Tool 公共强类型契约](https://github.com/Doggod727/CampusPilot/issues/65)（2026-07-15）
+  - 新增严格、冻结的 UserContext、AgentTask/Result、RouteDecision、ToolDefinition/Call、ApprovalRequest 与资源引用类型，复用统一 ErrorDetail。
+  - 集合统一去重稳定排序；校验 Tool 名称/语义版本/超时、路由置信度、候选 Agent、最大步骤和审批生命周期；敏感参数、幂等 Key 与审批 ID 不进入 repr。
+  - R2/R3 外部 Tool 必须确认；runtime_internal R2 可继承父调用确认且后续禁止 LLM 直接调用。
+  - 全量测试 `262 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；未新增 HTTP 契约差异。
 
 ## 待办
 
