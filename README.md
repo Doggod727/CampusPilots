@@ -58,6 +58,11 @@ Agent Run 事件使用 `GET /api/v1/agent-runs/{run_id}/stream` 下行 SSE。客
 模型注册只保存受控对象键和哈希；响应会移除密钥、Token和Secret配置。模型激活要求已有
 成功评估，`complex_generation` 始终保留DeepSeek活动兜底。
 
+评估 API 提供 `/api/v1/evaluations` 的分页、创建、详情和 2～5 项结果比较。创建仅登记
+`queued` 任务并要求 `Idempotency-Key`，不会在 HTTP 请求内启动 GPU、DeepSeek 或本地
+模型；只有冻结、校验有效且无敏感数据的数据集版本可以引用。当前真实执行由后续可插拔
+Worker 接入，不能把排队成功解释为评估已完成。
+
 运行当前后端测试：
 
 ```powershell

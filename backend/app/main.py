@@ -20,6 +20,7 @@ from app.modules.agent_platform.run_routes import router as agent_run_router
 from app.modules.agent_platform.dataset_routes import router as dataset_router
 from app.modules.agent_platform.training import router as training_router
 from app.modules.agent_platform.model_registry import router as model_router
+from app.modules.agent_platform.evaluation_routes import router as evaluation_router
 
 
 def create_app() -> FastAPI:
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     application.include_router(dataset_router)
     application.include_router(training_router)
     application.include_router(model_router)
+    application.include_router(evaluation_router)
     return application
 
 

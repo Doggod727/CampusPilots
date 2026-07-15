@@ -484,6 +484,11 @@
   - 评估创建固定为 `queued` 并复用 M4 幂等与脱敏审计；配置入库前递归脱敏，比较仅接受2–5个不同且成功完成的评估，非 all 切片使用稳定 `name@slice` 指标键。
   - 稳定领域错误为 `EVALUATION_NOT_FOUND`、`EVALUATION_TARGET_NOT_FOUND`、`EVALUATION_DATASET_NOT_READY`、`EVALUATION_NOT_COMPLETED`；公共响应声明在 #102 路由任务同步。
   - 全量测试 `432 passed`（11 条既有警告），Python 编译和 OpenAPI lint 通过；Alembic 唯一 head `0006_agent_runtime_delivery`，离线升降级使用环境模板验证。
+- [x] [#102 M5：实现评估管理 API](https://github.com/Doggod727/CampusPilot/issues/102)（2026-07-15）
+  - 实现评估分页、幂等创建、详情和2～5项成功结果比较四个路由；读取/运行分别使用 `evaluation:read` 与 `evaluation:run`，创建固定返回202 queued。
+  - 请求严格校验目标、数据集成对字段、分页、未知字段和唯一比较ID；成功及重放均使用统一信封、UTC时间和一致 Request-Id。
+  - OpenAPI、M5详细设计和README已同步 `EVALUATION_NOT_FOUND`、`EVALUATION_TARGET_NOT_FOUND`、`EVALUATION_DATASET_NOT_READY`、`EVALUATION_NOT_COMPLETED` 的404/409语义。
+  - 全量测试 `435 passed`（11 条既有警告），Python编译、OpenAPI lint（3条既有文档警告）、Alembic单head及离线升降级通过。
 
 ## 待办
 

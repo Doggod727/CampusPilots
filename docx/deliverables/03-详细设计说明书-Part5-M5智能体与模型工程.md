@@ -579,6 +579,8 @@ SSE 以 PostgreSQL `agent_run_events` 为事实源，事件 sequence 在单个 R
 | `/models/{id}/activate` | 启用/回滚 | `model:activate` + 确认 |
 | `/evaluations` | create/list/get/compare | `evaluation:run/read` |
 
+评估创建只登记 `queued` 元数据并返回 202，不在 API 请求中执行模型或 GPU 工作；写请求必须携带 `Idempotency-Key`。数据集引用必须同时提供数据集 ID 和版本，且版本已冻结、校验有效并确认不含敏感数据。Agent、Tool、Model 目标必须存在。详情不存在返回 `404 EVALUATION_NOT_FOUND`，目标不存在返回 `404 EVALUATION_TARGET_NOT_FOUND`，数据集未就绪返回 `409 EVALUATION_DATASET_NOT_READY`。比较仅接受 2～5 个不同且 `succeeded` 的任务，未完成返回 `409 EVALUATION_NOT_COMPLETED`；非 `all` 指标切片使用稳定的 `name@slice` 键。
+
 ## 9.4 内部 Tool API
 
 内部 API 使用服务身份 + 用户上下文签名/可信进程调用，浏览器不可访问。统一路径：
