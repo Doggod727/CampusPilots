@@ -279,6 +279,18 @@
   - OpenAPI 共 103 个 operationId 且唯一；当前应用已实现的 M4 29 个 operationId 与契约逐项匹配；统一错误信封、Request-Id 和敏感字段脱敏回归通过。
   - Issue #41–#57 均已关闭；Draft PR #8 汇总全部提交并在本任务后转 Ready。真实 PostgreSQL/Redis/Chroma 集成仍保留为环境可用后的独立待办。
 
+## M2 校园服务中心
+
+- [x] [#59 M2：校园服务数据库迁移基线](https://github.com/Doggod727/CampusPilot/issues/59)（2026-07-15）
+  - 新增 `0002_campus_service_schema`，接续 M4 Revision；创建 `campus_service` Schema、11 张表、完整约束/索引/GIN、更新时间函数、触发器和注释。
+  - 用户引用保持逻辑 UUID，不建立跨 Schema 外键；downgrade 按依赖逆序清理 M2 对象且保留共享 `pgcrypto`。
+  - 全量 pytest `247 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 单 head及离线 upgrade/downgrade 通过；真实 PostgreSQL 空库验证待环境可用后执行。
+- [x] [#61 M2：基础字典 ORM 模型](https://github.com/Doggod727/CampusPilot/issues/61)（2026-07-15）
+  - GitHub Draft PR 使用全局编号 #60，因此第二个任务 Issue 顺延为 #61；任务范围未变化。
+  - 映射 `campuses`、`departments`、`department_contacts`、`guide_categories`，字段、默认值、检查约束、外键删除策略和联系人有效部分索引与 `0002` 迁移一致。
+  - 不注册 Alembic metadata、不新增 Revision/relationship；PostgreSQL 方言 DDL及实体敏感联系信息 repr 验证通过。
+  - 全量 pytest `252 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 单 head和离线 upgrade/downgrade 通过；未发现 API 契约差异。
+
 ## M5 项目重审与契约基线
 
 - [x] [#62 M5：校正 M4 兼容契约与状态码](https://github.com/Doggod727/CampusPilot/issues/62)（2026-07-15）
@@ -297,3 +309,4 @@
 - [ ] 前端、Docker Compose 和跨模块 M1/M2/M3 handler 联调不属于本仓库本次 M4 后端交付范围。
 - [ ] 合并或变基 M2 Draft PR #60 后，在 `m5` 分支实现 `0003_platform_m5_compat`；不得创建与 M2 冲突的第二个 `0002` Revision。
 - [ ] 为 M5 增量实现 M4 运行时兼容：新敏感词 scope、`agent_platform` 审核目标、M5 权限/角色/配置种子，并要求已有演示账号重新登录以刷新 JWT 权限 Claims。
+- [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
