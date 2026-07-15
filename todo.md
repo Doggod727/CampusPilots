@@ -542,6 +542,8 @@
   - 实现知识库list/create/get/update/delete五个OpenAPI操作，严格DTO、权限、统一信封、版本控制和204逻辑删除。
 - [x] [#116 M1：文档上传与生命周期API](https://github.com/Doggod727/CampusPilot/issues/116)（2026-07-15）
   - 实现文档列表/批量上传/详情/删除/Chunk预览/发布/停用及入库任务查询/重试，上传固定202并执行文件边界保护。
+- [x] [#117 M1：Parser与确定性切分](https://github.com/Doggod727/CampusPilot/issues/117)（2026-07-15）
+  - 支持TXT/MD/DOCX/PDF内容嗅探与解析，使用500字符、80字符重叠的确定性切分并保留页码元数据。
 
 ## 待办
 
