@@ -550,6 +550,8 @@
   - 使用SKIP LOCKED领取任务，按文档版本执行解析、切分、向量索引与Chunk替换；失败仅保存稳定错误码。
 - [x] [#120 M1：授权RAG检索服务](https://github.com/Doggod727/CampusPilot/issues/120)（2026-07-15）
   - 先计算授权知识库交集，再执行向量召回与PostgreSQL发布状态回查；0.62以下返回明确空结果。
+- [x] [#121 M1：会话与消息仓储服务](https://github.com/Doggod727/CampusPilot/issues/121)（2026-07-15）
+  - 实现本人作用域、会话行锁、连续sequence、pending assistant占位、request_id去重和不可恢复终态。
 
 ## 待办
 
