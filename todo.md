@@ -556,6 +556,8 @@
   - 实现会话list/create/get/delete与消息list/get；越权和不存在统一隐藏为CONVERSATION_NOT_FOUND。
 - [x] [#123 M1：DeepSeek RAG与同步Chat API](https://github.com/Doggod727/CampusPilot/issues/123)（2026-07-15）
   - 实现安全历史、受控引用Prompt与同步Chat；无合格检索结果直接fallback且不调用Provider。
+- [x] [#124 M1：Chat SSE事件流](https://github.com/Doggod727/CampusPilot/issues/124)（2026-07-15）
+  - 实现meta、delta、sources、done/error固定事件顺序；Provider开始输出后不做透明重试。
 
 ## 待办
 
