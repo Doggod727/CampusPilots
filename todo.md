@@ -546,6 +546,8 @@
   - 支持TXT/MD/DOCX/PDF内容嗅探与解析，使用500字符、80字符重叠的确定性切分并保留页码元数据。
 - [x] [#118 M1：Embedding与Chroma Store](https://github.com/Doggod727/CampusPilot/issues/118)（2026-07-15）
   - 提供延迟加载的本地bge-small-zh-v1.5 Provider与Chroma命名、upsert/query/delete/rebuild端口；PostgreSQL仍为事实源。
+- [x] [#119 M1：幂等文档入库Worker](https://github.com/Doggod727/CampusPilot/issues/119)（2026-07-15）
+  - 使用SKIP LOCKED领取任务，按文档版本执行解析、切分、向量索引与Chunk替换；失败仅保存稳定错误码。
 
 ## 待办
 
