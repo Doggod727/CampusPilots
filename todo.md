@@ -332,6 +332,12 @@
   - 房间、工单和失物匹配执行最小资源范围检查；输出不包含密码、Access/Refresh Token、Authorization、电话或未脱敏敏感文本。
   - success/empty/conflict/dependency_unavailable/timeout 通过显式构造参数注入，不使用随机故障。
   - 全量测试 `275 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；无公共 HTTP 契约差异。
+- [x] [#69 M5：实现 ToolExecutor 校验与执行管线](https://github.com/Doggod727/CampusPilot/issues/69)（2026-07-15）
+  - 实现 prepare/authorize/execute：Registry 解析、严格输入/输出 Schema 校验、Agent allowlist、调用者完整权限、R2/R3 幂等 Key 与审批校验、runtime_internal 受信调用限制。
+  - 执行统一使用 `asyncio.wait_for`；超时和依赖故障分别安全映射为 `504 TOOL_TIMEOUT`、`502 TOOL_DEPENDENCY_UNAVAILABLE`，权限拒绝为 `403 TOOL_FORBIDDEN`，参数/审批错误为稳定 422/409，不回显参数、Token、权限集合或内部异常。
+  - 注入 ContentSafetyPort、ApprovalVerifierPort、AuditPort，并提供离线内存实现；审批与用户、Tool、版本及 canonical 参数哈希绑定且单次消费，成功/失败/拒绝均记录安全审计摘要。
+  - 14个 Mock Tool 已通过同一 Registry/Executor 管线完成输入、输出、安全、授权、确认和审计冒烟；无有效确认时4个外部 R2写 Handler 不会被调用，runtime_internal 仅允许受信 runtime caller。
+  - 全量测试 `285 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；未新增公共 HTTP 路由或契约差异。
 
 ## 待办
 
