@@ -290,6 +290,10 @@
   - 映射 `campuses`、`departments`、`department_contacts`、`guide_categories`，字段、默认值、检查约束、外键删除策略和联系人有效部分索引与 `0002` 迁移一致。
   - 不注册 Alembic metadata、不新增 Revision/relationship；PostgreSQL 方言 DDL及实体敏感联系信息 repr 验证通过。
   - 全量 pytest `252 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 单 head和离线 upgrade/downgrade 通过；未发现 API 契约差异。
+- [x] [#75 M2：添加电费数据库迁移](https://github.com/Doggod727/CampusPilot/issues/75)（2026-07-15）
+  - 新增 `0003_campus_service_electricity`，创建 Mock 电费账户、用户逻辑成员和模拟充值申请三张表，完整保留 SQL 010 的金额/币种/模拟状态/Agent-Approval 成对约束、索引、触发器和注释。
+  - user_id、agent_run_id、approval_id 均保持逻辑 UUID，不建立跨 Schema 外键；downgrade 只逆序删除本 Revision 三张表，保留 campus_service 函数、Schema 和共享扩展。
+  - 全量 pytest `254 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 唯一 head `0003_campus_service_electricity` 及离线升降级通过；真实 PostgreSQL 验证仍待环境可用后执行。
 
 ## 待办
 

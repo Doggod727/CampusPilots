@@ -30,6 +30,11 @@ CAMPUS_SERVICE_TABLES = (
     "work_order_events",
     "work_order_ratings",
 )
+ELECTRICITY_TABLES = (
+    "electricity_accounts",
+    "electricity_account_members",
+    "electricity_topup_requests",
+)
 
 
 def migration_environment() -> dict[str, str]:
@@ -61,7 +66,7 @@ def run_alembic(*arguments: str) -> str:
 def test_migration_has_single_head() -> None:
     output = run_alembic("heads")
 
-    assert "0002_campus_service_schema (head)" in output
+    assert "0003_campus_service_electricity (head)" in output
 
 
 def test_offline_upgrade_contains_complete_platform_schema() -> None:
@@ -81,6 +86,12 @@ def test_offline_upgrade_contains_complete_platform_schema() -> None:
     assert "CREATE OR REPLACE FUNCTION campus_service.set_updated_at()" in output
     assert "CREATE INDEX IF NOT EXISTS ix_guide_materials_condition_gin" in output
     assert "CREATE TRIGGER trg_work_orders_updated_at" in output
+    for table in ELECTRICITY_TABLES:
+        assert f"CREATE TABLE IF NOT EXISTS campus_service.{table}" in output
+    assert "CONSTRAINT ck_electricity_topup_agent_approval" in output
+    assert "CREATE INDEX IF NOT EXISTS ix_electricity_members_user" in output
+    assert "CREATE INDEX IF NOT EXISTS ix_electricity_topup_user_created" in output
+    assert "CREATE TRIGGER trg_electricity_accounts_updated_at" in output
 
 
 def test_offline_downgrade_removes_owned_objects_but_keeps_extensions() -> None:
@@ -107,4 +118,17 @@ def test_offline_downgrade_removes_campus_service_before_platform() -> None:
     assert output.index("DROP SCHEMA campus_service") < output.index(
         "DROP TABLE platform.idempotency_records"
     )
+    assert "DROP EXTENSION" not in output
+
+
+def test_electricity_downgrade_precedes_base_campus_service_objects() -> None:
+    output = run_alembic("downgrade", "head:base", "--sql")
+
+    positions = [
+        output.index(f"DROP TABLE campus_service.{table}")
+        for table in reversed(ELECTRICITY_TABLES)
+    ]
+    assert positions == sorted(positions)
+    assert positions[-1] < output.index("DROP TABLE campus_service.work_order_ratings")
+    assert "DROP FUNCTION campus_service.set_updated_at()" in output
     assert "DROP EXTENSION" not in output
