@@ -459,6 +459,10 @@
   - 数字 `Last-Event-ID` 支持断线续传；非法或超前游标统一返回 `409 AGENT_EVENT_CURSOR_INVALID`，连接后内部错误只发送安全 error 事件。
   - OpenAPI、M5 详细设计和 README 已同步固定事件类型、SSE 响应头、Request-Id、404 所有权隐藏和 409 游标语义。
   - 全量测试 `411 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#96 M5：实现数据集产物隔离存储](https://github.com/Doggod727/CampusPilot/issues/96)（2026-07-15）
+  - 本地隔离存储仅接受 JSONL/CSV，流式限制100MiB、计算SHA-256并原子落盘；对象键由服务端UUID生成，防止路径穿越和符号链接访问。
+  - 上传默认TTL为3600秒；构造Store、模块导入和健康检查均不创建目录或访问文件系统。
+  - 全量测试 `414 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
 
 ## 待办
 

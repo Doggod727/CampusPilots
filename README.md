@@ -49,6 +49,9 @@ Agent Run 事件使用 `GET /api/v1/agent-runs/{run_id}/stream` 下行 SSE。客
 `Last-Event-ID` 传入上次收到的数字 sequence 进行重放；非法或超前游标返回
 `409 AGENT_EVENT_CURSOR_INVALID`。SSE 不接收审批，审批仍调用对应的 HTTP 接口。
 
+数据集上传写入 `DATASET_ARTIFACT_ROOT` 下的隔离区，默认保留 3600 秒且最大 100 MiB。
+仅服务端生成的对象键进入数据库和 API；原始文件名不会作为磁盘路径。
+
 运行当前后端测试：
 
 ```powershell
