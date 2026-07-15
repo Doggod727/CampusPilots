@@ -326,6 +326,12 @@
   - 14个冻结 Tool 全部完成内存注册；Registry 不连接数据库、不管理事务、不写审计。
   - 稳定错误为 `404 TOOL_NOT_FOUND`、`409 TOOL_DISABLED`；本任务未新增公共 HTTP 路由或契约差异。
   - 全量测试 `271 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过。
+- [x] [#68 M5：实现14个确定性 Mock Tool Handler](https://github.com/Doggod727/CampusPilot/issues/68)（2026-07-15）
+  - 定义统一异步 ToolHandler 协议并实现14个无网络、无数据库 Mock；固定时间和 UUID 派生保证重复输入结果可预测，输出再次通过冻结 Pydantic Schema。
+  - 覆盖知识、指南、报修、电费、活动、失物和治理；模拟电费固定 CNY/mock/is_simulated，充值明确声明不产生真实扣款或到账。
+  - 房间、工单和失物匹配执行最小资源范围检查；输出不包含密码、Access/Refresh Token、Authorization、电话或未脱敏敏感文本。
+  - success/empty/conflict/dependency_unavailable/timeout 通过显式构造参数注入，不使用随机故障。
+  - 全量测试 `275 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过；无公共 HTTP 契约差异。
 
 ## 待办
 
