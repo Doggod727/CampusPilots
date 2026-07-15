@@ -152,10 +152,15 @@ def index_sql(model: type[Base]) -> dict[str, str]:
 
 
 def test_identity_metadata_contains_only_scoped_tables() -> None:
-    assert set(Base.metadata.tables) == EXPECTED_TABLES
+    platform_tables = {
+        table_name: table
+        for table_name, table in Base.metadata.tables.items()
+        if table.schema == "platform"
+    }
+    assert set(platform_tables) == EXPECTED_TABLES
     assert {
         table_name: set(table.c.keys())
-        for table_name, table in Base.metadata.tables.items()
+        for table_name, table in platform_tables.items()
     } == EXPECTED_COLUMNS
 
 

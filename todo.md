@@ -285,6 +285,11 @@
   - 新增 `0002_campus_service_schema`，接续 M4 Revision；创建 `campus_service` Schema、11 张表、完整约束/索引/GIN、更新时间函数、触发器和注释。
   - 用户引用保持逻辑 UUID，不建立跨 Schema 外键；downgrade 按依赖逆序清理 M2 对象且保留共享 `pgcrypto`。
   - 全量 pytest `247 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 单 head及离线 upgrade/downgrade 通过；真实 PostgreSQL 空库验证待环境可用后执行。
+- [x] [#61 M2：基础字典 ORM 模型](https://github.com/Doggod727/CampusPilot/issues/61)（2026-07-15）
+  - GitHub Draft PR 使用全局编号 #60，因此第二个任务 Issue 顺延为 #61；任务范围未变化。
+  - 映射 `campuses`、`departments`、`department_contacts`、`guide_categories`，字段、默认值、检查约束、外键删除策略和联系人有效部分索引与 `0002` 迁移一致。
+  - 不注册 Alembic metadata、不新增 Revision/relationship；PostgreSQL 方言 DDL及实体敏感联系信息 repr 验证通过。
+  - 全量 pytest `252 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 单 head和离线 upgrade/downgrade 通过；未发现 API 契约差异。
 
 ## 待办
 
