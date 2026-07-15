@@ -2,10 +2,10 @@
 
 ## 详细设计说明书 Part 1：公共基础与平台治理（M4）
 
-**文档版本：** V0.11（M4 后端实现收尾版）  
-**编制日期：** 2026-07-14  
+**文档版本：** V0.11（M5 兼容补充版）  
+**编制日期：** 2026-07-15  
 **适用迭代：** 10 天 Scrum 演示版  
-**关联基线：**《需求分析说明书》V1.0、《概要设计说明书》V1.0  
+**关联基线：**《需求分析说明书》V2.1、《概要设计说明书》V1.0  
 **接口契约：** 同目录当前 `openapi.yaml`（机器可读单一事实源）  
 **数据库脚本：** `sql/001_platform_schema.sql`、`sql/002_platform_seed.sql`
 
@@ -13,9 +13,9 @@
 |---|---|---|---|
 | V0.9 | 2026-07-12 | 公共规范、认证授权、M4 平台治理详细设计及首版 API/SQL | 待小组评审 |
 | V0.10 | 2026-07-14 | 补充 M3 匿名身份专用权限、社区内容扫描动作和审核回写契约 | 已完成差距检查 |
-| V0.11 | 2026-07-14 | 同步 M4 实际后端路由、统一错误码、就绪/CORS、幂等与安全脱敏行为；记录 OpenAPI 差异 | 后端实现完成，待联调评审 |
+| V0.11 | 2026-07-15 | 补充 M5 Agent/Tool 授权、审计、内容扫描 scope 和模型工程角色兼容设计 | 已完成兼容性检查 |
 
-> 本文是分步详细设计的 Part 1。M1「AI 与知识库」、M2「校园服务」、M3「社区互动」将在本篇评审后分别细化。接口字段、状态码和 Schema 以同目录 `openapi.yaml` 为机器可读单一事实源。
+> 本文是分步详细设计的 Part 1。既有 M4 功能继续保留；V2.1 只降低完整用户/角色后台和运营看板的 Sprint 优先级，不要求删除已实现代码。M5 详细设计见 Part 5，接口字段、状态码和 Schema 以同目录 `openapi.yaml` 为机器可读单一事实源。
 
 ---
 
@@ -62,7 +62,8 @@ backend/app/
 │   ├── platform/         # 本篇：auth、users、rbac、moderation、audit、config
 │   ├── ai_knowledge/     # Part 2
 │   ├── campus_service/   # Part 3
-│   └── community/        # Part 4
+│   ├── community/        # Part 4
+│   └── agent_platform/   # Part 5：M5 编排、Tool、模型工程；只调用 M4 公开服务
 └── infrastructure/       # db、redis、external adapters
 
 frontend/src/
@@ -78,7 +79,7 @@ frontend/src/
 
 - 路由层只做协议转换、权限声明和响应封装，不直接执行 SQL。
 - 应用服务编排事务、领域规则和审计；仓储封装持久化。
-- M1/M2/M3 可依赖 `shared` 与 M4 暴露的协议，不得直接导入 M4 的 ORM 模型。
+- M1/M2/M3/M5 可依赖 `shared` 与 M4 暴露的协议，不得直接导入 M4 的 ORM 模型。
 - 跨模块只通过应用服务接口或领域事件交互；不得跨 Schema 级联删除。
 - `moderation_cases.target_id` 是逻辑引用。审核完成后由处理器注册表调用目标模块，例如 `community.post` 对应社区审核处理器。
 
@@ -104,27 +105,25 @@ frontend/src/
 
 ## 3.3 统一响应
 
-成功（机器契约实际格式）：
+成功：
 
 ```json
 {
-  "code": "OK",
-  "message": "success",
   "data": {"id": "5db0..."},
-  "request_id": "req_01",
-  "timestamp": "2026-07-12T08:30:00Z"
+  "meta": {"request_id": "req_01", "timestamp": "2026-07-12T08:30:00Z"}
 }
 ```
 
-失败（机器契约实际格式）：
+失败：
 
 ```json
 {
-  "code": "RESOURCE_VERSION_CONFLICT",
-  "message": "数据已被其他操作更新，请刷新后重试",
-  "details": [{"field": "version", "reason": "版本不匹配"}],
-  "request_id": "req_01",
-  "timestamp": "2026-07-12T08:30:01Z"
+  "error": {
+    "code": "VERSION_CONFLICT",
+    "message": "资源已被其他操作更新",
+    "details": [{"field": "If-Match", "reason": "expected=2, actual=3"}]
+  },
+  "meta": {"request_id": "req_01", "timestamp": "2026-07-12T08:30:01Z"}
 }
 ```
 
@@ -193,8 +192,11 @@ Refresh Token 必须先校验哈希、到期时间、撤销状态和用户状态
 | ai_knowledge | `knowledge:read`、`knowledge:write`、`knowledge:publish` |
 | campus_service | `work_order:read`、`work_order:create`、`work_order:transition` |
 | community | `community:read`、`community:write`、`community:moderate`、`community:anonymous_identity:read` |
+| agent_platform | `agent:run`、`agent:run:read_own`、`agent:run:read_all`、`agent:catalog:read`、`tool:catalog:read`、`tool:catalog:write` |
+| modelops | `dataset:read`、`dataset:write`、`training:run`、`training:read`、`model:read`、`model:write`、`model:activate`、`evaluation:run`、`evaluation:read` |
+| campus_service | `service:read`、`electricity:read_own`、`electricity:topup_request:create` |
 
-系统角色为 `super_admin`、`knowledge_admin`、`service_staff`、`community_operator`、`student`。系统角色不能删除，权限可按种子策略重建。权限检查采用“默认拒绝”；前端路由守卫只改善体验，后端依赖项 `require_permissions(...)` 才是安全边界。
+系统角色为 `super_admin`、`knowledge_admin`、`service_staff`、`community_operator`、`student`，M5 增加 `model_engineer`。系统角色不能删除，权限可按种子策略重建。权限检查采用“默认拒绝”；前端路由守卫只改善体验，后端依赖项 `require_permissions(...)` 才是安全边界。旧 Access Token 不会自动包含新增权限，执行增量种子后用户必须刷新或重新登录。
 
 # 5. M4 数据设计
 
@@ -272,6 +274,25 @@ M4 不直接更新 M3 表。
 `community.anonymous_identity.read` 审计事件。系统种子仅把该权限自动授予
 `super_admin`；`community_operator` 如确有需要，应由角色权限管理显式增加。
 
+## 6.2 M5 Agent/Tool 治理适配契约
+
+M5 不复制 M4 的 RBAC、内容安全和审计逻辑，只通过以下应用服务适配器调用：
+
+| 适配器 | 输入 | 输出/行为 |
+|---|---|---|
+| `ToolAuthorizationAdapter.authorize` | UserContext、tool_name、permissions、risk_level、resource_ref | `allowed/reason_code`；默认拒绝；资源级规则仍由领域 Service 二次校验 |
+| `AgentContentSafetyAdapter.scan` | scope=`tool_input/tool_output/agent_context`、脱敏文本、policy_version? | risk_level、action、hits、sanitized_text；高风险可创建 agent_platform 审核案件 |
+| `AgentAuditAdapter.record` | request_id、agent_run_id、tool_call_id/approval_id、action、result、脱敏 before/after | 写现有 `platform.audit_logs`；M5 完整轨迹存 `agent_platform` 自有表 |
+| `AgentConfigAdapter.get` | `agent.*`/`modelops.*` 非密钥配置键 | 类型化配置；DeepSeek Key、JWT Secret、模型私有凭据仍只从环境变量读取 |
+
+兼容性要求：
+
+1. 扩展 `sensitive_words.scope` CHECK，增加 `tool_input/tool_output/agent_context`，保留旧值。
+2. 扩展 `moderation_cases.target_module` CHECK，增加 `agent_platform`，保留旧值。
+3. 审计 action/resource 字段已为 varchar，无需改表；Agent/Tool 关联 ID 放入脱敏 after_data，详细轨迹不塞入审计表。
+4. 写 Tool 的 `approval_id` 和参数哈希由 M5 管理；M4 只负责权限和安全审计，不承担完整工作流引擎。
+5. M4 用户管理、角色管理和看板即使已经实现也继续可用，只是不作为当前 Sprint 的重点，不删除路由、表或迁移。
+
 # 7. 接口清单与关键行为
 
 ## 7.1 操作清单
@@ -301,17 +322,6 @@ M4 不直接更新 M3 表。
 | 配置 | GET `/api/v1/configs` | listConfigs | `config:read` |
 | 配置 | PATCH `/api/v1/configs/{config_key}` | updateConfig | `config:write`，乐观锁 |
 | 看板 | GET `/api/v1/dashboard/metrics` | getDashboardMetrics | `dashboard:read` |
-
-敏感词、审核、审计和配置接口均已在后端实现，并严格使用上表中对应权限码。审核决策
-使用 `Idempotency-Key`，角色/用户资料更新使用 version 乐观锁；所有写操作在同一事务
-内追加审计且快照递归脱敏。角色删除对系统角色返回 `409 SYSTEM_ROLE_PROTECTED`，
-被引用角色返回 `409 ROLE_IN_USE`；配置不可编辑返回 `403 CONFIG_NOT_EDITABLE`。
-
-认证行为以实现为准：禁用账号登录返回 `403 ACCOUNT_DISABLED`；连续失败锁定从下一次
-请求起返回 `423 ACCOUNT_LOCKED` 并带 `Retry-After`，429 仅用于限流。Refresh/Logout
-缺失或不匹配 Origin 返回 `403 AUTH_FORBIDDEN`；Logout 对缺失、未知或已撤销 Cookie
-保持幂等 200 并清除 Cookie。管理接口不允许手工设置 `status=locked`，返回
-`409 STATUS_CHANGE_NOT_ALLOWED`。
 
 ## 7.2 关键接口伪代码
 
@@ -387,20 +397,7 @@ return response
 ## 9.3 健康检查
 
 - live：不访问依赖，只证明进程事件循环可响应。
-- ready：请求到达时对 PostgreSQL 执行轻量查询并探测 Redis；失败统一返回 `503 SERVICE_NOT_READY`，
-  错误体不包含连接串或异常文本。OpenAPI 保留 Chroma 状态字段；当前仓库未接入 Chroma
-  适配器时返回 `up/not configured`，接入 M1 后替换为真实探针。模块导入和 live 均不建立连接。
-
-## 9.4 M4 实现差异台账
-
-| 项目 | 实际实现 | 后续动作 |
-|---|---|---|
-| 登录禁用 | `403 ACCOUNT_DISABLED` | 已同步 OpenAPI |
-| 登录锁定 | `423 ACCOUNT_LOCKED` + `Retry-After`；429 仅限流 | 已同步 OpenAPI |
-| Refresh/Logout Origin | `403 AUTH_FORBIDDEN` | 已同步 OpenAPI |
-| Logout | 缺失/未知/已撤销 Cookie 统一 200 并清除 | 已同步 OpenAPI |
-| 用户状态更新 | 禁止手工 `locked`，`409 STATUS_CHANGE_NOT_ALLOWED` | 已同步 OpenAPI |
-| 就绪检查 | PostgreSQL/Redis 显式探针；Chroma 未配置时安全占位 | M1 接入真实 Chroma 后联调 |
+- ready：对 PostgreSQL 执行轻量查询；Redis 为功能依赖时同时检查。单个检查设置短超时，失败返回 503 和不含凭据的依赖状态。
 
 # 10. 测试设计
 
@@ -468,6 +465,7 @@ return response
 | 内容安全与人工审核 | 第 5、6、7 章 | 敏感词与审核状态测试 |
 | 系统配置与审计 | 第 5、7、9 章 | 配置冲突、审计脱敏测试 |
 | 前后端可联调 | 第 3、7、8 章 | OpenAPI 生成客户端与契约测试 |
-| 四模块低耦合 | 第 2、5 章 | Schema 边界、处理器协议 |
+| 五模块低耦合 | 第 2、5、6.2 章 | Schema 边界、处理器与 Agent 治理适配协议 |
+| M5 Agent/Tool 治理 | 第 4、6.2、9 章 | 新权限、Tool 授权、确认审计、scope/target_module 增量迁移测试 |
 
-后续 Part 2 将复用本篇的用户、权限、幂等、审计与审核协议，细化 DeepSeek V4 Pro 适配器、知识库、文档解析、向量检索、RAG 会话、后台任务和降级策略；开始编码前，本篇的 API 基础规范视为全组冻结基线。
+M1–M3 与 M5 均复用本篇的用户、权限、幂等、审计与审核协议。M5 的 Agent、Tool、确认、模型工程和轨迹详见 Part 5；开始编码前，本篇公共 API 基础规范和 6.2 适配契约视为全组冻结基线。

@@ -1,10 +1,11 @@
 openapi: 3.1.0
 info:
   title: 学生生活一站式社区 AI 助手 API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     详细设计增量 1：公共基础与 M4 平台治理；增量 2：M2 校园服务中心；
-    增量 3：M1 AI 知识与对话；增量 4：M3 校园社区与互助。
+    增量 3：M1 AI 知识与对话；增量 4：M3 校园社区与互助；
+    增量 5：M5 多智能体、Tool Runtime、小模型工程、训练评估与 M2 演示电费。
     已发布 operationId 不得改变。
   contact:
     name: 项目开发小组
@@ -65,6 +66,24 @@ tags:
     description: 校园活动发布、筛选、报名和取消
   - name: LostFound
     description: 失物/拾物发布、匹配、认领验证和双方完成
+  - name: Electricity
+    description: 演示电费余额与模拟充值申请，不接真实支付
+  - name: AgentRuns
+    description: 多智能体运行、轨迹、SSE、取消与人工确认
+  - name: AgentCatalog
+    description: Agent 能力目录
+  - name: ToolCatalog
+    description: Tool 契约、启停和内部调用
+  - name: Datasets
+    description: 小模型训练与评估数据集版本
+  - name: Training
+    description: 本地小模型 LoRA/QLoRA 训练任务
+  - name: Models
+    description: DeepSeek 与本地模型版本和激活状态
+  - name: Evaluations
+    description: Agent、Tool、RAG 与模型评估任务
+  - name: InternalTools
+    description: 仅供 Agent Runtime 调用的内部 Tool 执行端点
 security:
   - bearerAuth: []
 
@@ -113,7 +132,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ReadinessResponse"
 
   /api/v1/auth/login:
     post:
@@ -147,17 +166,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
         "401": {$ref: "#/components/responses/Unauthorized"}
-        "403":
-          description: 账号已禁用
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/ErrorResponse"}
-              example:
-                code: ACCOUNT_DISABLED
-                message: 账号已禁用
-                details: []
-                request_id: 01J2ABCDEF0123456789ABCDE0
-                timestamp: 2026-07-12T08:00:00Z
         "423": {$ref: "#/components/responses/Locked"}
         "422": {$ref: "#/components/responses/ValidationError"}
         "429": {$ref: "#/components/responses/TooManyRequests"}
@@ -184,11 +192,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/TokenResponse"
         "401": {$ref: "#/components/responses/Unauthorized"}
-        "403":
-          description: Origin 缺失或与 FRONTEND_ORIGIN 不匹配
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/ErrorResponse"}
         "429": {$ref: "#/components/responses/TooManyRequests"}
   /api/v1/auth/logout:
     post:
@@ -201,7 +204,7 @@ paths:
         - $ref: "#/components/parameters/XRequestId"
       responses:
         "200":
-          description: 幂等注销：Cookie 缺失、未知、已撤销或有效时均清除 Cookie 并返回成功
+          description: 已撤销 Refresh Token 并清除 Cookie
           headers:
             Set-Cookie:
               description: 清除 refresh_token 的过期 Cookie
@@ -210,11 +213,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EmptyResponse"
-        "403":
-          description: Origin 缺失或与 FRONTEND_ORIGIN 不匹配
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/ErrorResponse"}
         "401": {$ref: "#/components/responses/Unauthorized"}
   /api/v1/auth/me:
     get:
@@ -319,7 +317,7 @@ paths:
       tags: [Users]
       operationId: updateUser
       summary: 更新用户基本资料或状态
-      description: 请求中的 version 用于乐观锁；不能通过此接口修改密码或角色。管理接口不可手工设置 `status=locked`，该值由登录失败策略产生，手工设置返回 `409 STATUS_CHANGE_NOT_ALLOWED`。
+      description: 请求中的 version 用于乐观锁；不能通过此接口修改密码或角色。
       x-permissions: [user:write]
       requestBody:
         required: true
@@ -444,7 +442,7 @@ paths:
       tags: [Roles]
       operationId: deleteRole
       summary: 删除未使用的自定义角色
-      description: 系统预置角色返回 `409 SYSTEM_ROLE_PROTECTED`，仍被用户引用的角色返回 `409 ROLE_IN_USE`。
+      description: 系统预置角色或仍被用户引用的角色返回 409。
       x-permissions: [role:write]
       responses:
         "200":
@@ -532,7 +530,6 @@ paths:
       tags: [SensitiveWords]
       operationId: createSensitiveWord
       summary: 创建敏感词规则
-      description: 正则规则必须可编译且长度受限；重复规则返回 `409 DUPLICATE_RESOURCE`。
       x-permissions: [sensitive_word:write]
       parameters:
         - $ref: "#/components/parameters/XRequestId"
@@ -556,7 +553,6 @@ paths:
       tags: [SensitiveWords]
       operationId: deleteSensitiveWord
       summary: 删除敏感词规则
-      description: 不存在的规则返回 `404 SENSITIVE_WORD_NOT_FOUND`。
       x-permissions: [sensitive_word:write]
       parameters:
         - name: word_id
@@ -633,7 +629,7 @@ paths:
       tags: [Moderation]
       operationId: decideModerationCase
       summary: 审批审核案件
-      description: 只有 pending 案件可处理；终态返回 `409 MODERATION_CASE_ALREADY_DECIDED`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`，未注册目标处理器返回 `409 MODERATION_HANDLER_UNAVAILABLE`。rule_hits 仅返回安全摘要。
+      description: 只有 pending 案件可处理；重复或并发处理返回 409。
       x-permissions: [moderation:decide]
       parameters:
         - name: case_id
@@ -748,7 +744,6 @@ paths:
       tags: [Config]
       operationId: updateConfig
       summary: 更新单个可编辑配置
-      description: 仅 editable=true 配置可更新；不可编辑返回 `403 CONFIG_NOT_EDITABLE`，版本冲突返回 `409 RESOURCE_VERSION_CONFLICT`，不返回环境密钥。
       x-permissions: [config:write]
       parameters:
         - name: config_key
@@ -2594,6 +2589,670 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
         "422": {$ref: "#/components/responses/ValidationError"}
 
+  /api/v1/electricity/accounts/{room_id}:
+    get:
+      tags: [Electricity]
+      operationId: getElectricityBalance
+      summary: 查询本人绑定房间的演示电费余额
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功；source 固定为 mock
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ElectricityBalanceResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/electricity/topup-requests:
+    post:
+      tags: [Electricity]
+      operationId: createElectricityTopupRequest
+      summary: 创建模拟电费充值申请
+      description: 仅改变演示数据；不接真实支付。直接从 UI 调用时由用户点击确认，Agent 调用时还需 approval_id。
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ElectricityTopupRequest"}
+      responses:
+        "201":
+          description: 模拟充值申请已创建
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ElectricityTopupResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+
+  /api/v1/agent-runs:
+    get:
+      tags: [AgentRuns]
+      operationId: listAgentRuns
+      summary: 分页查询当前用户可见的 Agent 运行
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: status
+          in: query
+          schema: {$ref: "#/components/schemas/AgentRunStatus"}
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentRunListResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      tags: [AgentRuns]
+      operationId: createAgentRun
+      summary: 创建一次多智能体运行
+      description: 服务端先执行输入治理和小模型/规则路由；复杂问答固定由 deepseek-v4-pro 生成。
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AgentRunCreateRequest"}
+      responses:
+        "202":
+          description: 已接受运行
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentRunResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+        "429": {$ref: "#/components/responses/TooManyRequests"}
+
+  /api/v1/agent-runs/{run_id}:
+    get:
+      tags: [AgentRuns]
+      operationId: getAgentRun
+      summary: 查询运行详情、步骤、Tool 调用和待确认项
+      parameters:
+        - $ref: "#/components/parameters/AgentRunId"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentRunDetailResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/agent-runs/{run_id}/stream:
+    get:
+      tags: [AgentRuns]
+      operationId: streamAgentRun
+      summary: 订阅 Agent 运行 SSE 事件
+      description: 支持 Last-Event-ID 断线续传；事件类型见 AgentStreamEvent.event。
+      parameters:
+        - $ref: "#/components/parameters/AgentRunId"
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema: {type: string, maxLength: 100}
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: SSE 事件流，每条 data 是 AgentStreamEvent JSON
+          x-event-payload-schema:
+            $ref: "#/components/schemas/AgentStreamEvent"
+          content:
+            text/event-stream:
+              schema: {type: string}
+              example: "id: 17\nevent: tool.completed\ndata: {\"run_id\":\"21000000-0000-4000-8000-000000000010\",\"sequence\":17}\n\n"
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/agent-runs/{run_id}/cancel:
+    post:
+      tags: [AgentRuns]
+      operationId: cancelAgentRun
+      summary: 取消尚未结束的 Agent 运行
+      parameters:
+        - $ref: "#/components/parameters/AgentRunId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 已取消或重复取消
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentRunResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/agent-runs/{run_id}/approvals/{approval_id}:
+    post:
+      tags: [AgentRuns]
+      operationId: decideAgentToolApproval
+      summary: 批准或拒绝一次高风险 Tool 调用
+      description: approval_id 单次有效且有过期时间；服务端会比对参数哈希，防止确认后换参。
+      parameters:
+        - $ref: "#/components/parameters/AgentRunId"
+        - $ref: "#/components/parameters/ApprovalId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ApprovalDecisionRequest"}
+      responses:
+        "200":
+          description: 决策已记录
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ApprovalResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/agents:
+    get:
+      tags: [AgentCatalog]
+      operationId: listAgents
+      summary: 查询已启用 Agent 及其活动版本
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentCatalogResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /api/v1/tools:
+    get:
+      tags: [ToolCatalog]
+      operationId: listTools
+      summary: 查询 Tool 目录和活动契约
+      parameters:
+        - name: module
+          in: query
+          schema: {type: string, enum: [m1, m2, m3, m4, m5]}
+        - name: enabled
+          in: query
+          schema: {type: boolean}
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ToolCatalogResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /api/v1/tools/{tool_name}:
+    get:
+      tags: [ToolCatalog]
+      operationId: getTool
+      summary: 查询单个 Tool 的活动 JSON Schema 契约
+      parameters:
+        - $ref: "#/components/parameters/ToolName"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ToolResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [ToolCatalog]
+      operationId: updateToolRuntimeState
+      summary: 启用或停用 Tool
+      parameters:
+        - $ref: "#/components/parameters/ToolName"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ToolStateUpdateRequest"}
+      responses:
+        "200":
+          description: 状态已更新
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ToolResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/datasets:
+    get:
+      tags: [Datasets]
+      operationId: listDatasets
+      summary: 分页查询模型工程数据集
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DatasetListResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      tags: [Datasets]
+      operationId: createDataset
+      summary: 创建数据集元数据
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DatasetCreateRequest"}
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DatasetResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+
+  /api/v1/datasets/{dataset_id}:
+    get:
+      tags: [Datasets]
+      operationId: getDataset
+      summary: 查询数据集及版本列表
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DatasetDetailResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [Datasets]
+      operationId: deleteDataset
+      summary: 逻辑删除未被运行中任务引用的数据集
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 已逻辑删除或重复删除
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EmptyResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/datasets/{dataset_id}/uploads:
+    post:
+      tags: [Datasets]
+      operationId: uploadDatasetArtifact
+      summary: 上传待校验的 JSONL 或 CSV 数据文件
+      description: 流式计算 SHA-256；限制 100 MiB；文件先进入隔离区，创建版本后才可冻结和训练。
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              additionalProperties: false
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        "201":
+          description: 上传完成，返回创建版本时使用的 artifact_key 和哈希
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DatasetUploadResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "413": {$ref: "#/components/responses/PayloadTooLarge"}
+        "415": {$ref: "#/components/responses/UnsupportedMediaType"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+
+  /api/v1/datasets/{dataset_id}/versions:
+    post:
+      tags: [Datasets]
+      operationId: createDatasetVersion
+      summary: 登记已上传并完成哈希计算的数据集版本
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DatasetVersionCreateRequest"}
+      responses:
+        "201":
+          description: 版本已登记并进入校验
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DatasetVersionResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+
+  /api/v1/datasets/{dataset_id}/versions/{version}/freeze:
+    post:
+      tags: [Datasets]
+      operationId: freezeDatasetVersion
+      summary: 冻结校验通过的数据集版本
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+        - $ref: "#/components/parameters/DatasetVersionNumber"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 已冻结或重复冻结
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DatasetVersionResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/training-jobs:
+    get:
+      tags: [Training]
+      operationId: listTrainingJobs
+      summary: 分页查询本地小模型训练任务
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TrainingJobListResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      tags: [Training]
+      operationId: createTrainingJob
+      summary: 创建 LoRA 或 QLoRA 训练任务
+      description: base_model 必须是允许清单中的本地 3B 及以下指令模型；禁止对 DeepSeek API 模型执行本地训练。
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TrainingJobCreateRequest"}
+      responses:
+        "202":
+          description: 已进入训练队列
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TrainingJobResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+
+  /api/v1/training-jobs/{training_job_id}:
+    get:
+      tags: [Training]
+      operationId: getTrainingJob
+      summary: 查询训练进度、指标和产物摘要
+      parameters:
+        - $ref: "#/components/parameters/TrainingJobId"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TrainingJobResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/training-jobs/{training_job_id}/cancel:
+    post:
+      tags: [Training]
+      operationId: cancelTrainingJob
+      summary: 取消排队中或运行中的训练任务
+      parameters:
+        - $ref: "#/components/parameters/TrainingJobId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 已取消或重复取消
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TrainingJobResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/models:
+    get:
+      tags: [Models]
+      operationId: listModelVersions
+      summary: 查询 DeepSeek 与本地模型版本
+      parameters:
+        - name: purpose
+          in: query
+          schema: {$ref: "#/components/schemas/ModelPurpose"}
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ModelListResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      tags: [Models]
+      operationId: registerModelVersion
+      summary: 登记模型版本或训练产物
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ModelRegisterRequest"}
+      responses:
+        "201":
+          description: 登记成功，默认 candidate
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ModelResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+
+  /api/v1/models/{model_id}:
+    get:
+      tags: [Models]
+      operationId: getModelVersion
+      summary: 查询模型版本、配置与离线指标
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功；密钥字段永不返回
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ModelResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /api/v1/models/{model_id}/activate:
+    post:
+      tags: [Models]
+      operationId: activateModelVersion
+      summary: 激活已通过评估的模型版本
+      description: 每个 purpose 同时只能有一个 active 版本；激活在单事务内停用旧版本。
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 激活成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ModelResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/models/{model_id}/deactivate:
+    post:
+      tags: [Models]
+      operationId: deactivateModelVersion
+      summary: 停用活动模型版本
+      description: complex_generation 必须保留可用兜底，不允许停用唯一的 DeepSeek 活动配置。
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 停用成功或已经停用
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ModelResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /api/v1/evaluations:
+    get:
+      tags: [Evaluations]
+      operationId: listEvaluations
+      summary: 分页查询评估任务
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EvaluationListResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      tags: [Evaluations]
+      operationId: createEvaluation
+      summary: 创建 Agent、Tool、RAG 或模型评估
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/EvaluationCreateRequest"}
+      responses:
+        "202":
+          description: 已进入评估队列
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EvaluationResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+
+  /api/v1/evaluations/compare:
+    post:
+      tags: [Evaluations]
+      operationId: compareEvaluations
+      summary: 比较二到五个已完成评估任务
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/EvaluationCompareRequest"}
+      responses:
+        "200":
+          description: 返回同名指标的横向对比；不自动激活模型
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EvaluationCompareResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+
+  /api/v1/evaluations/{evaluation_id}:
+    get:
+      tags: [Evaluations]
+      operationId: getEvaluation
+      summary: 查询评估摘要与分项指标
+      parameters:
+        - $ref: "#/components/parameters/EvaluationId"
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: 查询成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EvaluationResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /internal/v1/tools/{tool_name}:invoke:
+    post:
+      tags: [InternalTools]
+      operationId: invokeInternalTool
+      summary: Agent Runtime 统一调用 Tool
+      description: 仅允许服务间凭证；复用用户身份和 run_id，不接受前端直接调用。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ToolName"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ToolInvokeRequest"}
+      responses:
+        "200":
+          description: Tool 执行成功
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ToolInvokeResponse"}
+        "202":
+          description: 高风险写 Tool 等待人工确认
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ToolInvokeResponse"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+        "504": {$ref: "#/components/responses/GatewayTimeout"}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2706,6 +3365,54 @@ components:
       schema: {type: string, format: uuid}
     LostFoundClaimId:
       name: claim_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    RoomId:
+      name: room_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    AgentRunId:
+      name: run_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ApprovalId:
+      name: approval_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ToolName:
+      name: tool_name
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+        example: work_order.create
+    DatasetId:
+      name: dataset_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    DatasetVersionNumber:
+      name: version
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+    TrainingJobId:
+      name: training_job_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ModelId:
+      name: model_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    EvaluationId:
+      name: evaluation_id
       in: path
       required: true
       schema: {type: string, format: uuid}
@@ -4779,3 +5486,733 @@ components:
           required: [data]
           properties:
             data: {$ref: "#/components/schemas/DashboardMetricsData"}
+
+    ElectricityBalance:
+      type: object
+      required: [room_id, room_name, balance_cny, source, is_simulated, as_of]
+      additionalProperties: false
+      properties:
+        room_id: {type: string, format: uuid}
+        room_name: {type: string, maxLength: 100}
+        balance_cny: {type: number, minimum: 0, multipleOf: 0.01}
+        source: {type: string, const: mock}
+        is_simulated: {type: boolean, const: true}
+        as_of: {type: string, format: date-time}
+    ElectricityBalanceResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/ElectricityBalance"}
+    ElectricityTopupRequest:
+      type: object
+      required: [room_id, amount_cny]
+      additionalProperties: false
+      properties:
+        room_id: {type: string, format: uuid}
+        amount_cny: {type: number, minimum: 1, maximum: 500, multipleOf: 0.01}
+        approval_id:
+          description: Agent 发起时必填；UI 直接发起时为空
+          type: [string, "null"]
+          format: uuid
+        agent_run_id: {type: [string, "null"], format: uuid}
+    ElectricityTopup:
+      type: object
+      required: [request_id, room_id, amount_cny, status, source, is_simulated, notice, created_at]
+      additionalProperties: false
+      properties:
+        request_id: {type: string, format: uuid}
+        room_id: {type: string, format: uuid}
+        amount_cny: {type: number, multipleOf: 0.01}
+        status: {type: string, const: simulated}
+        source: {type: string, const: mock}
+        is_simulated: {type: boolean, const: true}
+        notice: {type: string, maxLength: 300}
+        created_at: {type: string, format: date-time}
+    ElectricityTopupResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/ElectricityTopup"}
+
+    AgentRunStatus:
+      type: string
+      enum: [created, routing, running, awaiting_approval, succeeded, partial, failed, cancelled]
+    AgentRunCreateRequest:
+      type: object
+      required: [input]
+      additionalProperties: false
+      properties:
+        input: {type: string, minLength: 2, maxLength: 4000}
+        conversation_id: {type: [string, "null"], format: uuid}
+        mode: {type: string, enum: [auto, knowledge, service, community], default: auto}
+        context:
+          type: object
+          additionalProperties: true
+          description: 仅允许非敏感、可序列化上下文；服务端再次脱敏
+    AgentRun:
+      type: object
+      required: [id, status, route, input_summary, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id: {type: string, format: uuid}
+        status: {$ref: "#/components/schemas/AgentRunStatus"}
+        route: {type: [string, "null"], enum: [knowledge, service, community, mixed, null]}
+        router_model: {type: [string, "null"]}
+        router_confidence: {type: [number, "null"], minimum: 0, maximum: 1}
+        input_summary: {type: string, maxLength: 1000}
+        final_answer: {type: [string, "null"]}
+        error_code: {type: [string, "null"]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}
+    AgentRunStep:
+      type: object
+      required: [id, sequence, agent_code, step_type, status, started_at]
+      additionalProperties: false
+      properties:
+        id: {type: string, format: uuid}
+        sequence: {type: integer, minimum: 1}
+        agent_code: {type: string}
+        step_type: {type: string, enum: [route, plan, handoff, tool, generate, merge, govern]}
+        status: {type: string, enum: [created, running, awaiting_approval, succeeded, partial, failed, cancelled]}
+        input_summary: {type: [string, "null"]}
+        output_summary: {type: [string, "null"]}
+        error_code: {type: [string, "null"]}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}
+    ToolCallTrace:
+      type: object
+      required: [id, tool_name, status, risk_level, started_at]
+      additionalProperties: false
+      properties:
+        id: {type: string, format: uuid}
+        tool_name: {type: string}
+        status: {type: string, enum: [prepared, awaiting_approval, authorized, running, succeeded, failed, rejected, expired]}
+        risk_level: {type: string, enum: [r0, r1, r2, r3]}
+        approval_id: {type: [string, "null"], format: uuid}
+        duration_ms: {type: [integer, "null"], minimum: 0}
+        error_code: {type: [string, "null"]}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}
+    Approval:
+      type: object
+      required: [id, run_id, tool_name, argument_summary, argument_hash, status, expires_at, created_at]
+      additionalProperties: false
+      properties:
+        id: {type: string, format: uuid}
+        run_id: {type: string, format: uuid}
+        tool_name: {type: string}
+        argument_summary: {type: object, additionalProperties: true}
+        argument_hash: {type: string, pattern: "^[0-9a-f]{64}$"}
+        status: {type: string, enum: [pending, approved, rejected, expired, consumed]}
+        expires_at: {type: string, format: date-time}
+        decided_at: {type: [string, "null"], format: date-time}
+        created_at: {type: string, format: date-time}
+    ApprovalDecisionRequest:
+      type: object
+      required: [decision, argument_hash]
+      additionalProperties: false
+      properties:
+        decision: {type: string, enum: [approve, reject]}
+        argument_hash: {type: string, pattern: "^[0-9a-f]{64}$"}
+        comment: {type: [string, "null"], maxLength: 300}
+    ApprovalResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/Approval"}
+    AgentRunResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/AgentRun"}
+    AgentRunDetailData:
+      type: object
+      required: [run, steps, tool_calls, approvals]
+      additionalProperties: false
+      properties:
+        run: {$ref: "#/components/schemas/AgentRun"}
+        steps: {type: array, items: {$ref: "#/components/schemas/AgentRunStep"}}
+        tool_calls: {type: array, items: {$ref: "#/components/schemas/ToolCallTrace"}}
+        approvals: {type: array, items: {$ref: "#/components/schemas/Approval"}}
+    AgentRunDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/AgentRunDetailData"}
+    AgentRunListData:
+      type: object
+      required: [items, pagination]
+      additionalProperties: false
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/AgentRun"}}
+        pagination: {$ref: "#/components/schemas/PageMeta"}
+    AgentRunListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/AgentRunListData"}
+    AgentStreamEvent:
+      type: object
+      required: [run_id, sequence, event, occurred_at, data]
+      additionalProperties: false
+      properties:
+        run_id: {type: string, format: uuid}
+        sequence: {type: integer, minimum: 1}
+        event:
+          type: string
+          enum: [meta, route, agent_step, tool_call, approval_required, handoff, delta, sources, done, error]
+        occurred_at: {type: string, format: date-time}
+        data: {type: object, additionalProperties: true}
+
+    AgentCatalogItem:
+      type: object
+      required: [code, name, description, version, enabled, tool_allowlist]
+      additionalProperties: false
+      properties:
+        code: {type: string}
+        name: {type: string}
+        description: {type: string}
+        version: {type: string}
+        enabled: {type: boolean}
+        tool_allowlist: {type: array, items: {type: string}}
+    AgentCatalogData:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/AgentCatalogItem"}}
+    AgentCatalogResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/AgentCatalogData"}
+
+    ToolCatalogItem:
+      type: object
+      required: [name, module, description, risk_level, enabled, version, input_schema, output_schema, required_permissions, timeout_ms, idempotent, requires_approval]
+      additionalProperties: false
+      properties:
+        name: {type: string}
+        module: {type: string, enum: [m1, m2, m3, m4, m5]}
+        description: {type: string}
+        risk_level: {type: string, enum: [r0, r1, r2, r3]}
+        enabled: {type: boolean}
+        version: {type: string}
+        input_schema: {type: object, additionalProperties: true}
+        output_schema: {type: object, additionalProperties: true}
+        required_permissions: {type: array, items: {type: string}}
+        timeout_ms: {type: integer, minimum: 100, maximum: 60000}
+        idempotent: {type: boolean}
+        requires_approval: {type: boolean}
+    ToolCatalogData:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/ToolCatalogItem"}}
+    ToolCatalogResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/ToolCatalogData"}
+    ToolResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/ToolCatalogItem"}
+    ToolStateUpdateRequest:
+      type: object
+      required: [enabled]
+      additionalProperties: false
+      properties:
+        enabled: {type: boolean}
+        reason: {type: string, minLength: 2, maxLength: 300}
+
+    DatasetPurpose:
+      type: string
+      enum: [agent_router, instruction_tuning, rag_reranker, evaluation]
+    DatasetVersion:
+      type: object
+      required: [version, artifact_sha256, format, sample_count, validation_status, contains_sensitive_data, created_at]
+      additionalProperties: false
+      properties:
+        version: {type: integer, minimum: 1}
+        artifact_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        format: {type: string, enum: [jsonl, csv]}
+        sample_count: {type: integer, minimum: 0}
+        split_config: {type: object, additionalProperties: true}
+        validation_status: {type: string, enum: [pending, valid, invalid]}
+        validation_report: {type: object, additionalProperties: true}
+        contains_sensitive_data: {type: boolean}
+        frozen_at: {type: [string, "null"], format: date-time}
+        created_at: {type: string, format: date-time}
+    Dataset:
+      type: object
+      required: [id, name, purpose, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        purpose: {$ref: "#/components/schemas/DatasetPurpose"}
+        description: {type: [string, "null"]}
+        latest_version: {type: [integer, "null"], minimum: 1}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    DatasetCreateRequest:
+      type: object
+      required: [name, purpose]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 2, maxLength: 100}
+        purpose: {$ref: "#/components/schemas/DatasetPurpose"}
+        description: {type: [string, "null"], maxLength: 500}
+    DatasetVersionCreateRequest:
+      type: object
+      required: [artifact_key, artifact_sha256, format, sample_count, split_config, contains_sensitive_data]
+      additionalProperties: false
+      properties:
+        artifact_key: {type: string, minLength: 3, maxLength: 500}
+        artifact_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        format: {type: string, enum: [jsonl, csv]}
+        sample_count: {type: integer, minimum: 1}
+        split_config: {type: object, additionalProperties: true}
+        contains_sensitive_data: {type: boolean}
+    DatasetUpload:
+      type: object
+      required: [artifact_key, artifact_sha256, file_name, format, size_bytes, expires_at]
+      additionalProperties: false
+      properties:
+        artifact_key: {type: string, maxLength: 500}
+        artifact_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        file_name: {type: string, maxLength: 255}
+        format: {type: string, enum: [jsonl, csv]}
+        size_bytes: {type: integer, minimum: 1, maximum: 104857600}
+        expires_at: {type: string, format: date-time}
+    DatasetUploadResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/DatasetUpload"}
+    DatasetResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/Dataset"}
+    DatasetDetailData:
+      type: object
+      required: [dataset, versions]
+      additionalProperties: false
+      properties:
+        dataset: {$ref: "#/components/schemas/Dataset"}
+        versions: {type: array, items: {$ref: "#/components/schemas/DatasetVersion"}}
+    DatasetDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/DatasetDetailData"}
+    DatasetVersionResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/DatasetVersion"}
+    DatasetListData:
+      type: object
+      required: [items, pagination]
+      additionalProperties: false
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/Dataset"}}
+        pagination: {$ref: "#/components/schemas/PageMeta"}
+    DatasetListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/DatasetListData"}
+
+    TrainingJobStatus:
+      type: string
+      enum: [queued, preparing, training, evaluating, succeeded, failed, cancelled]
+    TrainingJobCreateRequest:
+      type: object
+      required: [dataset_id, dataset_version, base_model, method, config]
+      additionalProperties: false
+      properties:
+        dataset_id: {type: string, format: uuid}
+        dataset_version: {type: integer, minimum: 1}
+        base_model: {type: string, minLength: 3, maxLength: 200}
+        method: {type: string, enum: [lora, qlora]}
+        config:
+          type: object
+          required: [epochs, learning_rate, batch_size]
+          additionalProperties: true
+          properties:
+            epochs: {type: integer, minimum: 1, maximum: 10}
+            learning_rate: {type: number, exclusiveMinimum: 0, maximum: 0.1}
+            batch_size: {type: integer, minimum: 1, maximum: 64}
+        resource_limits: {type: object, additionalProperties: true}
+    TrainingJob:
+      type: object
+      required: [id, base_model, method, status, progress, metrics, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id: {type: string, format: uuid}
+        base_model: {type: string}
+        method: {type: string, enum: [lora, qlora]}
+        status: {$ref: "#/components/schemas/TrainingJobStatus"}
+        progress: {type: integer, minimum: 0, maximum: 100}
+        metrics: {type: object, additionalProperties: true}
+        error_code: {type: [string, "null"]}
+        error_message: {type: [string, "null"]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        started_at: {type: [string, "null"], format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}
+    TrainingJobResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/TrainingJob"}
+    TrainingJobListData:
+      type: object
+      required: [items, pagination]
+      additionalProperties: false
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/TrainingJob"}}
+        pagination: {$ref: "#/components/schemas/PageMeta"}
+    TrainingJobListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/TrainingJobListData"}
+
+    ModelPurpose:
+      type: string
+      enum: [complex_generation, agent_router, rag_reranker, embedding]
+    ModelVersion:
+      type: object
+      required: [id, name, purpose, provider, base_model, version, config, metrics, status, created_at]
+      additionalProperties: false
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        purpose: {$ref: "#/components/schemas/ModelPurpose"}
+        provider: {type: string, enum: [deepseek, local, rule]}
+        base_model: {type: string}
+        version: {type: string}
+        quantization: {type: [string, "null"]}
+        artifact_sha256: {type: [string, "null"], pattern: "^[0-9a-f]{64}$"}
+        config: {type: object, additionalProperties: true}
+        metrics: {type: object, additionalProperties: true}
+        status: {type: string, enum: [candidate, active, inactive, failed]}
+        created_at: {type: string, format: date-time}
+        activated_at: {type: [string, "null"], format: date-time}
+    ModelRegisterRequest:
+      type: object
+      required: [name, purpose, provider, base_model, version, config]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 2, maxLength: 100}
+        purpose: {$ref: "#/components/schemas/ModelPurpose"}
+        provider: {type: string, enum: [deepseek, local, rule]}
+        base_model: {type: string, minLength: 2, maxLength: 200}
+        version: {type: string, minLength: 1, maxLength: 50}
+        quantization: {type: [string, "null"], maxLength: 30}
+        artifact_key: {type: [string, "null"], maxLength: 500}
+        artifact_sha256: {type: [string, "null"], pattern: "^[0-9a-f]{64}$"}
+        training_job_id: {type: [string, "null"], format: uuid}
+        config: {type: object, additionalProperties: true}
+    ModelResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/ModelVersion"}
+    ModelListData:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/ModelVersion"}}
+    ModelListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/ModelListData"}
+
+    EvaluationJob:
+      type: object
+      required: [id, target_type, status, config, summary, metrics, created_at]
+      additionalProperties: false
+      properties:
+        id: {type: string, format: uuid}
+        target_type: {type: string, enum: [agent, tool, model, rag, system]}
+        target_id: {type: [string, "null"], format: uuid}
+        status: {type: string, enum: [queued, running, succeeded, failed, cancelled]}
+        config: {type: object, additionalProperties: true}
+        summary: {type: object, additionalProperties: true}
+        metrics:
+          type: array
+          items: {$ref: "#/components/schemas/EvaluationMetric"}
+        report_key: {type: [string, "null"]}
+        error_code: {type: [string, "null"]}
+        created_at: {type: string, format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}
+    EvaluationMetric:
+      type: object
+      required: [name, value, slice_name]
+      additionalProperties: false
+      properties:
+        name: {type: string}
+        value: {type: number}
+        unit: {type: [string, "null"]}
+        slice_name: {type: string}
+    EvaluationCreateRequest:
+      type: object
+      required: [target_type, config]
+      additionalProperties: false
+      properties:
+        target_type: {type: string, enum: [agent, tool, model, rag, system]}
+        target_id: {type: [string, "null"], format: uuid}
+        dataset_id: {type: [string, "null"], format: uuid}
+        dataset_version: {type: [integer, "null"], minimum: 1}
+        config: {type: object, additionalProperties: true}
+    EvaluationCompareRequest:
+      type: object
+      required: [evaluation_ids]
+      additionalProperties: false
+      properties:
+        evaluation_ids:
+          type: array
+          minItems: 2
+          maxItems: 5
+          uniqueItems: true
+          items: {type: string, format: uuid}
+    EvaluationComparison:
+      type: object
+      required: [evaluation_ids, metric_names, rows]
+      additionalProperties: false
+      properties:
+        evaluation_ids: {type: array, items: {type: string, format: uuid}}
+        metric_names: {type: array, items: {type: string}}
+        rows:
+          type: array
+          items:
+            type: object
+            required: [evaluation_id, metrics]
+            additionalProperties: false
+            properties:
+              evaluation_id: {type: string, format: uuid}
+              metrics: {type: object, additionalProperties: {type: number}}
+    EvaluationCompareResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/EvaluationComparison"}
+    EvaluationResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/EvaluationJob"}
+    EvaluationListData:
+      type: object
+      required: [items, pagination]
+      additionalProperties: false
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/EvaluationJob"}}
+        pagination: {$ref: "#/components/schemas/PageMeta"}
+    EvaluationListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/EvaluationListData"}
+
+    ToolInvokeRequest:
+      type: object
+      required: [run_id, agent_code, user_id, arguments]
+      additionalProperties: false
+      properties:
+        run_id: {type: string, format: uuid}
+        step_id: {type: [string, "null"], format: uuid}
+        agent_code: {type: string, minLength: 3, maxLength: 50}
+        user_id: {type: string, format: uuid}
+        approval_id: {type: [string, "null"], format: uuid}
+        arguments:
+          oneOf:
+            - $ref: "#/components/schemas/KnowledgeSearchToolArgs"
+            - $ref: "#/components/schemas/KnowledgeAnswerToolArgs"
+            - $ref: "#/components/schemas/ServiceGuideToolArgs"
+            - $ref: "#/components/schemas/WorkOrderCreateToolArgs"
+            - $ref: "#/components/schemas/WorkOrderGetToolArgs"
+            - $ref: "#/components/schemas/ElectricityBalanceToolArgs"
+            - $ref: "#/components/schemas/ElectricityTopupToolArgs"
+            - $ref: "#/components/schemas/EventSearchToolArgs"
+            - $ref: "#/components/schemas/EventRegisterToolArgs"
+            - $ref: "#/components/schemas/LostFoundPublishToolArgs"
+            - $ref: "#/components/schemas/LostFoundMatchesToolArgs"
+            - $ref: "#/components/schemas/GovernanceContentToolArgs"
+            - $ref: "#/components/schemas/GovernanceAuthorizeToolArgs"
+            - $ref: "#/components/schemas/GovernanceAuditToolArgs"
+    ToolInvokeData:
+      type: object
+      required: [tool_call_id, status]
+      additionalProperties: false
+      properties:
+        tool_call_id: {type: string, format: uuid}
+        status: {type: string, enum: [awaiting_approval, succeeded]}
+        approval: {anyOf: [{$ref: "#/components/schemas/Approval"}, {type: "null"}]}
+        result: {type: [object, "null"], additionalProperties: true}
+    ToolInvokeResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: "#/components/schemas/ToolInvokeData"}
+
+    KnowledgeSearchToolArgs:
+      type: object
+      required: [query]
+      additionalProperties: false
+      properties:
+        query: {type: string, minLength: 2, maxLength: 1000}
+        knowledge_base_ids: {type: array, maxItems: 20, items: {type: string, format: uuid}}
+        top_k: {type: integer, minimum: 1, maximum: 20, default: 5}
+    KnowledgeAnswerToolArgs:
+      type: object
+      required: [question]
+      additionalProperties: false
+      properties:
+        question: {type: string, minLength: 2, maxLength: 2000}
+        conversation_id: {type: [string, "null"], format: uuid}
+        stream: {type: boolean, default: false}
+    ServiceGuideToolArgs:
+      type: object
+      required: [query]
+      additionalProperties: false
+      properties:
+        query: {type: string, minLength: 2, maxLength: 200}
+        campus_code: {type: [string, "null"], maxLength: 50}
+    WorkOrderCreateToolArgs:
+      type: object
+      required: [category_id, location, description]
+      additionalProperties: false
+      properties:
+        category_id: {type: string, format: uuid}
+        location: {type: string, minLength: 2, maxLength: 200}
+        description: {type: string, minLength: 5, maxLength: 2000}
+        attachment_ids: {type: array, maxItems: 5, items: {type: string, format: uuid}}
+    WorkOrderGetToolArgs:
+      type: object
+      required: [work_order_id]
+      additionalProperties: false
+      properties:
+        work_order_id: {type: string, format: uuid}
+    ElectricityBalanceToolArgs:
+      type: object
+      required: [room_id]
+      additionalProperties: false
+      properties:
+        room_id: {type: string, format: uuid}
+    ElectricityTopupToolArgs:
+      type: object
+      required: [room_id, amount_cny]
+      additionalProperties: false
+      properties:
+        room_id: {type: string, format: uuid}
+        amount_cny: {type: number, minimum: 1, maximum: 500, multipleOf: 0.01}
+    EventSearchToolArgs:
+      type: object
+      additionalProperties: false
+      properties:
+        query: {type: [string, "null"], maxLength: 200}
+        from: {type: [string, "null"], format: date-time}
+        to: {type: [string, "null"], format: date-time}
+    EventRegisterToolArgs:
+      type: object
+      required: [event_id]
+      additionalProperties: false
+      properties:
+        event_id: {type: string, format: uuid}
+    LostFoundPublishToolArgs:
+      type: object
+      required: [type, title, description, occurred_at, location]
+      additionalProperties: false
+      properties:
+        type: {type: string, enum: [lost, found]}
+        title: {type: string, minLength: 2, maxLength: 100}
+        description: {type: string, minLength: 5, maxLength: 2000}
+        occurred_at: {type: string, format: date-time}
+        location: {type: string, minLength: 2, maxLength: 200}
+    LostFoundMatchesToolArgs:
+      type: object
+      required: [item_id]
+      additionalProperties: false
+      properties:
+        item_id: {type: string, format: uuid}
+        top_k: {type: integer, minimum: 1, maximum: 20, default: 5}
+    GovernanceContentToolArgs:
+      type: object
+      required: [text, scope]
+      additionalProperties: false
+      properties:
+        text: {type: string, minLength: 1, maxLength: 10000}
+        scope: {type: string, enum: [tool_input, tool_output, agent_context]}
+    GovernanceAuthorizeToolArgs:
+      type: object
+      required: [user_id, agent_code, tool_name]
+      additionalProperties: false
+      properties:
+        user_id: {type: string, format: uuid}
+        agent_code: {type: string}
+        tool_name: {type: string}
+        resource: {type: object, additionalProperties: true}
+    GovernanceAuditToolArgs:
+      type: object
+      required: [action, request_id, result]
+      additionalProperties: false
+      properties:
+        action: {type: string, minLength: 2, maxLength: 100}
+        request_id: {type: string, minLength: 8, maxLength: 64}
+        result: {type: string, enum: [success, failure, denied]}
+        metadata: {type: object, additionalProperties: true}
