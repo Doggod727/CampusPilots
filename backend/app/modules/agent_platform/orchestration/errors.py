@@ -17,3 +17,12 @@ class AgentDisabled(AppError):
 
 class DuplicateAgentRegistration(RuntimeError):
     pass
+
+
+class InvalidAgentInput(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=422,
+            code="AGENT_INPUT_INVALID",
+            message="Agent 输入无效",
+        )

@@ -355,6 +355,12 @@
   - code+version 重复、定义冲突或第二个活动版本属于开发期注册错误；运行时不存在/停用分别使用内部稳定 `404 AGENT_NOT_FOUND`、`409 AGENT_DISABLED`。
   - 契约台账：上述两个 Agent 错误码在公共 Catalog/Run API 接入时同步 OpenAPI 和详细设计；本任务无公共路由。
   - 全量测试 `306 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
+- [x] [#73 M5：实现确定性 RouterService](https://github.com/Doggod727/CampusPilot/issues/73)（2026-07-15）
+  - 新增规则优先 Router，固定覆盖 knowledge/service/community/governance/modelops 五领域；单领域高置信直接路由，多领域最多返回3个稳定候选，无匹配安全进入 clarify。
+  - LocalRouterPort/DeepSeekRouterPort 均可注入；规则低置信时依次调用，本地/远程超时、异常、来源不符、非法标签或低置信均安全降级，不回显 Provider 异常或思维链。
+  - 输入空白或超过4000字符使用内部稳定 `422 AGENT_INPUT_INVALID`；公共 Agent Run API 接入时同步 OpenAPI/详细设计错误声明。
+  - 本任务仅使用确定性 Fake Port，不加载本地模型、不调用 DeepSeek、不写数据库或执行 Agent/Tool。
+  - 全量测试 `318 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
 
 ## 待办
 
