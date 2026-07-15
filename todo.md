@@ -407,6 +407,10 @@
   - ApprovalRepository/Service 支持绑定 Run/ToolCall/用户/参数哈希创建、本人决策、一次性消费和原子过期；TTL 使用可注入配置与 UTC 时钟。
   - 数据库 ApprovalVerifier 可直接替换 Executor 内存端口；未知、过期、已消费、用户/Tool版本/哈希不匹配统一为 `409 TOOL_APPROVAL_INVALID`。
   - 全量 pytest `365 passed`、Python 编译及 Alembic 单 head通过；真实并发消费验证保留待办。
+- [x] [#85 M5：实现持久化 Agent Trace 基础](https://github.com/Doggod727/CampusPilot/issues/85)（2026-07-15）
+  - TraceRepository/Service 支持创建 Run、追加最多6个 Step、记录 Tool 状态、条件终态更新及3次批量详情加载，不管理事务。
+  - 仅保存递归脱敏摘要与哈希；终态、重复签名和步骤上限分别使用 `AGENT_RUN_STATE_CONFLICT`、`AGENT_LOOP_DETECTED`、`AGENT_MAX_STEPS_EXCEEDED`。
+  - 全量 pytest `368 passed`（11 条既有警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；公共 Run API接入时同步新增内部错误码。
 
 ## 待办
 
