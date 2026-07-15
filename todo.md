@@ -532,6 +532,8 @@
 - [x] [#110 M1：AI知识库数据库迁移](https://github.com/Doggod727/CampusPilot/issues/110)（2026-07-15）
   - 新增 `0007_ai_knowledge_schema`，自包含固化设计SQL中的11张表、约束、索引、函数、6个触发器和注释；逻辑用户引用不建立跨Schema外键。
   - downgrade按依赖逆序删除M1对象，不删除共享`pgcrypto`扩展；真实PostgreSQL空库验证保留待办。
+- [x] [#112 M1：AI知识库全量ORM基线](https://github.com/Doggod727/CampusPilot/issues/112)（2026-07-15）
+  - 映射ai_knowledge全部11张表，保留PostgreSQL UUID/JSONB/Numeric/时区时间、核心约束、索引与外键删除策略；敏感内容和哈希不进入repr。
 
 ## 待办
 
