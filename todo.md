@@ -399,6 +399,10 @@
   - 新增 `python -m app.scripts.seed_agent_platform`，单事务幂等写入6个 Agent、14个冻结 Tool及4个模型版本。
   - Tool JSON Schema 只由 Pydantic `TOOL_CONTRACTS` 生成并检测漂移；DeepSeek 仅保存环境变量名，不保存密钥或输出 Prompt/Schema。
   - 全量 pytest `355 passed`、Python 编译及 Alembic 单 head通过；真实 PostgreSQL重复种子验证保留待办。
+- [x] [#83 M5：实现数据库 Catalog 仓储与 Registry Loader](https://github.com/Doggod727/CampusPilot/issues/83)（2026-07-15）
+  - CatalogRepository 稳定加载启用 Agent/Tool及活动版本，不管理 Session；Loader 校验数据库 Schema、权限、风险、超时和确认策略后构造内存 Registry。
+  - 任一冻结契约漂移安全返回内部 `409 CATALOG_CONTRACT_MISMATCH`；runtime_internal 继续由现有 Registry 默认隐藏。
+  - 全量 pytest `357 passed`、Python 编译及 Alembic 单 head通过；错误码待公共 Catalog API接入时同步文档。
 
 ## 待办
 
