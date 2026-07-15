@@ -2,16 +2,17 @@
 
 ## 详细设计说明书 Part 2：M2 校园服务中心
 
-**文档版本：** V0.9（评审版）  
-**编制日期：** 2026-07-14  
+**文档版本：** V1.0（M5 Tool Adapter 补充版）  
+**编制日期：** 2026-07-15  
 **适用迭代：** 10 天 Scrum 演示版  
-**关联基线：**《需求分析说明书》V1.0、《概要设计说明书》V1.0、《详细设计 Part 1》V0.9  
-**接口契约：** `openapi.yaml` V0.2.0  
-**数据库脚本：** `sql/003_campus_service_schema.sql`、`sql/004_campus_service_seed.sql`
+**关联基线：**《需求分析说明书》V2.1、《概要设计说明书》V1.0、《详细设计 Part 1》V0.11、《详细设计 Part 5》V0.2  
+**接口契约：** `openapi.yaml` V0.5.0  
+**数据库脚本：** `sql/003_campus_service_schema.sql`、`sql/004_campus_service_seed.sql`、`sql/010_campus_service_electricity_schema.sql`、`sql/011_campus_service_electricity_seed.sql`
 
 | 版本 | 日期 | 说明 | 状态 |
 |---|---|---|---|
 | V0.9 | 2026-07-14 | M2 指南、联系人、报修工单、状态机、评价和 Mock 适配器 | 待小组评审 |
+| V1.0 | 2026-07-15 | 增加 M5 事件 Tools、电费余额与模拟充值申请、确认/幂等适配 | 可进入编码 |
 
 > 本篇按用户指定顺序直接设计 M2，M1 暂未展开。公共认证、响应信封、错误、分页、幂等、乐观锁和审计规则继承 Part 1；字段和状态码以 `openapi.yaml` 为机器可读单一事实源。
 
@@ -385,7 +386,7 @@ M2 至少暴露：指南查询次数、无结果次数、材料清单生成次�
 |---|---|---|
 | 单元 | 条件材料、状态迁移、访问策略、编号生成、Adapter 错误映射 | 领域分支覆盖率 ≥80% |
 | 仓储 | 有效期过滤、所有权/范围 SQL、事件序号、唯一评价 | PostgreSQL 测试库通过 |
-| API | 13 个 M2 operationId 的成功、401/403/404/409/422 | 与 OpenAPI V0.2.0 一致 |
+| API | M2 全部 operationId 的成功、401/403/404/409/422 | 与 OpenAPI V0.5.0 一致 |
 | 并发 | 重复创建、双处理员受理、重复评价 | 只有一个业务结果 |
 | 契约 | Redocly lint、引用检查、TS 客户端生成 | 无错误或警告 |
 | E2E | 登录→指南→材料；登录→创建→处理→完成→评价 | 两条完整主流程通过 |
@@ -396,7 +397,7 @@ M2 至少暴露：指南查询次数、无结果次数、材料清单生成次�
 
 | 天 | 独立交付 | 对外联调点 |
 |---|---|---|
-| D1 | M2 包骨架、Schema、迁移、种子数据 | 向全组发布 OpenAPI V0.2.0 |
+| D1 | M2 包骨架、Schema、迁移、种子数据 | 向全组发布 OpenAPI V0.5.0 |
 | D2 | 指南/分类/部门/联系人 Repository 和查询 API | 前端接指南列表和详情 Mock |
 | D3 | 材料条件白名单与 checklist API | 固定校区/学生类型测试数据 |
 | D4 | 工单创建、编号、幂等和事件 sequence=1 | 前端完成创建表单 |
@@ -415,7 +416,7 @@ M2 至少暴露：指南查询次数、无结果次数、材料清单生成次�
 
 ```text
 实现 M2 service-guides、departments 和 department-contacts 的查询接口。
-以 deliverables/openapi.yaml V0.2.0 为唯一契约；使用 FastAPI、Pydantic v2、SQLAlchemy async。
+以 deliverables/openapi.yaml V0.5.0 为唯一契约；使用 FastAPI、Pydantic v2、SQLAlchemy async。
 只返回 published、未过期且适用的指南；材料 condition 只接受 campus_codes/student_types 白名单，返回 inclusion_reason。
 Repository 避免 N+1；补 pytest：搜索、适用对象、条件材料、过期联系人、404/422。
 不得新增契约外字段，不得执行动态表达式。
@@ -450,20 +451,73 @@ WORK_ORDER_IDEMPOTENCY_HOURS=24
 2. 执行 `002_platform_seed.sql`，确保学生同时具有 `work_order:read/create`。
 3. 执行 `003_campus_service_schema.sql`。
 4. 执行 `004_campus_service_seed.sql`。
-5. Python `seed_demo` 创建演示学生/处理员和绑定用户 UUID 的工单数据。
+5. 执行 `009_platform_m5_compat.sql`。
+6. 执行 `010_campus_service_electricity_schema.sql`。
+7. 执行 `011_campus_service_electricity_seed.sql`。
+8. 执行 `012_agent_platform_schema.sql` 与 `013_agent_platform_seed.sql`。
+9. Python `seed_demo` 创建演示学生/处理员，绑定工单用户 UUID 和演示房间成员 UUID。
 
 ## 16.3 Definition of Done
 
-- OpenAPI V0.2.0 lint 无错误或警告，42 个 operationId 唯一。
+- OpenAPI V0.5.0 lint 无错误或警告，全部 operationId 唯一。
 - M2 迁移可在空 PostgreSQL 升级；种子脚本重复执行不产生重复字典。
-- 指南、材料、联系人、创建、查询、状态、时间线和评价 P0 API 完成。
+- 指南、材料、联系人、工单主流程、电费余额与模拟充值 P0 API 完成。
 - 所有权、处理范围、幂等、乐观锁、事件与审计测试通过。
 - 生成的 TypeScript 客户端可编译，前端无手写重复 DTO。
 - 两条 E2E 主流程通过，Docker Compose 下 `/health/ready` 成功。
 - README 包含迁移、种子、Mock 故障注入、演示角色和操作顺序。
 
-# 17. 后续接口
+# 17. M5 Tool Adapter 回补设计
 
-M2 对 M1 未来只提供只读工具能力：搜索指南、生成材料清单、查询本人工单/外部事项进度。M1 不得绕过 M2 Service 读取工单表，也不得让 DeepSeek 直接提交工单；智能填单必须先返回结构化草稿，经用户确认后再调用 `createWorkOrder`。
+## 17.1 适配层目录与依赖
 
-本篇评审通过后，可按用户选择继续 M1「AI 与知识库」或 M3「校园社区与互助」。
+```text
+backend/app/modules/campus_service/
+  application/
+    electricity_service.py
+  tool_adapters/
+    service_guide_tools.py
+    work_order_tools.py
+    electricity_tools.py
+  infrastructure/
+    electricity_mock_adapter.py
+```
+
+Tool Adapter 只把 M5 的强类型参数转换为 M2 Command/Query，调用现有 Application Service；不得调用 Router、Repository 或直接提交事务。REST 与 Tool 共用 `ServiceGuideService/WorkOrderService/ElectricityService`。
+
+## 17.2 Tool 映射
+
+| Tool | M2 方法 | 权限/资源 | 关键行为 |
+|---|---|---|---|
+| `service.get_guide` | `ServiceGuideService.search` | `service:read` | 只返回有效指南；P0 可使用种子数据 |
+| `work_order.create` | `WorkOrderService.create` | `work_order:create` + 本人房间 | M5 已确认后执行；M2 再校验 approval、幂等和房间范围 |
+| `work_order.get` | `WorkOrderService.get_visible` | `work_order:read` + owner scope | 普通学生仅本人 |
+| `electricity.get_balance` | `ElectricityService.get_balance` | `electricity:read_own` | 只读 Mock；返回 `is_simulated=true` |
+| `electricity.create_topup_request` | `ElectricityService.create_topup_request` | `electricity:topup_request:create` | 金额 1–500 元；确认、幂等；不处理真实支付 |
+
+## 17.3 电费数据与规则
+
+- `electricity_accounts` 保存演示房间余额、更新时间和 `source=mock`；用户房间授权仍由 M4 UserContext/M2 资源规则提供。
+- `electricity_topup_requests` 保存模拟申请，状态固定为 `simulated`；不更新账户余额，不创建支付订单。
+- 金额使用 `numeric(10,2)`；请求不得包含银行卡、支付密码或支付 Token。
+- 相同用户、Tool、Idempotency-Key 重放返回首次申请；同 Key 不同金额返回 409。
+- 审计只记录房间逻辑 ID、金额、模拟状态和请求 ID，不记录宿舍完整描述。
+
+## 17.4 Tool 错误映射
+
+| M2 异常 | Tool 错误 |
+|---|---|
+| 指南不存在 | `SERVICE_GUIDE_NOT_FOUND` |
+| 非本人房间/工单 | `TOOL_FORBIDDEN` |
+| 确认无效 | `TOOL_APPROVAL_INVALID` |
+| 幂等冲突 | `IDEMPOTENCY_CONFLICT` |
+| Mock 超时 | `TOOL_DEPENDENCY_UNAVAILABLE` |
+| 金额越界 | `TOOL_ARGUMENT_INVALID` |
+
+# 18. 更新后的完成定义
+
+- 5 个 M2 Tools 的 Pydantic Schema 与 OpenAPI/M5 Catalog 一致。
+- REST 和 Tool 创建报修得到相同状态机、权限、审计和错误语义。
+- 电费查询和模拟充值明确标识 Mock，不修改真实/Mock 余额。
+- 用户拒绝确认、确认过期、跨用户确认、重复幂等和 Mock 超时测试通过。
+- 原有 M2 API 和表继续可用；P1 功能降级不意味着删除代码。

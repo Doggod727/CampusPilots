@@ -5,3 +5,5 @@ rules:
   no-server-example.com: off
   # Health 接口是无参数探针，不人为添加没有业务意义的 4XX。
   operation-4xx-response: off
+  # SSE 的 data 载荷通过 x-event-payload-schema 引用，lint 不识别该异步契约扩展。
+  no-unused-components: off

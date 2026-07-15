@@ -1,12 +1,12 @@
 # 学生生活一站式社区 AI 助手 - 详细设计说明书 Part 4
 
-## M3 校园社区与互助｜V0.9｜2026-07-14
+## M3 校园社区与互助｜V1.0｜2026-07-15
 
 | 项目 | 内容 |
 |---|---|
 | 文档定位 | 10 天 Scrum 中成员 C 可直接编码、联调和验收的 M3 实施规格 |
 | 适用范围 | 话题、帖子、评论、匿名树洞、互动、举报、活动、失物匹配、认领 |
-| 依赖基线 | 需求说明书、概要设计、M4 Part 1 V0.10、`openapi.yaml` V0.4.0 |
+| 依赖基线 | 需求说明书 V2.1、概要设计 V1.0、M4 Part 1 V0.11、M5 Part 5 V0.2、`openapi.yaml` V0.5.0 |
 | 技术栈 | Python 3.12、FastAPI、SQLAlchemy async、PostgreSQL 16、Vue 3 + TypeScript |
 | 仓库边界 | `backend/app/modules/community`、`frontend/src/modules/community` |
 | 模块负责人 | 成员 C；不得直接修改 M1 索引、M2 工单或 M4 审核表 |
@@ -315,7 +315,7 @@ MVP 数据量小，发布或修改后同步扫描最近最多 200 条候选；�
 
 # 9. API 联调契约
 
-`openapi.yaml` V0.4.0 是字段、状态码和 operationId 的唯一事实源。M3 新增 23 个路径、38 个操作；项目合并后共 74 个路径、103 个操作。
+`openapi.yaml` V0.5.0 是字段、状态码和 operationId 的唯一事实源。M3 的既有路径与操作保持不变；M5 增量合并后项目共 100 个路径、136 个操作。
 
 ## 9.1 社区内容接口
 
@@ -487,7 +487,7 @@ C3 和 C7 结束做模块内部 Review；C9 做全组联调。成员 C 的 PR �
 
 ## 15.1 社区内容任务
 
-> 实现 Topics、Posts、Comments API。严格使用 `openapi.yaml` V0.4.0 和 `007_community_schema.sql`。匿名只允许 allow_anonymous 话题；公开 DTO 不得泄露 author_user_id。创建/更新调用 M4 scan，注册 ModerationTargetHandler，补 allow/review/block 和重复回调测试。禁止修改 M4 表。
+> 实现 Topics、Posts、Comments API。严格使用 `openapi.yaml` V0.5.0 和 `007_community_schema.sql`。匿名只允许 allow_anonymous 话题；公开 DTO 不得泄露 author_user_id。创建/更新调用 M4 scan，注册 ModerationTargetHandler，补 allow/review/block 和重复回调测试。禁止修改 M4 表。
 
 ## 15.2 互动和举报任务
 
@@ -529,11 +529,14 @@ COMMUNITY_CONTACT_AUDIT_ENABLED=true
 4. M1 的 005/006
 5. `007_community_schema.sql`
 6. `008_community_seed.sql`
-7. Python `seed_demo community`
+7. `009_platform_m5_compat.sql`
+8. M2 电费增量 010/011
+9. M5 的 012/013
+10. Python `seed_demo community`
 
 ## 16.3 Definition of Done
 
-- OpenAPI lint 无错误/警告，103 个 operationId 唯一，生成 TypeScript 客户端可编译。
+- OpenAPI V0.5.0 lint 无错误或警告，136 个 operationId 唯一，生成 TypeScript 客户端可编译。
 - 10 张 M3 表在空 PostgreSQL 迁移成功，升级/回滚策略记录在 Alembic。
 - 三条 E2E 主流程通过，匿名身份和联系方式无泄漏。
 - 报名最后名额、互动计数、双方完成并发用例通过。
@@ -559,4 +562,59 @@ COMMUNITY_CONTACT_AUDIT_ENABLED=true
 
 ---
 
-文档版本：V0.9。M3 编码前优先评审：匿名反查授权、活动容量锁、0.55 匹配阈值、联系方式加密和双方完成规则。
+文档版本：V1.0。M3 编码前优先评审：活动容量锁、0.55 匹配阈值、联系方式加密、M5 Tool Schema 和写操作确认。
+
+# 19. M5 Tool Adapter 回补设计
+
+## 19.1 首期范围调整
+
+M3 原有帖子、评论、匿名、举报、活动、失物和认领需求全部保留；首期优先实现活动和失物事件 Tools，通用帖子/评论/点赞后台调整为 P1。
+
+| Tool | M3 方法 | 权限/范围 | 风险 |
+|---|---|---|---|
+| `event.search` | `CampusEventService.search_open` | `community:read` | R0，只读 |
+| `event.register` | `CampusEventService.register` | `community:write` + 当前用户 | R2，确认/幂等 |
+| `lost_found.publish` | `LostFoundService.publish` | `community:write` | R2，确认/内容检查 |
+| `lost_found.search_matches` | `LostFoundService.list_matches_for_owner` | `community:read` + owner scope | R1，隐私只读 |
+
+## 19.2 目录与依赖
+
+```text
+backend/app/modules/community/
+  tool_adapters/
+    event_tools.py
+    lost_found_tools.py
+```
+
+Tool Adapter 只调用 M3 Application Service。M5 的 approval 不能替代 M3 容量、所有权、可见性、内容审核和并发检查。
+
+## 19.3 event.search / event.register
+
+- search 只返回 `published`、未取消、报名未截止的活动；分页最大 100。
+- register 必须有 M5 有效确认和 Idempotency-Key；M3 使用既有行锁/唯一约束保证最后名额不超卖。
+- Agent 重试时返回已有报名记录，不重复扣减容量。
+
+## 19.4 lost_found.publish / search_matches
+
+- publish 输入限定 lost/found、标题、类别、地点、时间、描述和 `contact_preference=in_app`。
+- Agent Prompt/Tool 参数不得接收明文电话；联系方式继续由既有加密字段和专用接口管理。
+- 发布前调用 M4/M5 内容安全管线；高风险进入原 M4 审核状态机。
+- search_matches 必须验证 item 属于当前用户，只返回分数、原因和候选摘要，不返回对方联系方式或认领证据。
+
+## 19.5 错误与轨迹映射
+
+| M3 异常 | Tool 错误 |
+|---|---|
+| 活动取消/截止 | `EVENT_REGISTRATION_CLOSED` |
+| 容量已满 | `EVENT_CAPACITY_FULL` |
+| 重复报名 | 返回已有 registration，不视为失败 |
+| 失物记录非本人 | `TOOL_FORBIDDEN` |
+| 内容被阻止 | `CONTENT_POLICY_BLOCKED` |
+| 匹配未生成 | 返回空 items + algorithm_version，不编造候选 |
+
+## 19.6 完成定义
+
+- 四个 Tool Schema 与 OpenAPI/M5 Catalog 一致。
+- 报名确认、拒绝、过期、重复请求和并发最后名额测试通过。
+- 失物发布不在 Tool/Agent 轨迹保存联系方式；候选查询不泄露隐私。
+- M5 未启用时，原 M3 REST API 与审核流程仍独立可用。

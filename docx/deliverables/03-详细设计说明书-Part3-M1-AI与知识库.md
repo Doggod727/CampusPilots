@@ -1,12 +1,12 @@
 # 学生生活一站式社区 AI 助手 - 详细设计说明书 Part 3
 
-## M1 AI 问答与知识库｜V0.9｜2026-07-14
+## M1 AI 问答与知识库｜V1.0｜2026-07-15
 
 | 项目 | 内容 |
 |---|---|
 | 文档定位 | 10 天 Scrum 开发周期内，M1 负责成员可直接据此编码、联调和验收 |
 | 适用范围 | 知识库、文档入库、RAG 检索、DeepSeek V4 Pro 对话、引用、反馈 |
-| 依赖文档 | 《需求分析说明书》V1.1、《概要设计说明书》V0.9、《详细设计 Part 1》及 `openapi.yaml` V0.3.0 |
+| 依赖文档 | 《需求分析说明书》V2.1、《概要设计说明书》V1.0、《详细设计 Part 1》V0.11、《详细设计 Part 5》V0.2、`openapi.yaml` V0.5.0 |
 | 后端/前端 | Python 3.12 + FastAPI；Vue 3 + TypeScript + Vite + Pinia + Element Plus |
 | 核心基础设施 | PostgreSQL 16、Redis 7、Celery、Chroma、Docker Compose |
 | 模型约束 | 固定 `deepseek-v4-pro`；调用者提供 API Key；演示环境不公开上线 |
@@ -29,7 +29,7 @@ M1 必须在同一模块内完成“文档上传—异步解析—向量索引�
 
 ## 1.2 非目标
 
-- 不在本阶段训练或微调模型。
+- M1 不训练或微调模型；数据集、Reranker、LoRA/QLoRA、模型注册和评估归 M5。M1 只实现可替换的检索/重排 Port。
 - 不实现 OCR；扫描版 PDF 返回明确的 `DOCUMENT_NO_EXTRACTABLE_TEXT`。
 - 不实现互联网搜索、Agent 自主执行或外部系统写操作。
 - 不将 DeepSeek API Key、完整 Prompt、思维链或原始敏感内容写入日志。
@@ -394,7 +394,7 @@ data: {"finish_reason":"stop","usage":{"prompt_tokens":500,"completion_tokens":6
 
 # 9. API 联调契约
 
-`openapi.yaml` V0.3.0 是唯一机器可读契约。M1 新增 16 个路径、23 个操作；所有 JSON 响应沿用公共 `request_id/data/error` 包装，时间为 ISO 8601 UTC，ID 为 UUID。
+`openapi.yaml` V0.5.0 是唯一机器可读契约。M1 既有路径与操作保持兼容；所有 JSON 响应沿用公共 `request_id/data/error` 包装，时间为 ISO 8601 UTC，ID 为 UUID。
 
 ## 9.1 知识库与文档
 
@@ -537,7 +537,7 @@ API Key 只来自 Secret/环境变量。配置列表接口不得返回 `DEEPSEEK
 
 ## 14.1 任务卡 A：知识库与上传
 
-> 在 `ai_knowledge` 模块实现知识库 CRUD、成员授权检查、批量上传和任务查询。严格使用 OpenAPI V0.3.0 的 DTO/状态码和 `005_ai_knowledge_schema.sql`；上传采用流式 SHA-256、20 MiB/10 文件限制，提交事务后投递 Celery。补充 pytest，禁止修改其他模块。
+> 在 `ai_knowledge` 模块实现知识库 CRUD、成员授权检查、批量上传和任务查询。严格使用 OpenAPI V0.5.0 的 DTO/状态码和 `005_ai_knowledge_schema.sql`；上传采用流式 SHA-256、20 MiB/10 文件限制，提交事务后投递 Celery。补充 pytest，禁止修改其他模块。
 
 ## 14.2 任务卡 B：解析与向量索引
 
@@ -590,4 +590,54 @@ CELERY_RESULT_BACKEND=redis://redis:6379/2
 
 ---
 
-文档版本：V0.9。评审时优先确认：知识库授权规则、0.62 阈值、SSE 事件协议、演示知识文件和 30 道题集。确认后 M1 可直接进入编码。
+文档版本：V1.0。评审时优先确认：知识库授权规则、0.62 阈值、SSE 事件协议、M5 Tool Schema、演示知识文件和 30 道题集。
+
+# 18. M5 Tool Adapter 回补设计
+
+## 18.1 首期范围调整
+
+M1 原有知识库、上传、入库、会话和反馈设计全部保留，但首期优先使用种子知识完成以下事件 Tools；完整知识管理后台调整为 P1，不删除已实现代码。
+
+| Tool | M1 方法 | 权限 | 输出 |
+|---|---|---|---|
+| `knowledge.search` | `RetrieverService.search_authorized` | `knowledge:read` + 知识范围 | Chunk、分数、文档、位置、检索版本 |
+| `knowledge.answer` | `RAGAnswerService.answer` | `knowledge:read` | 带引用答案、消息 ID、usage、finish_reason |
+
+## 18.2 目录与接口
+
+```text
+backend/app/modules/ai_knowledge/
+  tool_adapters/
+    knowledge_search_tool.py
+    knowledge_answer_tool.py
+  application/
+    rag_answer_service.py
+  domain/ports/
+    reranker_port.py
+```
+
+Tool Adapter 接收 M5 UserContext，服务端把请求知识库范围与用户可访问集合求交集；客户端/模型提交的 user_id、department 或扩大范围字段一律忽略/拒绝。
+
+## 18.3 knowledge.search
+
+输入：`query(1..2000)`、`top_k(1..20)`、可选 `knowledge_base_ids/filters`。输出每项最多 1000 字，包含 `chunk_id/document_id/title/snippet/score/source_location/page_number`。无合格结果返回空 items 和 `fallback_reason=no_relevant_knowledge`，不伪造引用。
+
+P1 Reranker 通过 `RerankerPort.rerank(query, candidates)` 接入：只重排已授权 Top 20，不新增候选；超时 1 秒返回原排序并记录 fallback。
+
+## 18.4 knowledge.answer
+
+`RAGAnswerService` 复用既有会话、检索、引用和 DeepSeek Gateway。M5 可把答案作为专业 Agent 结果，但不能修改引用。复杂生成仍由 `deepseek-v4-pro` 完成，本地路由模型不得承担知识答案生成。
+
+## 18.5 与 M5 的事务和轨迹
+
+- M1 负责 Message/Citation 事务；M5 负责 AgentRun/Step/ToolCall 轨迹。
+- ToolCall 只保存引用 ID、数量和摘要，不复制完整 Chunk。
+- DeepSeek 超时返回 `LLM_TIMEOUT`；Chroma 不可用返回 `VECTOR_STORE_UNAVAILABLE`；M5 决定 partial/failed。
+- `knowledge.search` 为幂等只读；`knowledge.answer` 使用 `agent_run_id + task_id` 防止重试重复创建消息。
+
+## 18.6 完成定义
+
+- 两个 Tool Schema 冻结并通过契约测试。
+- 越权知识库、无结果、Chroma 故障、DeepSeek 超时、Reranker 超时测试通过。
+- Tool 与原 Chat API 返回的引用字段语义一致。
+- M5 未启用时，原 M1 REST/SSE 仍能独立工作。
