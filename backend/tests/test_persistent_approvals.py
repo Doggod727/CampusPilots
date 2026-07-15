@@ -28,7 +28,7 @@ def test_create_binds_context_and_ttl_without_transaction_control() -> None:
 
 def test_decide_and_consume_are_one_time_and_hash_bound() -> None:
     r=repo(); call=ToolCall(id=CALL, tool_name="work_order.create", tool_version="1.0.0"); r.get_for_update.return_value=(approval(),call); service=ApprovalService(r,now=lambda:NOW)
-    approved=asyncio.run(service.decide(approval_id=APPROVAL,user_id=USER,decision="approve")); assert approved.status=="approved"
+    approved=asyncio.run(service.decide(approval_id=APPROVAL,run_id=RUN,user_id=USER,decision="approve",arguments_hash=HASH)); assert approved.status=="approved"
     r.get_for_update.return_value=(approval("approved"),call)
     assert asyncio.run(DatabaseApprovalVerifier(service).verify_and_consume(approval_id=APPROVAL,user_id=USER,tool_name="work_order.create",tool_version="1.0.0",arguments_hash=HASH))
     r.consume.assert_awaited_once()

@@ -51,11 +51,11 @@ class ApprovalService:
         now=self._utc(); approval=ApprovalRequestModel(id=uuid4(), run_id=run_id, tool_call_id=tool_call_id, user_id=user_id, action=action, display_summary=display_summary[:1000], arguments_hash=arguments_hash, status="pending", created_at=now, expires_at=now+self._ttl)
         self._repository.add(approval); return approval
 
-    async def decide(self, *, approval_id: UUID, user_id: UUID, decision: Literal["approve", "reject"]) -> ApprovalRequestModel:
+    async def decide(self, *, approval_id: UUID, run_id: UUID, user_id: UUID, decision: Literal["approve", "reject"], arguments_hash: str) -> ApprovalRequestModel:
         row=await self._repository.get_for_update(approval_id); now=self._utc()
         if row is None: raise ToolApprovalInvalid()
         approval, _=row
-        if approval.user_id != user_id or approval.status != "pending" or approval.expires_at <= now: raise ToolApprovalInvalid()
+        if approval.run_id != run_id or approval.user_id != user_id or approval.status != "pending" or approval.expires_at <= now or approval.arguments_hash != arguments_hash: raise ToolApprovalInvalid()
         status="approved" if decision == "approve" else "rejected"
         if not await self._repository.set_decision(approval.id, status, user_id, now): raise ToolApprovalInvalid()
         approval.status=status; approval.decided_by=user_id; approval.decided_at=now; return approval

@@ -79,6 +79,7 @@ class ApprovalDTO(BaseModel):
     run_id: UUID
     tool_name: str
     argument_summary: dict[str, Any]
+    argument_hash: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
     status: str
     expires_at: datetime
     decided_at: datetime | None
@@ -177,7 +178,7 @@ class AgentRunQueryService:
             run=run_dto(aggregate.run, aggregate.steps),
             steps=tuple(_step_dto(item) for item in aggregate.steps),
             tool_calls=tuple(_tool_dto(item, approval_by_call.get(item.id)) for item in aggregate.tool_calls),
-            approvals=tuple(_approval_dto(item, call_by_id[item.tool_call_id]) for item in aggregate.approvals if item.tool_call_id in call_by_id),
+            approvals=tuple(approval_dto(item, call_by_id[item.tool_call_id]) for item in aggregate.approvals if item.tool_call_id in call_by_id),
         )
 
     async def get_aggregate(self, **kwargs: Any) -> RunAggregate | None:
@@ -225,10 +226,11 @@ def _tool_dto(call: ToolCall, approval_id: UUID | None) -> ToolCallDTO:
     )
 
 
-def _approval_dto(item: ApprovalRequestModel, call: ToolCall) -> ApprovalDTO:
+def approval_dto(item: ApprovalRequestModel, call: ToolCall) -> ApprovalDTO:
     return ApprovalDTO(
         id=item.id, run_id=item.run_id, tool_name=call.tool_name,
         argument_summary={"display_summary": item.display_summary},
+        argument_hash=item.arguments_hash,
         status=item.status, expires_at=item.expires_at,
         decided_at=item.decided_at, created_at=item.created_at,
     )

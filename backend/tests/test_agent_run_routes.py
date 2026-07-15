@@ -5,7 +5,8 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from app.main import create_app
 from app.modules.agent_platform.run_queries import RunDTO, RunDetailDTO, RunPageDTO
-from app.modules.agent_platform.run_routes import get_run_service
+from app.modules.agent_platform.run_routes import get_approval_service, get_run_service
+from app.modules.agent_platform.approval_decision import ApprovalMutationResult
 from app.modules.agent_platform.run_service import RunMutationResult
 from app.modules.platform.auth import AuthenticatedRole, AuthenticatedUser
 from app.modules.platform.auth_dependencies import get_authenticated_user
@@ -15,11 +16,13 @@ from app.shared.responses import SuccessResponse
 NOW=datetime(2026,7,15,tzinfo=UTC); RUN=uuid4()
 def actor(perms): return AuthenticatedUser(uuid4(),"student01","Student",None,None,"active",(AuthenticatedRole(uuid4(),"student","Student"),),tuple(perms),None,NOW,1)
 def dto(status="created"): return RunDTO(id=RUN,status=status,route=None,router_model=None,router_confidence=None,input_summary="电费查询",final_answer=None,error_code=None,created_at=NOW,updated_at=NOW,finished_at=None)
-def make_client(perms,service):
+def make_client(perms,service,approval_service=None):
     app=create_app()
     async def auth(): return actor(perms)
     async def get_service(): yield service
+    async def get_approval(): yield approval_service or MagicMock()
     app.dependency_overrides[get_authenticated_user]=auth; app.dependency_overrides[get_run_service]=get_service
+    app.dependency_overrides[get_approval_service]=get_approval
     return TestClient(app)
 
 def test_create_returns_202_and_preserves_request_id():
@@ -41,3 +44,11 @@ def test_permissions_headers_and_validation_are_enforced():
     assert response.status_code==422 and response.json()["code"]=="VALIDATION_ERROR"
 
 def test_health_does_not_construct_run_service(): assert make_client(set(),MagicMock()).get("/health/live").status_code==200
+
+def test_owner_can_decide_approval_and_validation_is_strict():
+    approval=MagicMock(); body={"code":"OK","message":"success","data":{"id":str(uuid4()),"run_id":str(RUN),"tool_name":"work_order.create","argument_summary":{},"argument_hash":"a"*64,"status":"approved","expires_at":NOW.isoformat(),"decided_at":NOW.isoformat(),"created_at":NOW.isoformat()},"request_id":"approval-request","timestamp":NOW.isoformat()}
+    approval.decide=AsyncMock(return_value=ApprovalMutationResult(200,"approval-request",body)); client=make_client(set(),MagicMock(),approval)
+    response=client.post(f"/api/v1/agent-runs/{RUN}/approvals/{uuid4()}",headers={"Idempotency-Key":"approval-1","X-Request-Id":"approval-request"},json={"decision":"approve","argument_hash":"a"*64})
+    assert response.status_code==200 and response.json()["data"]["status"]=="approved"; approval.decide.assert_awaited_once()
+    invalid=client.post(f"/api/v1/agent-runs/{RUN}/approvals/{uuid4()}",headers={"Idempotency-Key":"approval-2"},json={"decision":"approve","argument_hash":"short"})
+    assert invalid.status_code==422

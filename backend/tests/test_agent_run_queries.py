@@ -27,7 +27,8 @@ def test_detail_maps_redacted_aggregate_and_final_answer() -> None:
     assert result.steps[0].input_summary["password"]=="***"
     assert result.steps[0].output_summary["token"]=="***"
     assert result.tool_calls[0].approval_id==APPROVAL
-    assert "arguments_hash" not in result.model_dump_json()
+    assert result.approvals[0].argument_hash=="b"*64
+    assert "raw" not in result.model_dump_json()
 
 
 def test_missing_or_unowned_run_is_not_found() -> None:

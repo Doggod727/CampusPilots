@@ -413,7 +413,7 @@
   - 全量 pytest `368 passed`（11 条既有警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；公共 Run API接入时同步新增内部错误码。
 - [x] [#86 M5：实现 Agent Run 查询与安全 DTO](https://github.com/Doggod727/CampusPilot/issues/86)（2026-07-15）
   - 新增本人/管理员作用域分页与四次批量详情查询，越权与不存在统一为 `404 AGENT_RUN_NOT_FOUND`，避免资源枚举。
-  - DTO 从聚合步骤提取最终回答、从冻结目录补充 Tool 风险并关联 Approval；摘要再次递归脱敏且不返回参数哈希或原始参数。
+  - DTO 从聚合步骤提取最终回答、从冻结目录补充 Tool 风险并关联 Approval；摘要再次递归脱敏，不返回原始参数，仅向所属用户返回审批所必需的不可逆确认哈希。
   - OpenAPI route 补充 governance/modelops/mixed/clarify，Step 输入输出摘要改为与持久化 JSONB 一致的结构化对象。
 - [x] [#87 M5：实现 Agent 与 Tool 只读目录 API](https://github.com/Doggod727/CampusPilot/issues/87)（2026-07-15）
   - 新增 Agent/Tool 列表与 Tool 详情路由；目录首次访问时从数据库严格校验并缓存 Registry，模块导入与存活检查不访问数据库。
@@ -427,6 +427,10 @@
   - 新增创建(202)、本人/全局分页、详情和幂等取消路由；创建提交事务后才投递运行命令，健康检查与模块导入不连接数据库。
   - 创建/取消复用M4幂等服务并原样重放首次信封；越权详情与不存在统一 `404 AGENT_RUN_NOT_FOUND`，非法状态使用 `409 AGENT_RUN_STATE_CONFLICT`。
   - 权限保持种子/详细设计的 `agent:run` 并兼容未来细粒度 create/cancel 权限；OpenAPI同步422和调度依赖502响应。
+- [x] [#90 M5：实现审批决策与运行恢复 API](https://github.com/Doggod727/CampusPilot/issues/90)（2026-07-15）
+  - 新增本人专属、幂等的高风险Tool审批路由，严格绑定Run、ToolCall、用户、版本、参数哈希、状态和有效期；全部无效情况统一 `409 TOOL_APPROVAL_INVALID`。
+  - approve提交后投递恢复命令；reject在事务内将Tool/Step/Run收敛为安全终态且不调用Handler；评论正文不入库或审计，只记录是否提供。
+  - OpenAPI与详细设计同步审批422/409语义；Approval详情仅返回后续确认必需的不可逆argument_hash，不返回原始参数。
 
 ## 待办
 
