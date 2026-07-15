@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     knowledge_retrieval_top_k: int = Field(default=5, ge=1, le=50)
     knowledge_score_threshold: float = Field(default=0.62, ge=0, le=1)
     knowledge_history_rounds: int = Field(default=6, ge=0, le=20)
+    knowledge_chroma_path: Path = Path("/data/chroma")
+    knowledge_embedding_model_path: Path = Path("/models/bge-small-zh-v1.5")
 
 
 @lru_cache
