@@ -1,6 +1,10 @@
 from app.modules.agent_platform.domain.contracts import (
+    AgentCatalogItem,
+    AgentDefinition,
+    AgentRegistration,
     AgentResult,
     AgentTask,
+    AgentVersion,
     ApprovalRequest,
     ArtifactRef,
     ResourceRef,
@@ -14,6 +18,10 @@ from app.modules.agent_platform.domain.contracts import (
 __all__ = (
     "AgentResult",
     "AgentTask",
+    "AgentCatalogItem",
+    "AgentDefinition",
+    "AgentRegistration",
+    "AgentVersion",
     "ApprovalRequest",
     "ArtifactRef",
     "ResourceRef",

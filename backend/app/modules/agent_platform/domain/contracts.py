@@ -107,6 +107,58 @@ class RouteDecision(FrozenContract):
         return _sorted_unique(tuple(value or ()))
 
 
+class AgentDefinition(FrozenContract):
+    code: AgentCode
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(min_length=1, max_length=500)
+    enabled: bool = True
+
+
+class AgentVersion(FrozenContract):
+    agent_code: AgentCode
+    version: str = Field(pattern=r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+    system_prompt: str = Field(min_length=1, max_length=20000, repr=False)
+    output_schema: dict[str, Any] = Field(repr=False)
+    tool_allowlist: tuple[str, ...] = ()
+    status: Literal["draft", "active", "inactive"] = "draft"
+
+    @field_validator("tool_allowlist", mode="before")
+    @classmethod
+    def normalize_tool_allowlist(cls, value: Any) -> tuple[str, ...]:
+        values = _sorted_unique(tuple(value or ()))
+        pattern = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"
+        import re
+        if any(re.fullmatch(pattern, item) is None for item in values):
+            raise ValueError("tool_allowlist contains an invalid tool name")
+        return values
+
+    @model_validator(mode="after")
+    def validate_output_schema(self) -> "AgentVersion":
+        if self.output_schema.get("type") != "object":
+            raise ValueError("output_schema must describe an object")
+        return self
+
+
+class AgentRegistration(FrozenContract):
+    definition: AgentDefinition
+    version: AgentVersion
+
+    @model_validator(mode="after")
+    def validate_matching_code(self) -> "AgentRegistration":
+        if self.definition.code != self.version.agent_code:
+            raise ValueError("agent definition and version codes must match")
+        return self
+
+
+class AgentCatalogItem(FrozenContract):
+    code: AgentCode
+    name: str
+    description: str
+    version: str
+    enabled: bool
+    tool_allowlist: tuple[str, ...]
+
+
 class ToolDefinition(FrozenContract):
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
     version: str = Field(pattern=r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")

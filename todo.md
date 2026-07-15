@@ -349,6 +349,12 @@
   - `.env.example` 和 README 已补充非敏感运行时配置；路径只作为未来对象根目录，本任务不创建目录、加载模型或连接外部依赖，应用导入与 `/health/live` 无回归。
   - 校正 SQL 013 的 Router 置信度阈值 `0.72 → 0.80`，消除种子与详细设计/环境模板差异；DeepSeek Key 等密钥仍只来自环境变量。
   - 全量测试 `301 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；无公共 API 状态码差异。
+- [x] [#72 M5：实现内存 AgentRegistry](https://github.com/Doggod727/CampusPilot/issues/72)（2026-07-15）
+  - 新增严格冻结的 AgentDefinition/AgentVersion/AgentRegistration/AgentCatalogItem；Tool allowlist 去重稳定排序，完整 Prompt 和内部输出 Schema 不进入 repr 或普通目录。
+  - 注册 supervisor、knowledge/service/community/governance/modelops 六个 Agent，活动版本和 Tool allowlist 与 SQL 013 一致；实现 register/get_active/list_active/list_catalog，活动结果按 code 稳定排序。
+  - code+version 重复、定义冲突或第二个活动版本属于开发期注册错误；运行时不存在/停用分别使用内部稳定 `404 AGENT_NOT_FOUND`、`409 AGENT_DISABLED`。
+  - 契约台账：上述两个 Agent 错误码在公共 Catalog/Run API 接入时同步 OpenAPI 和详细设计；本任务无公共路由。
+  - 全量测试 `306 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
 
 ## 待办
 
