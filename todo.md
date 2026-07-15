@@ -527,6 +527,12 @@
   - PR #63 在最终验证后转为Ready并普通合并；真实PostgreSQL/Redis/DeepSeek并发与Provider验证继续作为显式待办，不虚报完成。
   - 最终全量 `pytest` 459 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 唯一 Head `0006_agent_runtime_delivery` 与离线升降级通过。
 
+## M1 开发进度
+
+- [x] [#110 M1：AI知识库数据库迁移](https://github.com/Doggod727/CampusPilot/issues/110)（2026-07-15）
+  - 新增 `0007_ai_knowledge_schema`，自包含固化设计SQL中的11张表、约束、索引、函数、6个触发器和注释；逻辑用户引用不建立跨Schema外键。
+  - downgrade按依赖逆序删除M1对象，不删除共享`pgcrypto`扩展；真实PostgreSQL空库验证保留待办。
+
 ## 待办
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。

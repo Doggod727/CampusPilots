@@ -119,7 +119,7 @@ def run_alembic(*arguments: str) -> str:
 def test_migration_has_single_head() -> None:
     output = run_alembic("heads")
 
-    assert "0006_agent_runtime_delivery (head)" in output
+    assert "0007_ai_knowledge_schema (head)" in output
 
 
 def test_offline_upgrade_contains_complete_platform_schema() -> None:
