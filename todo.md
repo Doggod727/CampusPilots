@@ -419,6 +419,10 @@
   - 新增 Agent/Tool 列表与 Tool 详情路由；目录首次访问时从数据库严格校验并缓存 Registry，模块导入与存活检查不访问数据库。
   - Agent 目录不返回 Prompt；Tool 按用户权限和全部活动 Agent allowlist 默认拒绝过滤，runtime_internal 永不进入普通目录。
   - 公共目录错误同步为 `AGENT_NOT_FOUND/AGENT_DISABLED/TOOL_NOT_FOUND/TOOL_DISABLED/CATALOG_CONTRACT_MISMATCH`，OpenAPI补充409响应。
+- [x] [#88 M5：实现有界 Graph Runtime](https://github.com/Doggod727/CampusPilot/issues/88)（2026-07-15）
+  - 新增显式有界状态机和 Dispatcher/Specialist/Event Sink 端口，串联路由、Supervisor 计划、专业 Agent、Tool、审批暂停、聚合与安全终态。
+  - 继续由 TraceService 强制6步/3专业Agent/循环与终态边界；R2/R3确认缺失时在 Handler前暂停并持久化Approval。
+  - 内存 Event Sink 保证每个Run单调sequence；SSE、进程重启后的事件恢复和真实M1/M3 Specialist留给后续任务。
 
 ## 待办
 

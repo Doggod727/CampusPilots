@@ -62,6 +62,15 @@ class TraceService:
     async def transition_tool(self, call_id, expected, status, **safe_values):
         safe_values["result_summary"]=redact(safe_values.get("result_summary",{}))
         if not await self._repo.update_tool(call_id,set(expected),status=status,**safe_values): raise AgentRunStateConflict()
+    async def transition_run(self, run_id, expected, status, **safe_values):
+        safe_values["updated_at"] = self._utc()
+        if not await self._repo.update_run(run_id, set(expected), status=status, **safe_values):
+            raise AgentRunStateConflict()
+    async def transition_step(self, step_id, expected, status, **safe_values):
+        if "input_summary" in safe_values: safe_values["input_summary"] = redact(safe_values["input_summary"])
+        if "output_summary" in safe_values: safe_values["output_summary"] = redact(safe_values["output_summary"])
+        if not await self._repo.update_step(step_id, set(expected), status=status, **safe_values):
+            raise AgentRunStateConflict()
     async def finalize(self, run_id, status, *, finish_reason=None, error_code=None):
         if status not in self.TERMINAL: raise AgentRunStateConflict()
         now=self._utc()
