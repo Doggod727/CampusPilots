@@ -552,6 +552,8 @@
   - 先计算授权知识库交集，再执行向量召回与PostgreSQL发布状态回查；0.62以下返回明确空结果。
 - [x] [#121 M1：会话与消息仓储服务](https://github.com/Doggod727/CampusPilot/issues/121)（2026-07-15）
   - 实现本人作用域、会话行锁、连续sequence、pending assistant占位、request_id去重和不可恢复终态。
+- [x] [#122 M1：会话与消息API](https://github.com/Doggod727/CampusPilot/issues/122)（2026-07-15）
+  - 实现会话list/create/get/delete与消息list/get；越权和不存在统一隐藏为CONVERSATION_NOT_FOUND。
 
 ## 待办
 

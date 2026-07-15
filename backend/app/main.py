@@ -24,6 +24,7 @@ from app.modules.agent_platform.evaluation_routes import router as evaluation_ro
 from app.modules.agent_platform.internal_tools import router as internal_tool_router
 from app.modules.ai_knowledge.routes import router as knowledge_router
 from app.modules.ai_knowledge.document_routes import router as document_router
+from app.modules.ai_knowledge.conversation_routes import router as conversation_router
 
 
 def create_app() -> FastAPI:
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
     application.include_router(internal_tool_router)
     application.include_router(knowledge_router)
     application.include_router(document_router)
+    application.include_router(conversation_router)
     return application
 
 
