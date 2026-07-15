@@ -7,7 +7,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.modules.platform.models import SensitiveWord
 from app.shared.responses import SuccessResponse
 
-SensitiveScope = Literal["user_input", "ai_output", "community", "all"]
+SensitiveScope = Literal[
+    "user_input",
+    "ai_output",
+    "community",
+    "tool_input",
+    "tool_output",
+    "agent_context",
+    "all",
+]
 MatchType = Literal["exact", "contains", "regex"]
 WordAction = Literal["mask", "block", "review"]
 

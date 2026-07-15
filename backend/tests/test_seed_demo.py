@@ -39,14 +39,16 @@ def _compiled_postgresql(statement: object) -> str:
     )
 
 
-def test_seed_constants_match_the_m4_identity_baseline() -> None:
-    assert len(seed_demo.PERMISSIONS) == 24
+def test_seed_constants_include_the_m5_platform_compatibility_baseline() -> None:
+    assert len(seed_demo.PERMISSIONS) == 44
     assert {role.code for role in seed_demo.ROLES} == {
         "super_admin",
         "knowledge_admin",
         "service_staff",
         "community_operator",
         "student",
+        "model_engineer",
+        "agent_runtime",
     }
     assert len(seed_demo.DEMO_ACCOUNTS) == 6
     assert seed_demo.ROLE_PERMISSION_CODES["super_admin"] == tuple(
@@ -55,16 +57,22 @@ def test_seed_constants_match_the_m4_identity_baseline() -> None:
     assert "community:anonymous_identity:read" not in seed_demo.ROLE_PERMISSION_CODES[
         "community_operator"
     ]
-    assert seed_demo.AUTH_CONFIGS == (
-        (
-            "auth.max_failed_logins",
-            "auth",
-            5,
-            "integer",
-            "触发临时锁定的连续失败次数",
-        ),
-        ("auth.lock_minutes", "auth", 15, "integer", "登录锁定分钟数"),
+    assert len(seed_demo.CONFIGS) == 9
+    assert {config[0] for config in seed_demo.CONFIGS} == {
+        "auth.max_failed_logins",
+        "auth.lock_minutes",
+        "agent.max_steps",
+        "agent.max_specialists",
+        "agent.approval_ttl_seconds",
+        "agent.parallelism",
+        "modelops.router_confidence",
+        "modelops.reranker_enabled",
+        "mcp.enabled",
+    }
+    assert seed_demo.ROLE_PERMISSION_CODES["agent_runtime"] == (
+        "agent:run", "moderation:execute", "audit:write"
     )
+    assert "electricity:read_own" in seed_demo.ROLE_PERMISSION_CODES["student"]
 
 
 def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
@@ -76,14 +84,14 @@ def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
     assert usernames == tuple(account.username for account in seed_demo.DEMO_ACCOUNTS)
     assert hasher.passwords == ["local-password"] * len(seed_demo.DEMO_ACCOUNTS)
     session.begin.assert_called_once_with()
-    assert session.execute.await_count == 22
+    assert session.execute.await_count == 24
 
 
 def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
     permission_sql = _compiled_postgresql(seed_demo._permission_upsert_statement())
     role_sql = _compiled_postgresql(seed_demo._role_upsert_statement())
     config_sql = str(
-        seed_demo._auth_config_upsert_statement().compile(
+        seed_demo._config_upsert_statement().compile(
             dialect=postgresql.dialect(),
         )
     )

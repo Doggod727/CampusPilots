@@ -73,6 +73,31 @@ PERMISSIONS = (
         "community",
         "基于明确事由反查匿名内容作者并强制审计",
     ),
+    PermissionSeed("agent:run", "运行智能体", "agent_platform", "创建、取消和继续本人 Agent Run"),
+    PermissionSeed("agent:run:read_own", "查看本人智能体运行", "agent_platform", "查看本人 Agent Run 与脱敏轨迹"),
+    PermissionSeed("agent:run:read_all", "查看全部智能体运行", "agent_platform", "查看授权范围内全部 Agent Run"),
+    PermissionSeed("agent:catalog:read", "查看智能体目录", "agent_platform", "查看启用 Agent 和公开版本信息"),
+    PermissionSeed("tool:catalog:read", "查看工具目录", "agent_platform", "按权限查看 Tool Schema 和风险信息"),
+    PermissionSeed("tool:catalog:write", "管理工具目录", "agent_platform", "启停或切换 Tool 版本"),
+    PermissionSeed("dataset:read", "查看训练数据集", "modelops", "查看脱敏数据集和版本元数据"),
+    PermissionSeed("dataset:write", "管理训练数据集", "modelops", "创建、校验、冻结和删除数据集版本"),
+    PermissionSeed("training:run", "运行模型训练", "modelops", "创建和取消本地小模型训练任务"),
+    PermissionSeed("training:read", "查看模型训练", "modelops", "查看训练状态、配置和脱敏日志"),
+    PermissionSeed("model:read", "查看模型版本", "modelops", "查看模型注册表和评估指标"),
+    PermissionSeed("model:write", "管理模型版本", "modelops", "注册、停用模型版本"),
+    PermissionSeed("model:activate", "启用或回滚模型", "modelops", "经确认启用或回滚活动模型"),
+    PermissionSeed("evaluation:run", "运行模型评估", "modelops", "运行 Agent、Tool、RAG 和模型评估"),
+    PermissionSeed("evaluation:read", "查看模型评估", "modelops", "查看和比较评估报告"),
+    PermissionSeed("moderation:execute", "执行内容治理", "platform", "供受信 Agent Runtime 执行输入输出治理"),
+    PermissionSeed("audit:write", "写入审计事件", "platform", "供受信 Agent Runtime 写入结构化审计事件"),
+    PermissionSeed("service:read", "查看校园服务", "campus_service", "查询有效办事指南"),
+    PermissionSeed("electricity:read_own", "查看本人房间电费", "campus_service", "查看授权房间的 Mock 电费余额"),
+    PermissionSeed(
+        "electricity:topup_request:create",
+        "创建电费模拟充值申请",
+        "campus_service",
+        "创建不涉及真实支付的模拟充值申请",
+    ),
 )
 
 ROLES = (
@@ -81,6 +106,8 @@ ROLES = (
     RoleSeed("service_staff", "服务处理员", "处理校园服务和报修工单"),
     RoleSeed("community_operator", "社区运营员", "社区审核与内容运营"),
     RoleSeed("student", "普通学生", "学生端基础功能"),
+    RoleSeed("model_engineer", "模型工程管理员", "管理脱敏数据集、本地训练、模型版本和评估"),
+    RoleSeed("agent_runtime", "智能体运行服务", "仅分配给受信服务身份，不分配给普通用户"),
 )
 
 ROLE_PERMISSION_CODES = {
@@ -110,6 +137,32 @@ ROLE_PERMISSION_CODES = {
         "work_order:create",
         "community:read",
         "community:write",
+        "agent:run",
+        "agent:run:read_own",
+        "agent:catalog:read",
+        "tool:catalog:read",
+        "service:read",
+        "electricity:read_own",
+        "electricity:topup_request:create",
+    ),
+    "model_engineer": (
+        "agent:run:read_all",
+        "agent:catalog:read",
+        "tool:catalog:read",
+        "dataset:read",
+        "dataset:write",
+        "training:run",
+        "training:read",
+        "model:read",
+        "model:write",
+        "model:activate",
+        "evaluation:run",
+        "evaluation:read",
+    ),
+    "agent_runtime": (
+        "agent:run",
+        "moderation:execute",
+        "audit:write",
     ),
 }
 
@@ -140,9 +193,16 @@ DEMO_ACCOUNTS = (
     DemoAccount("student02", "李同学", "student02@example.edu", "计算机学院", "student"),
 )
 
-AUTH_CONFIGS = (
+CONFIGS = (
     ("auth.max_failed_logins", "auth", 5, "integer", "触发临时锁定的连续失败次数"),
     ("auth.lock_minutes", "auth", 15, "integer", "登录锁定分钟数"),
+    ("agent.max_steps", "agent", 6, "integer", "单个 Agent Run 最大步骤数"),
+    ("agent.max_specialists", "agent", 3, "integer", "单次运行最多专业 Agent 数"),
+    ("agent.approval_ttl_seconds", "agent", 600, "integer", "写 Tool 确认有效期"),
+    ("agent.parallelism", "agent", 3, "integer", "P1 并行 Agent 最大并发"),
+    ("modelops.router_confidence", "modelops", 0.80, "number", "本地路由模型直接采用阈值"),
+    ("modelops.reranker_enabled", "modelops", False, "boolean", "是否启用本地 RAG Reranker"),
+    ("mcp.enabled", "agent", False, "boolean", "是否启用 P1 MCP Server"),
 )
 
 
@@ -199,7 +259,7 @@ def _role_upsert_statement():
     )
 
 
-def _auth_config_upsert_statement():
+def _config_upsert_statement():
     statement = insert(AppConfig).values(
         [
             {
@@ -210,7 +270,7 @@ def _auth_config_upsert_statement():
                 "description": description,
                 "editable": True,
             }
-            for key, namespace, value, value_type, description in AUTH_CONFIGS
+            for key, namespace, value, value_type, description in CONFIGS
         ]
     )
     return statement.on_conflict_do_update(
@@ -317,7 +377,7 @@ async def seed_demo(
     async with session.begin():
         await session.execute(_permission_upsert_statement())
         await session.execute(_role_upsert_statement())
-        await session.execute(_auth_config_upsert_statement())
+        await session.execute(_config_upsert_statement())
         await session.execute(_clear_role_permissions_statement(role_codes))
         for role_code, permission_codes in ROLE_PERMISSION_CODES.items():
             await session.execute(

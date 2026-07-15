@@ -302,11 +302,17 @@
   - 迁移顺序固定：先合并/变基 M2 PR #60 的 `0002_campus_service_schema`，M5 的 M4 兼容迁移再使用 `0003_platform_m5_compat`，避免两个分支竞争 `0002`。
   - 下一开发目标：M5 控制面基础——先完成 `0003_platform_m5_compat` 与种子兼容，再冻结 Tool/Agent 强类型契约并让 14 个 Mock Tools 贯通 ToolExecutor、授权、审批和审计链路。
   - OpenAPI lint、YAML 解析、136 个唯一 operationId、全量测试 `247 passed`、Python 编译、Alembic 单 head及离线升降级验证通过；真实依赖集成未在本任务执行。
+- [x] [#64 M5：添加平台运行时兼容迁移与种子](https://github.com/Doggod727/CampusPilot/issues/64)（2026-07-15）
+  - 先同步并验证 M2 PR #60，以普通 merge 合入 `main`，固定 `0002_campus_service_schema`；`m5` 随后合入主线并新增唯一 head `0003_platform_m5_compat`。
+  - 增量迁移扩展 `tool_input/tool_output/agent_context` 敏感词 scope 和 `agent_platform` 审核目标，幂等写入 20 个权限、2 个系统角色、7 项 Agent/ModelOps 配置及规定角色映射。
+  - ORM CHECK、Pydantic Literal、审核服务白名单和演示种子同步完成；演示种子现包含 44 个权限、7 个系统角色、9 项配置，不创建 `agent_runtime` 普通用户或硬编码密码。
+  - downgrade 清理本 Revision 引入的权限/角色/配置和使用新增枚举的数据后恢复旧 CHECK，不删除既有用户或共享扩展。
+  - 全量测试 `257 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；离线 SQL 精确验证 20 个权限、2 个角色和7项配置。
+  - 执行迁移/种子后必须重新登录或刷新 Token 才能取得新增权限；真实 PostgreSQL 集成仍待环境可用后验证。
 
 ## 待办
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
 - [ ] 前端、Docker Compose 和跨模块 M1/M2/M3 handler 联调不属于本仓库本次 M4 后端交付范围。
-- [ ] 合并或变基 M2 Draft PR #60 后，在 `m5` 分支实现 `0003_platform_m5_compat`；不得创建与 M2 冲突的第二个 `0002` Revision。
-- [ ] 为 M5 增量实现 M4 运行时兼容：新敏感词 scope、`agent_platform` 审核目标、M5 权限/角色/配置种子，并要求已有演示账号重新登录以刷新 JWT 权限 Claims。
 - [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
+- [ ] PostgreSQL 可用后，在真实数据库执行 `0003_platform_m5_compat` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
