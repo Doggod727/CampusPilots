@@ -539,9 +539,9 @@ API 前缀 `/api/v1`；内部 Tool 前缀 `/internal/v1/tools`。所有外部接
 | GET `/agent-runs/{run_id}/stream` | `streamAgentRun` | `agent:run:read_own` | SSE；支持 `Last-Event-ID`/sequence |
 | POST `/agent-runs/{run_id}/cancel` | `cancelAgentRun` | `agent:run` | 终态不可取消 |
 
-实现约定：创建与取消均要求 `Idempotency-Key`；创建在事务提交后投递运行命令并返回 202。同 Key 同请求原样重放，不同请求返回 `409 IDEMPOTENCY_CONFLICT`。本人读取使用 `agent:run:read_own`，具备 `agent:run:read_all` 时可读取全部；越权详情与不存在统一返回 `404 AGENT_RUN_NOT_FOUND`。取消使用既有 `agent:run` 权限并兼容未来细粒度 `agent:run:cancel`，重复取消返回当前终态。
+实现约定：创建与取消均要求 `Idempotency-Key`；创建、取消及审批恢复命令与业务状态在同一 PostgreSQL 事务写入 Outbox，提交成功即保证命令持久化，因此请求阶段不依赖外部队列，也不声明 502。Worker 使用独立 Session 领取命令，Redis 仅作可选唤醒，失效时回退数据库轮询。同 Key 同请求原样重放，不同请求返回 `409 IDEMPOTENCY_CONFLICT`。本人读取使用 `agent:run:read_own`，具备 `agent:run:read_all` 时可读取全部；越权详情与不存在统一返回 `404 AGENT_RUN_NOT_FOUND`。取消使用既有 `agent:run` 权限并兼容未来细粒度 `agent:run:cancel`，重复取消返回当前终态。
 
-审批决策仅允许 Run 所属用户本人提交，并要求 `Idempotency-Key` 与服务端产生的 `argument_hash`。批准在事务提交后投递恢复命令；拒绝在同一事务将 Tool、Step 与 Run 收敛到安全终态且不调用 Handler。未知、过期、已消费、越权或参数哈希不匹配统一返回 `409 TOOL_APPROVAL_INVALID`。评论正文不进入 Tool 参数或审计快照，审计仅记录是否提供评论。
+审批决策仅允许 Run 所属用户本人提交，并要求 `Idempotency-Key` 与服务端产生的 `argument_hash`。批准在同一事务写入恢复命令；拒绝在同一事务将 Tool、Step 与 Run 收敛到安全终态且不调用 Handler。未知、过期、已消费、越权或参数哈希不匹配统一返回 `409 TOOL_APPROVAL_INVALID`。评论正文不进入 Tool 参数或审计快照，审计仅记录是否提供评论。
 | POST `/agent-runs/{run_id}/approvals/{approval_id}` | `decideAgentToolApproval` | 本人 | `decision=approve/reject`，参数哈希校验与乐观并发 |
 
 创建请求：

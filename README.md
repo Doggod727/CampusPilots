@@ -41,6 +41,10 @@ M5 的 Router、Agent、Approval、Tool、Reranker 和模型/数据集对象根�
 不得与 JWT 或外部 API 密钥复用；`AGENT_CHECKPOINT_TTL_SECONDS` 默认 3600 秒。
 密钥只在显式构造持久化运行时组件时读取，不写入数据库、日志或对象表示。
 
+Agent Run 的启动、恢复和取消使用 PostgreSQL 事务 Outbox。HTTP 事务提交成功即保证命令
+已持久化，Worker 可在崩溃后重新领取；Redis 通知仅用于降低唤醒延迟，不可用时继续按
+`AGENT_RUNTIME_POLL_SECONDS` 轮询数据库。
+
 运行当前后端测试：
 
 ```powershell

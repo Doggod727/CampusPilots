@@ -2693,7 +2693,6 @@ paths:
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}
         "429": {$ref: "#/components/responses/TooManyRequests"}
-        "502": {$ref: "#/components/responses/BadGateway"}
 
   /api/v1/agent-runs/{run_id}:
     get:

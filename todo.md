@@ -449,6 +449,11 @@
   - `BoundedGraphRuntime` 通过 Checkpoint 端口在路由、Step、等待审批与终态边界保存状态，支持另一运行时实例恢复审批后的调用，并在终态清除短期状态。
   - 新增内部安全错误 `409 AGENT_CHECKPOINT_INVALID`；后续公开运行 API 不回显密文、摘要哈希或解密异常。
   - 全量测试 `401 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
+- [x] [#94 M5：实现事务 Outbox Dispatcher 与 Runtime Worker](https://github.com/Doggod727/CampusPilot/issues/94)（2026-07-15）
+  - Run 创建、取消和审批恢复均在原业务事务内追加安全命令元数据；不保存原始输入或 Tool 参数，提交后 Redis 唤醒失败不影响数据库轮询。
+  - Worker 使用新 Session 领取命令、指数退避有限重试，永久失败只保存稳定错误码并安全收敛 Run；超时领取可重新领取且 Checkpoint CAS 阻止重复恢复。
+  - 契约同步：创建接口请求阶段不再依赖外部队列，移除未实际使用的 502 声明；详细设计同步为事务 Outbox 语义。
+  - 全量测试 `406 passed`（11 条既有警告），编译、OpenAPI lint和Alembic `0006` 离线升降级通过。
 
 ## 待办
 

@@ -13,6 +13,8 @@ from app.modules.agent_platform.domain.contracts import UserContext
 from app.modules.agent_platform.orchestration.runtime import RuntimeDispatcherPort
 from app.modules.agent_platform.run_queries import AgentRunQueryRepository, AgentRunQueryService, RunDTO, RunDetailDTO, RunPageDTO, run_dto
 from app.modules.agent_platform.traces import AgentRunNotFound, AgentRunStateConflict, TraceRepository, TraceService
+from app.modules.agent_platform.runtime_persistence import RuntimeCommandRepository
+from app.modules.agent_platform.runtime_worker import OutboxRuntimeDispatcher
 from app.modules.platform.audit import redact
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.idempotency import IdempotencyConflict, IdempotencyService
@@ -43,11 +45,13 @@ class AgentRunService:
             if decision.replay: return RunMutationResult(decision.replay.response_status,str(decision.replay.response_body["request_id"]),dict(decision.replay.response_body))
             if decision.pending: raise IdempotencyConflict()
             run=self._trace.create_run(user_id=actor.user_id,client_request_id=request_id,input_summary=input_text[:1000],conversation_id=conversation_id)
+            await self._dispatcher.start(run.id,_user_context(actor,request_id),input_text,request_body["context"])
             data=run_dto(run,())
             response=SuccessResponse(data=data,request_id=request_id,timestamp=self._utc()).model_dump(mode="json")
             if not await self._idempotency.complete(record_id=decision.record_id,response_status=202,response_body=response,resource_type="agent_run",resource_id=str(run.id)):
                 raise AgentRunStateConflict()
-        await self._dispatcher.start(run.id,_user_context(actor,request_id),input_text,request_body["context"])
+        if isinstance(self._dispatcher, OutboxRuntimeDispatcher):
+            await self._dispatcher.notify_best_effort()
         return RunMutationResult(202,request_id,response)
 
     async def list(self, *, actor:AuthenticatedUser, page:int, page_size:int, status:str|None) -> RunPageDTO:
@@ -67,13 +71,14 @@ class AgentRunService:
             if aggregate.run.status not in TraceService.TERMINAL:
                 await self._trace.finalize(run_id,"cancelled",finish_reason="user_cancelled")
                 aggregate.run.status="cancelled"; aggregate.run.finished_at=self._utc(); aggregate.run.updated_at=self._utc()
+                await self._dispatcher.cancel(run_id)
                 should_dispatch = True
             data=run_dto(aggregate.run,aggregate.steps)
             response=SuccessResponse(data=data,request_id=request_id,timestamp=self._utc()).model_dump(mode="json")
             if not await self._idempotency.complete(record_id=decision.record_id,response_status=200,response_body=response,resource_type="agent_run",resource_id=str(run_id)):
                 raise AgentRunStateConflict()
-        if should_dispatch:
-            await self._dispatcher.cancel(run_id)
+        if should_dispatch and isinstance(self._dispatcher, OutboxRuntimeDispatcher):
+            await self._dispatcher.notify_best_effort()
         return RunMutationResult(200,request_id,response)
 
     def _utc(self):
@@ -85,11 +90,12 @@ def _user_context(user:AuthenticatedUser,request_id:str) -> UserContext:
 
 
 @asynccontextmanager
-async def agent_run_service_context(settings:Settings,dispatcher:RuntimeDispatcherPort):
+async def agent_run_service_context(settings:Settings):
     database=Database.from_settings(settings)
     try:
         async with database.session() as session:
             query_repo=AgentRunQueryRepository(session)
+            dispatcher=OutboxRuntimeDispatcher(RuntimeCommandRepository(session),max_attempts=settings.agent_runtime_max_attempts)
             yield AgentRunService(session=session,trace=TraceService(TraceRepository(session)),queries=AgentRunQueryService(query_repo),idempotency=IdempotencyService(session=session,repository=IdempotencyRecordRepository(session)),dispatcher=dispatcher)
     finally:
         await database.dispose()

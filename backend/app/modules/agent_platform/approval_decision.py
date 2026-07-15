@@ -13,6 +13,8 @@ from app.modules.agent_platform.orchestration.runtime import RuntimeDispatcherPo
 from app.modules.agent_platform.run_queries import AgentRunQueryRepository, AgentRunQueryService, approval_dto
 from app.modules.agent_platform.tool_gateway.errors import ToolApprovalInvalid
 from app.modules.agent_platform.traces import TraceRepository, TraceService
+from app.modules.agent_platform.runtime_persistence import RuntimeCommandRepository
+from app.modules.agent_platform.runtime_worker import OutboxRuntimeDispatcher
 from app.modules.platform.audit import AuditService
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.idempotency import IdempotencyConflict, IdempotencyService
@@ -52,13 +54,16 @@ class ApprovalDecisionService:
                 await self._trace.transition_tool(call.id,{"awaiting_approval"},"rejected",error_code="TOOL_APPROVAL_REJECTED",finished_at=self._utc())
                 await self._trace.transition_step(call.step_id,{"awaiting_approval"},"failed",error_code="TOOL_APPROVAL_REJECTED",finished_at=self._utc())
                 await self._trace.finalize(run_id,"partial",finish_reason="approval_rejected",error_code="TOOL_APPROVAL_REJECTED")
-            else: should_resume=True
+            else:
+                await self._dispatcher.resume(run_id,approval_id)
+                should_resume=True
             data=approval_dto(approval,call)
             response=SuccessResponse(data=data,request_id=request_id,timestamp=self._utc()).model_dump(mode="json")
             self._audit.record_success(action="agent.approval.decide",resource_type="agent_approval",resource_id=str(approval.id),request_id=request_id,actor_user_id=actor.user_id,actor_username=actor.username,after_data={"run_id":str(run_id),"decision":decision,"comment_provided":comment is not None})
             if not await self._idempotency.complete(record_id=idem.record_id,response_status=200,response_body=response,resource_type="agent_approval",resource_id=str(approval.id)):
                 raise ToolApprovalInvalid()
-        if should_resume: await self._dispatcher.resume(run_id,approval_id)
+        if should_resume and isinstance(self._dispatcher,OutboxRuntimeDispatcher):
+            await self._dispatcher.notify_best_effort()
         return ApprovalMutationResult(200,request_id,response)
 
     def _utc(self):
@@ -66,9 +71,10 @@ class ApprovalDecisionService:
 
 
 @asynccontextmanager
-async def approval_decision_service_context(settings:Settings,dispatcher:RuntimeDispatcherPort):
+async def approval_decision_service_context(settings:Settings):
     database=Database.from_settings(settings)
     try:
         async with database.session() as session:
+            dispatcher=OutboxRuntimeDispatcher(RuntimeCommandRepository(session),max_attempts=settings.agent_runtime_max_attempts)
             yield ApprovalDecisionService(session=session,approvals=ApprovalService(ApprovalRepository(session),ttl_seconds=settings.approval_ttl_seconds),queries=AgentRunQueryService(AgentRunQueryRepository(session)),trace=TraceService(TraceRepository(session)),idempotency=IdempotencyService(session=session,repository=IdempotencyRecordRepository(session)),audit=AuditService(AuditLogRepository(session)),dispatcher=dispatcher)
     finally: await database.dispose()

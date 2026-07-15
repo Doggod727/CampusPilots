@@ -14,6 +14,14 @@ class RuntimeCommandRepository:
     def __init__(self, session: AsyncSession) -> None: self._session=session
     def add(self, command: AgentRuntimeCommand) -> None: self._session.add(command)
 
+    async def get_processing(self, command_id: UUID, worker_id: str) -> AgentRuntimeCommand | None:
+        stmt = select(AgentRuntimeCommand).where(
+            AgentRuntimeCommand.id == command_id,
+            AgentRuntimeCommand.status == "processing",
+            AgentRuntimeCommand.claimed_by == worker_id,
+        ).with_for_update()
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def claim_batch(self, *, worker_id:str, now:datetime, stale_after:timedelta, limit:int=10) -> tuple[AgentRuntimeCommand,...]:
         stmt=(select(AgentRuntimeCommand).where(
             or_(

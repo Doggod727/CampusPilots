@@ -11,7 +11,6 @@ from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.request_id import REQUEST_ID_HEADER
-from app.modules.agent_platform.orchestration.runtime import InMemoryCommandDispatcher
 from app.modules.agent_platform.run_queries import RunDTO, RunDetailDTO, RunPageDTO
 from app.modules.agent_platform.run_service import AgentRunService, agent_run_service_context
 from app.modules.agent_platform.approval_decision import ApprovalDecisionService, approval_decision_service_context
@@ -21,7 +20,6 @@ from app.modules.platform.auth_dependencies import get_authenticated_user, requi
 from app.shared.responses import SuccessResponse
 
 router=APIRouter(prefix="/api/v1/agent-runs",tags=["AgentRuns"])
-dispatcher=InMemoryCommandDispatcher()
 
 
 class AgentRunCreateRequest(BaseModel):
@@ -46,11 +44,11 @@ class ApprovalDecisionRequest(BaseModel):
 
 
 async def get_run_service() -> AsyncIterator[AgentRunService]:
-    async with agent_run_service_context(get_settings(),dispatcher) as service: yield service
+    async with agent_run_service_context(get_settings()) as service: yield service
 
 
 async def get_approval_service() -> AsyncIterator[ApprovalDecisionService]:
-    async with approval_decision_service_context(get_settings(),dispatcher) as service: yield service
+    async with approval_decision_service_context(get_settings()) as service: yield service
 
 
 @router.post("",operation_id="createAgentRun",status_code=202,response_model=RunResponse)
