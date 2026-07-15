@@ -320,6 +320,12 @@
   - 校正 `013_agent_platform_seed.sql` 中的 room/category、amount、事件/失物字段、超时、风险、幂等和确认元数据；Python 强类型目录为后续 Adapter 的唯一事实源。
   - 本任务发现并消除 SQL 013 与详细设计第7章的内部 Tool 契约差异，未改变公共 HTTP 状态码。
   - 全量测试 `266 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过。
+- [x] [#67 M5：实现内存 ToolRegistry 与权限过滤](https://github.com/Doggod727/CampusPilot/issues/67)（2026-07-15）
+  - 实现 register/resolve/list_allowed，支持名称+语义版本精确解析、默认选择最高启用版本、重复注册拒绝、停用冲突和稳定排序。
+  - 目录同时应用 Agent allowlist、调用者全部权限和 visibility；runtime_internal 默认不进入 LLM/普通目录，空权限和未知 Tool 默认拒绝。
+  - 14个冻结 Tool 全部完成内存注册；Registry 不连接数据库、不管理事务、不写审计。
+  - 稳定错误为 `404 TOOL_NOT_FOUND`、`409 TOOL_DISABLED`；本任务未新增公共 HTTP 路由或契约差异。
+  - 全量测试 `271 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head和离线升降级通过。
 
 ## 待办
 
