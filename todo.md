@@ -299,6 +299,11 @@
   - `ElectricityRepository` 提供用户房间作用域查询、用户+幂等键行锁读取和首次充值记录追加，不提交、flush、回滚或关闭调用方 Session。
   - 演示种子幂等创建 `main` 校区、固定 Mock 电费账户，并通过 `platform.users` 查询将 `student01/student02` 的真实 UUID 绑定到房间；命令输出不包含用户 UUID、宿舍详情或密码。
   - 全量 pytest `261 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 单 head及离线升降级通过；未发现 API/状态码契约差异。
+- [x] [#78 M2：实现 ElectricityService](https://github.com/Doggod727/CampusPilot/issues/78)（2026-07-15）
+  - `get_balance` 同时校验调用上下文 room_ids 与数据库成员关系；越权或不存在房间均返回安全的 `403 TOOL_FORBIDDEN`，避免房间枚举。
+  - `create_topup_request` 限制 1–500 CNY，固定 mock/simulated 且不修改余额；同用户同 Key 同哈希重放，不同哈希返回 `409 IDEMPOTENCY_CONFLICT`。
+  - Agent 调用强制 Run/Approval UUID 成对且必须由服务端标记确认，否则返回 `409 TOOL_APPROVAL_INVALID`；M2 不导入 M5 contracts、Registry 或 Executor。
+  - 全量 pytest `272 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 单 head及离线升降级通过；本任务无公共 REST API 契约差异。
 
 ## 待办
 
