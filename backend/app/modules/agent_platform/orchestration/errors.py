@@ -26,3 +26,12 @@ class InvalidAgentInput(AppError):
             code="AGENT_INPUT_INVALID",
             message="Agent 输入无效",
         )
+
+
+class AgentMaxStepsExceeded(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="AGENT_MAX_STEPS_EXCEEDED",
+            message="Agent 步骤超过允许上限",
+        )

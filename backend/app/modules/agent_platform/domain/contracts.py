@@ -93,6 +93,34 @@ class AgentResult(FrozenContract):
     error: ErrorDetail | None = None
 
 
+class SupervisorPlan(FrozenContract):
+    status: Literal["ready", "needs_input"]
+    route: "RouteDecision"
+    tasks: tuple[AgentTask, ...] = Field(default=(), max_length=3)
+    reason_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,63}$")
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> "SupervisorPlan":
+        if self.status == "needs_input":
+            if self.route.target_agent != "clarify" or self.tasks:
+                raise ValueError("needs_input plans cannot contain executable tasks")
+            return self
+        if self.route.target_agent == "clarify" or not self.tasks:
+            raise ValueError("ready plans require executable tasks")
+        seen_ids: set[UUID] = set()
+        seen_agents: set[str] = set()
+        for task in self.tasks:
+            if task.target_agent in seen_agents:
+                raise ValueError("supervisor plan cannot repeat an agent")
+            if task.parent_task_id is not None and task.parent_task_id not in seen_ids:
+                raise ValueError("parent task must precede its child")
+            if not set(task.depends_on) <= seen_ids:
+                raise ValueError("task dependencies must precede the task")
+            seen_agents.add(task.target_agent)
+            seen_ids.add(task.task_id)
+        return self
+
+
 class RouteDecision(FrozenContract):
     target_agent: RouteTarget
     confidence: Decimal = Field(ge=0, le=1, max_digits=5, decimal_places=4)

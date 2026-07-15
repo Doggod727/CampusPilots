@@ -361,6 +361,12 @@
   - 输入空白或超过4000字符使用内部稳定 `422 AGENT_INPUT_INVALID`；公共 Agent Run API 接入时同步 OpenAPI/详细设计错误声明。
   - 本任务仅使用确定性 Fake Port，不加载本地模型、不调用 DeepSeek、不写数据库或执行 Agent/Tool。
   - 全量测试 `318 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过。
+- [x] [#74 M5：实现有界 Supervisor 任务规划器](https://github.com/Doggod727/CampusPilot/issues/74)（2026-07-15）
+  - 新增严格冻结 SupervisorPlan 和纯应用层 SupervisorPlanner；单领域生成一个任务，多领域最多生成3个去重专业 Agent 任务，后续任务只通过 parent/depends_on 引用前置任务。
+  - clarify 返回 `needs_input` 且不生成可执行任务；RouteTarget 固定映射到 AgentCode，规划前必须通过 AgentRegistry 验证活动版本。
+  - 任务 UUID 由 run/sequence/agent 确定性派生，结构化输入深拷贝且不进入 repr；契约拒绝重复 Agent、前向/循环依赖和 ready 空计划，不传递上一 Agent 的自由文本输出。
+  - 步数超过当前配置或设计上限6时返回既有 `409 AGENT_MAX_STEPS_EXCEEDED`；本任务不执行模型/Tool、不启动 Graph、不写数据库或 Trace。
+  - 全量测试 `325 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint、Alembic 单 head及离线升降级通过；无新增公共 HTTP 路由。
 
 ## 待办
 
