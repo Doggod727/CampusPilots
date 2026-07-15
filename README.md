@@ -92,6 +92,11 @@ Worker 接入，不能把排队成功解释为评估已完成。
 只生成固定测试指标，不代表真实模型质量；生产环境仍需接入独立评估器并以常驻任务进程
 调用 Worker，API 进程和 `/health/live` 不会自动启动评估或加载模型。
 
+M5 P0 后端已覆盖 Agent/Tool 目录、运行、审批、SSE、数据集、训练任务骨架、模型注册和
+评估任务骨架。当前 M2 电费与 M4 治理为真实 Service Adapter；M1 知识和 M3 社区仍为明确
+Mock，必须在相应模块完成后替换。MCP、Reranker、真实 LoRA/QLoRA、并行 Agent、前端与
+Compose 属于后续增强，不计入本次 P0 验收。
+
 运行当前后端测试：
 
 ```powershell

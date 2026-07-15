@@ -521,10 +521,16 @@
   - 新增 `python -m app.scripts.runtime_worker` 与 `python -m app.scripts.evaluation_worker`；仅进程启动时读取配置和连接依赖，运行命令继续以PostgreSQL事务Outbox为事实源。
   - 模块导入与 `/health/live` 不创建数据库、Redis或DeepSeek连接；未完成M1/M3仍为显式Mock，不宣称真实联调完成。
   - 全量 `pytest` 458 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 单 Head与离线升降级通过。
+- [x] [#109 M5：最终验收与 PR 收尾](https://github.com/Doggod727/CampusPilot/issues/109)（2026-07-15）
+  - 自动比对 M5 31 个 OpenAPI `operationId`：全部由 FastAPI 实现且全局唯一；统一错误信封、Request-Id、审批/恢复/SSE、目录启停、DeepSeek Fake、ModelOps 和 Worker 回归纳入验收。
+  - M5详细设计升级至V0.3，README和契约明确：M2电费/M4治理是真实Adapter，M1知识/M3社区仍为显式Mock；P1不包含MCP、Reranker、真实LoRA/QLoRA、并行Agent、前端或Compose。
+  - PR #63 在最终验证后转为Ready并普通合并；真实PostgreSQL/Redis/DeepSeek并发与Provider验证继续作为显式待办，不虚报完成。
+  - 最终全量 `pytest` 459 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 唯一 Head `0006_agent_runtime_delivery` 与离线升降级通过。
 
 ## 待办
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
-- [ ] 前端、Docker Compose 和跨模块 M1/M2/M3 handler 联调不属于本仓库本次 M4 后端交付范围。
+- [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。
 - [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
 - [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
+- [ ] 真实 PostgreSQL/Redis/DeepSeek 环境可用后执行 M5 Outbox并发领取、Checkpoint恢复、审批一次消费、SSE重放、限流和Provider故障集成验证。
