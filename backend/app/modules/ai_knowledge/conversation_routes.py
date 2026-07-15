@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.ai_knowledge.conversations import ConversationNotFound, ConversationRepository, ConversationService
-from app.modules.ai_knowledge.models import Conversation, Message, MessageCitation
+from app.modules.ai_knowledge.models import Conversation, Message, MessageCitation, MessageFeedback
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
 from app.shared.responses import SuccessResponse
@@ -20,6 +20,12 @@ router = APIRouter(tags=["Conversations"])
 class ConversationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(default="新对话", min_length=1, max_length=100)
+
+
+class FeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rating: Literal[-1, 1]
+    correction: str | None = Field(default=None, max_length=1000)
 
 
 async def dependency():
@@ -89,3 +95,20 @@ async def get_message(message_id: UUID, request: Request, user: Annotated[Authen
     citations = (await state[0].execute(select(MessageCitation).where(MessageCitation.message_id == message_id).order_by(MessageCitation.citation_no))).scalars().all()
     data = [{"citation_no": item.citation_no, "document_id": item.document_id, "document_title": item.document_title, "source_location": item.source_location, "page_number": item.page_number, "quote_excerpt": item.quote_excerpt, "relevance_score": item.relevance_score} for item in citations]
     return SuccessResponse(data=message_data(entity, data), request_id=request.state.request_id, timestamp=datetime.now(UTC))
+
+
+@router.post("/api/v1/messages/{message_id}/feedback", operation_id="createMessageFeedback", status_code=201)
+async def create_feedback(message_id: UUID, body: FeedbackRequest, request: Request, user: Annotated[AuthenticatedUser, Depends(require_permissions("chat:use"))], state=Depends(dependency)):
+    message = await owned_message(state[0], message_id, user.user_id)
+    if message.role != "assistant" or message.status not in {"completed", "fallback"}:
+        from app.core.errors import AppError
+        raise AppError(status_code=409, code="FEEDBACK_NOT_ALLOWED", message="当前消息不能反馈")
+    existing = (await state[0].execute(select(MessageFeedback).where(MessageFeedback.message_id == message_id, MessageFeedback.user_id == user.user_id).with_for_update())).scalar_one_or_none()
+    if existing is None:
+        from uuid import uuid4
+        existing = MessageFeedback(id=uuid4(), message_id=message_id, user_id=user.user_id, rating=body.rating, correction=body.correction)
+        state[0].add(existing)
+    else:
+        existing.rating, existing.correction = body.rating, body.correction
+    await state[0].flush()
+    return SuccessResponse(data={"id": existing.id, "message_id": existing.message_id, "rating": existing.rating, "correction": existing.correction, "created_at": existing.created_at}, request_id=request.state.request_id, timestamp=datetime.now(UTC))

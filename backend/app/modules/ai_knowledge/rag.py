@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.modules.ai_knowledge.conversations import ConversationService
+from app.modules.ai_knowledge.citations import append_citations
 from app.modules.ai_knowledge.models import LlmCall, Message
 
 
@@ -21,6 +22,7 @@ class RagChatService:
     async def complete(self, user, conversation, question: str, knowledge_base_ids: list[UUID], request_id: str):
         user_message, assistant = await self.conversations.append_turn(conversation.id, user.user_id, question, request_id)
         result = await self.retrieval.search(user, question, knowledge_base_ids)
+        append_citations(self.session, assistant.id, result.citations)
         assistant.retrieval_confidence = result.confidence
         if not result.citations:
             assistant.status, assistant.content, assistant.finish_reason = "fallback", "未在已授权且已发布的校园知识中找到可靠答案。", "fallback"

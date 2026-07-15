@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.agent_platform.deepseek import DeepSeekGateway
 from app.modules.ai_knowledge.conversation_routes import conversation_data, message_data
+from app.modules.ai_knowledge.citations import append_citations
 from app.modules.ai_knowledge.conversations import ConversationRepository, ConversationService
 from app.modules.ai_knowledge.knowledge import KnowledgeRepository, KnowledgeService
 from app.modules.ai_knowledge.rag import RagChatService
@@ -78,6 +79,7 @@ async def stream_chat(body: ChatRequest, request: Request, user: Annotated[Authe
             raise ConversationNotFound()
         user_message, assistant = await conversations.append_turn(conversation.id, user.user_id, body.question, request.state.request_id)
         result = await service.retrieval.search(user, body.question, body.knowledge_base_ids)
+        append_citations(session, assistant.id, result.citations)
         await session.commit()
         yield sse("meta", {"conversation_id": conversation.id, "message_id": assistant.id, "request_id": request.state.request_id})
         citations = [{"citation_no": index + 1, "document_id": item.document_id, "document_title": item.document_title, "source_location": item.source_location, "page_number": item.page_number, "quote_excerpt": item.content[:500], "relevance_score": item.score} for index, item in enumerate(result.citations)]

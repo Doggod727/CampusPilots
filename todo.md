@@ -558,6 +558,8 @@
   - 实现安全历史、受控引用Prompt与同步Chat；无合格检索结果直接fallback且不调用Provider。
 - [x] [#124 M1：Chat SSE事件流](https://github.com/Doggod727/CampusPilot/issues/124)（2026-07-15）
   - 实现meta、delta、sources、done/error固定事件顺序；Provider开始输出后不做透明重试。
+- [x] [#125 M1：引用与消息反馈](https://github.com/Doggod727/CampusPilot/issues/125)（2026-07-15）
+  - 原子追加有界引用快照，并为本人已完成/兜底回答提供-1/1幂等反馈upsert。
 
 ## 待办
 
