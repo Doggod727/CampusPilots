@@ -544,6 +544,8 @@
   - 实现文档列表/批量上传/详情/删除/Chunk预览/发布/停用及入库任务查询/重试，上传固定202并执行文件边界保护。
 - [x] [#117 M1：Parser与确定性切分](https://github.com/Doggod727/CampusPilot/issues/117)（2026-07-15）
   - 支持TXT/MD/DOCX/PDF内容嗅探与解析，使用500字符、80字符重叠的确定性切分并保留页码元数据。
+- [x] [#118 M1：Embedding与Chroma Store](https://github.com/Doggod727/CampusPilot/issues/118)（2026-07-15）
+  - 提供延迟加载的本地bge-small-zh-v1.5 Provider与Chroma命名、upsert/query/delete/rebuild端口；PostgreSQL仍为事实源。
 
 ## 待办
 
