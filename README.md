@@ -39,6 +39,10 @@ M5 的 Router、Agent、Approval、Tool、Reranker 和模型/数据集对象根�
 公开 API 和 `/health/live` 不受影响。生产环境必须使用独立随机值，禁止与 JWT、Checkpoint
 或 DeepSeek 密钥复用。
 
+调用 `POST /internal/v1/tools/{tool_name}:invoke` 还必须提供 `Idempotency-Key`，并绑定已有
+Agent Run/Step。R2/R3 Tool 首次调用返回 202 和审批摘要，批准后的相同调用只消费一次审批；
+响应、轨迹和审计只保存脱敏参数摘要。
+
 这些配置只在显式构造 M5 运行时服务时读取；导入应用和调用 `/health/live` 不会因此
 加载模型、连接数据库或访问外部服务。
 

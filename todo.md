@@ -503,6 +503,12 @@
   - 服务身份通过后仍按UUID重载 active 用户、当前角色和权限；无效凭证/用户状态统一安全拒绝，不回显用户或密钥。
   - 配置按需读取，未配置只使内部入口返回503，不影响模块导入、公开API或 `/health/live`。
   - 全量 `pytest` 444 项、`compileall`、OpenAPI lint、Alembic 单 Head 与离线升降级验证通过（Redocly 保留 3 条既有非阻断警告）。
+- [x] [#106 M5：实现内部 Tool 执行 API](https://github.com/Doggod727/CampusPilot/issues/106)（2026-07-15）
+  - 新增 `POST /internal/v1/tools/{tool_name}:invoke`；独立服务身份通过后校验用户状态、Run/Step 所有权、Agent allowlist、当前权限、冻结输入契约和幂等键。
+  - R2/R3 首次调用在同一事务中持久化 ToolCall 与 Approval 并返回 202；批准后复用原 ToolCall、审批只消费一次，同幂等调用可安全重放。
+  - M2 电费与 M4 治理使用真实应用服务适配器；尚未完成的 M1/M3 Handler 继续显式使用确定性 Mock，不伪装为真实跨模块结果。
+  - 稳定映射 `TOOL_NOT_FOUND/TOOL_DISABLED/TOOL_FORBIDDEN/TOOL_ARGUMENT_INVALID/TOOL_APPROVAL_INVALID/TOOL_TIMEOUT/TOOL_DEPENDENCY_UNAVAILABLE`，响应、Trace 和审计不保存原始参数或凭证。
+  - 全量 `pytest` 448 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 唯一 Head `0006_agent_runtime_delivery` 与离线升降级通过。
 
 ## 待办
 

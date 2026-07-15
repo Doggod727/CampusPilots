@@ -32,6 +32,14 @@ class ElectricityRepository:
         )
         return (await self._session.execute(statement)).scalar_one_or_none()
 
+    async def list_room_ids_for_user(self, user_id: UUID) -> tuple[UUID, ...]:
+        statement = (
+            select(ElectricityAccountMember.room_id)
+            .where(ElectricityAccountMember.user_id == user_id)
+            .order_by(ElectricityAccountMember.room_id)
+        )
+        return tuple((await self._session.execute(statement)).scalars().all())
+
     async def get_topup_for_update(
         self, requested_by: UUID, idempotency_key: str
     ) -> ElectricityTopupRequest | None:

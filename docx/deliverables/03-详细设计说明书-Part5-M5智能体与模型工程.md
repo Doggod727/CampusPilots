@@ -593,7 +593,7 @@ SSE 以 PostgreSQL `agent_run_events` 为事实源，事件 sequence 在单个 R
 POST /internal/v1/tools/{tool_name}:invoke
 ```
 
-Body 为规范化 ToolCallRequest；响应为 ToolCallResult。模块化单体中可直接调用 Python Service，但仍执行同一 Schema、授权、确认和审计管线；内部 HTTP 只用于未来拆分和契约测试。
+Body 为规范化 ToolCallRequest；响应为 ToolCallResult。服务端校验 Run 所有权、Step 关联、Agent allowlist、当前权限、冻结输入契约和幂等键。R2/R3 缺少审批时先在同一事务中持久化 ToolCall 与 Approval 并返回 202；审批通过后复用同一 ToolCall 且只能消费一次。模块化单体中可直接调用 Python Service，但仍执行同一 Schema、授权、确认和审计管线；响应、Trace 和审计只保存脱敏摘要，不保存原始参数、服务凭证或内部异常文本。
 
 # 10. SSE 事件
 
