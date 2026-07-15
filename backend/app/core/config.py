@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     dataset_upload_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
     training_gpu_enabled: bool = False
     local_training_base_models: str = "Qwen/Qwen2.5-1.5B-Instruct"
+    knowledge_upload_root: Path = Path("/data/knowledge")
+    knowledge_max_file_bytes: int = Field(default=20 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
+    knowledge_max_files_per_request: int = Field(default=10, ge=1, le=10)
+    knowledge_chunk_size: int = Field(default=500, ge=100, le=2000)
+    knowledge_chunk_overlap: int = Field(default=80, ge=0, le=500)
+    knowledge_retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    knowledge_score_threshold: float = Field(default=0.62, ge=0, le=1)
+    knowledge_history_rounds: int = Field(default=6, ge=0, le=20)
 
 
 @lru_cache

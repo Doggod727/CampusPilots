@@ -534,6 +534,8 @@
   - downgrade按依赖逆序删除M1对象，不删除共享`pgcrypto`扩展；真实PostgreSQL空库验证保留待办。
 - [x] [#112 M1：AI知识库全量ORM基线](https://github.com/Doggod727/CampusPilot/issues/112)（2026-07-15）
   - 映射ai_knowledge全部11张表，保留PostgreSQL UUID/JSONB/Numeric/时区时间、核心约束、索引与外键删除策略；敏感内容和哈希不进入repr。
+- [x] [#113 M1：知识文件隔离存储与配置](https://github.com/Doggod727/CampusPilot/issues/113)（2026-07-15）
+  - 增加上传、切分、检索和历史轮数配置；隔离存储使用服务端UUID对象键、流式SHA-256、20MiB上限及路径/符号链接防护，模块导入不创建目录。
 
 ## 待办
 
