@@ -63,6 +63,10 @@ Agent Run 事件使用 `GET /api/v1/agent-runs/{run_id}/stream` 下行 SSE。客
 模型；只有冻结、校验有效且无敏感数据的数据集版本可以引用。当前真实执行由后续可插拔
 Worker 接入，不能把排队成功解释为评估已完成。
 
+后端同时提供可插拔 `EvaluatorPort` 与单次领取 Worker 骨架。离线演示的 Fake Evaluator
+只生成固定测试指标，不代表真实模型质量；生产环境仍需接入独立评估器并以常驻任务进程
+调用 Worker，API 进程和 `/health/live` 不会自动启动评估或加载模型。
+
 运行当前后端测试：
 
 ```powershell

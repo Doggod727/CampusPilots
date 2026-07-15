@@ -489,6 +489,11 @@
   - 请求严格校验目标、数据集成对字段、分页、未知字段和唯一比较ID；成功及重放均使用统一信封、UTC时间和一致 Request-Id。
   - OpenAPI、M5详细设计和README已同步 `EVALUATION_NOT_FOUND`、`EVALUATION_TARGET_NOT_FOUND`、`EVALUATION_DATASET_NOT_READY`、`EVALUATION_NOT_COMPLETED` 的404/409语义。
   - 全量测试 `435 passed`（11 条既有警告），Python编译、OpenAPI lint（3条既有文档警告）、Alembic单head及离线升降级通过。
+- [x] [#103 M5：实现可插拔评估 Worker 骨架](https://github.com/Doggod727/CampusPilot/issues/103)（2026-07-15）
+  - 新增严格 EvaluatorPort、结果/指标契约和按 agent/tool/model/rag/system 注册的评估器目录；缺失 Provider 默认拒绝。
+  - Worker 使用新 Session 与 `FOR UPDATE SKIP LOCKED` 单次领取，原子收敛 queued→running→succeeded/failed；终态和并发领取不会重复执行或重复写指标。
+  - 五类确定性 Fake Evaluator 仅生成固定离线测试指标；Provider异常统一只保存 `EVALUATION_PROVIDER_UNAVAILABLE`，不保存异常、样本、Prompt或密钥。
+  - 全量测试 `440 passed`（11 条既有警告），Python编译、OpenAPI lint（3条既有文档警告）、Alembic单head及离线升降级通过；真实评估器与常驻Worker仍为后续任务。
 
 ## 待办
 
