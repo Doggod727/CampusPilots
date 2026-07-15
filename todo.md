@@ -548,6 +548,8 @@
   - 提供延迟加载的本地bge-small-zh-v1.5 Provider与Chroma命名、upsert/query/delete/rebuild端口；PostgreSQL仍为事实源。
 - [x] [#119 M1：幂等文档入库Worker](https://github.com/Doggod727/CampusPilot/issues/119)（2026-07-15）
   - 使用SKIP LOCKED领取任务，按文档版本执行解析、切分、向量索引与Chunk替换；失败仅保存稳定错误码。
+- [x] [#120 M1：授权RAG检索服务](https://github.com/Doggod727/CampusPilot/issues/120)（2026-07-15）
+  - 先计算授权知识库交集，再执行向量召回与PostgreSQL发布状态回查；0.62以下返回明确空结果。
 
 ## 待办
 
