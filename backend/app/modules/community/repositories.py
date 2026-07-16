@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.community.models import Comment, Post, PostReaction, Topic
@@ -217,3 +218,38 @@ class CommentRepository:
 
     def add(self, comment: Comment) -> None:
         self._session.add(comment)
+
+
+class ReactionRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_post_for_update(self, post_id: UUID) -> Post | None:
+        statement = select(Post).where(
+            Post.id == post_id, Post.deleted_at.is_(None),
+        ).with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def insert(self, *, post_id: UUID, user_id: UUID, reaction_type: str) -> bool:
+        statement = (
+            insert(PostReaction).values(
+                post_id=post_id, user_id=user_id, reaction_type=reaction_type,
+            ).on_conflict_do_nothing().returning(PostReaction.post_id)
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none() is not None
+
+    async def delete(self, *, post_id: UUID, user_id: UUID, reaction_type: str) -> bool:
+        statement = delete(PostReaction).where(
+            PostReaction.post_id == post_id, PostReaction.user_id == user_id,
+            PostReaction.reaction_type == reaction_type,
+        ).returning(PostReaction.post_id)
+        return (await self._session.execute(statement)).scalar_one_or_none() is not None
+
+    async def adjust_count(self, *, post_id: UUID, reaction_type: str, delta: int) -> tuple[int, int]:
+        column = Post.like_count if reaction_type == "like" else Post.favorite_count
+        value = column + delta if delta > 0 else func.greatest(column + delta, 0)
+        statement = update(Post).where(Post.id == post_id).values({column.key: value}).returning(
+            Post.like_count, Post.favorite_count,
+        )
+        row = (await self._session.execute(statement)).one()
+        return int(row[0]), int(row[1])

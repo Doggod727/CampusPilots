@@ -48,3 +48,9 @@ class CommentNotFound(AppError):
 class CommentParentInvalid(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=422, code="COMMENT_PARENT_INVALID", message="父评论无效")
+
+
+class CommunityContentPendingReview(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="COMMUNITY_CONTENT_PENDING_REVIEW",
+                         message="内容正在审核，暂不可互动")

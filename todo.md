@@ -412,6 +412,9 @@
 - [x] [#158 M3：注册社区审核决定回调](https://github.com/Doggod727/CampusPilot/issues/158)（2026-07-16）
   - 为 post/comment/event/lost_found 注册请求上下文内的无状态 Handler，M4 将当前 Session 传入回调，使案件决定、目标状态和评论计数位于同一事务；测试仍可注入独立 Registry。
   - 回调行锁目标并校验案件映射，approved/rejected/escalated、删除保护和重复调用均幂等安全；评论首次发布或撤下只调整一次计数，映射冲突返回稳定 409。专项累计 `11 passed`、全量 pytest `647 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
+- [x] [#159 M3：实现帖子点赞收藏与计数 API](https://github.com/Doggod727/CampusPilot/issues/159)（2026-07-16）
+  - 注册 putPostReaction/deletePostReaction；事实表使用 PostgreSQL ON CONFLICT/DELETE RETURNING，只有真实增删才原子调整 like/favorite 计数，重复请求返回服务端当前状态。
+  - 事务内锁定帖子并限制 published 可见性；本人待审核 PUT 返回 COMMUNITY_CONTENT_PENDING_REVIEW，其他非公开互动安全 404。专项测试 `4 passed`、全量 pytest `651 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 
