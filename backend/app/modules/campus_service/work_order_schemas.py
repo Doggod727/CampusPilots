@@ -38,6 +38,15 @@ class WorkOrderCreateRequest(BaseModel):
         return self
 
 
+class WorkOrderTransitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_status: Literal["accepted", "processing", "completed", "cancelled", "rejected"]
+    reason: str = Field(min_length=2, max_length=500, repr=False)
+    completion_note: str | None = Field(default=None, max_length=1000, repr=False)
+    version: int = Field(ge=1)
+
+
 class WorkOrderRatingData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

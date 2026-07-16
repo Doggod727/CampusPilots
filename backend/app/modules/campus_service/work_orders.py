@@ -21,7 +21,14 @@ from app.modules.campus_service.work_order_schemas import (
     work_order_data,
     work_order_event_data,
 )
-from app.modules.campus_service.work_order_errors import CampusNotFound, WorkOrderNotFound
+from app.modules.campus_service.work_order_errors import (
+    CampusNotFound,
+    ResourceVersionConflict,
+    WorkOrderIllegalTransition,
+    WorkOrderNotFound,
+)
+from app.modules.campus_service.work_order_state import WorkOrderStateMachine
+from app.modules.platform.auth import PermissionDenied
 from app.modules.platform.audit import AuditService
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.idempotency import IdempotencyConflict, IdempotencyService
@@ -47,6 +54,14 @@ class WorkOrderMutationResult:
     status_code: int
     request_id: str
     body: dict[str, Any] = field(repr=False)
+
+
+@dataclass(frozen=True)
+class TransitionWorkOrderCommand:
+    target_status: str
+    reason: str = field(repr=False)
+    completion_note: str | None = field(default=None, repr=False)
+    version: int = 1
 
 
 class WorkOrderService:
@@ -248,6 +263,132 @@ class WorkOrderService:
             raise WorkOrderNotFound()
         events = await self._events.list_timeline(work_order_id)
         return WorkOrderEventListData(items=[work_order_event_data(item) for item in events])
+
+    async def transition(
+        self,
+        *,
+        actor: AuthenticatedUser,
+        work_order_id: UUID,
+        command: TransitionWorkOrderCommand,
+        idempotency_key: str,
+        request_id: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> WorkOrderMutationResult:
+        request_body = {
+            "work_order_id": str(work_order_id),
+            "target_status": command.target_status,
+            "reason": command.reason,
+            "completion_note": command.completion_note,
+            "version": command.version,
+        }
+        async with self._session.begin():
+            decision = await self._idempotency.begin(
+                user_id=actor.user_id,
+                endpoint=f"POST /api/v1/work-orders/{work_order_id}/transitions",
+                idempotency_key=idempotency_key,
+                request_body=request_body,
+            )
+            if decision.replay is not None:
+                body = dict(decision.replay.response_body)
+                return WorkOrderMutationResult(
+                    decision.replay.response_status, str(body["request_id"]), body
+                )
+            if decision.pending:
+                raise IdempotencyConflict()
+            scopes = await self._actor_scopes(actor.user_id)
+            work_order = await self._work_orders.get_visible_for_update(
+                work_order_id,
+                actor_user_id=actor.user_id,
+                scopes=scopes,
+            )
+            if work_order is None:
+                raise WorkOrderNotFound()
+
+            owner_cancel = (
+                work_order.created_by == actor.user_id
+                and command.target_status == "cancelled"
+            )
+            in_staff_scope = any(
+                scope.campus_code == work_order.campus_code
+                and work_order.dormitory_area in scope.dormitory_areas
+                for scope in scopes
+            )
+            if not owner_cancel:
+                if "work_order:transition" not in actor.permissions:
+                    raise PermissionDenied()
+                if not in_staff_scope:
+                    raise WorkOrderNotFound()
+            if work_order.version != command.version:
+                raise ResourceVersionConflict()
+
+            previous_status = work_order.status
+            now = self._utc_now()
+            effects = WorkOrderStateMachine.apply(
+                current_status=previous_status,
+                target_status=command.target_status,
+                reason=command.reason,
+                completion_note=command.completion_note,
+                now=now,
+            )
+            if command.target_status == "accepted":
+                effects.updates["assigned_to"] = actor.user_id
+            for key, value in effects.updates.items():
+                setattr(work_order, key, value)
+            work_order.version += 1
+            sequence = await self._events.next_sequence(work_order_id)
+            event = WorkOrderEvent(
+                id=uuid4(),
+                work_order_id=work_order_id,
+                sequence_no=sequence,
+                event_type=effects.event_type,
+                from_status=previous_status,
+                to_status=work_order.status,
+                actor_user_id=actor.user_id,
+                actor_role=self._actor_role(actor),
+                reason=command.reason.strip(),
+                snapshot={
+                    "work_order_id": str(work_order_id),
+                    "status": work_order.status,
+                    "version": work_order.version,
+                    "assigned_to": str(work_order.assigned_to) if work_order.assigned_to else None,
+                },
+                created_at=now,
+            )
+            self._events.append(event)
+            await self._session.flush()
+            body = SuccessResponse(
+                data=work_order_data(work_order),
+                request_id=request_id,
+                timestamp=now,
+            ).model_dump(mode="json")
+            self._audit.record_success(
+                action="work_order.transition",
+                resource_type="work_order",
+                resource_id=str(work_order_id),
+                request_id=request_id,
+                actor_user_id=actor.user_id,
+                actor_username=actor.username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                before_data={"status": previous_status, "version": command.version},
+                after_data={
+                    "status": work_order.status,
+                    "version": work_order.version,
+                    "has_reason": bool(command.reason.strip()),
+                    "has_completion_note": bool(command.completion_note and command.completion_note.strip()),
+                },
+            )
+            completed = await self._idempotency.complete(
+                record_id=decision.record_id,
+                response_status=200,
+                response_body=body,
+                resource_type="work_order",
+                resource_id=str(work_order_id),
+            )
+            if not completed:
+                raise IdempotencyConflict()
+        return WorkOrderMutationResult(200, request_id, body)
 
     async def _actor_scopes(self, actor_user_id: UUID):
         return () if self._scopes is None else await self._scopes.get_for_user(actor_user_id)

@@ -400,6 +400,23 @@ class WorkOrderRepository:
         row = (await self._session.execute(statement)).one_or_none()
         return None if row is None else (row[0], row[1])
 
+    async def get_visible_for_update(
+        self,
+        work_order_id: UUID,
+        *,
+        actor_user_id: UUID,
+        scopes: tuple[WorkOrderScope, ...],
+    ) -> WorkOrder | None:
+        statement = (
+            select(WorkOrder)
+            .where(
+                WorkOrder.id == work_order_id,
+                self._visible(actor_user_id, scopes),
+            )
+            .with_for_update()
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
     async def allocate_order_no(self, issue_date: date) -> str:
         date_part = issue_date.strftime("%Y%m%d")
         lock_key = f"work_order_number:{date_part}"
@@ -428,6 +445,12 @@ class WorkOrderEventRepository:
 
     def append(self, event: WorkOrderEvent) -> None:
         self._session.add(event)
+
+    async def next_sequence(self, work_order_id: UUID) -> int:
+        statement = select(func.coalesce(func.max(WorkOrderEvent.sequence_no), 0) + 1).where(
+            WorkOrderEvent.work_order_id == work_order_id
+        )
+        return int((await self._session.execute(statement)).scalar_one())
 
     async def list_timeline(self, work_order_id: UUID) -> tuple[WorkOrderEvent, ...]:
         statement = (

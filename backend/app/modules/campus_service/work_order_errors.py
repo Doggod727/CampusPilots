@@ -26,3 +26,21 @@ class WorkOrderNotFound(AppError):
             code="WORK_ORDER_NOT_FOUND",
             message="工单不存在或不可见",
         )
+
+
+class WorkOrderIllegalTransition(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="WORK_ORDER_ILLEGAL_TRANSITION",
+            message="工单状态不允许执行该流转",
+        )
+
+
+class ResourceVersionConflict(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="RESOURCE_VERSION_CONFLICT",
+            message="工单版本已变化，请刷新后重试",
+        )

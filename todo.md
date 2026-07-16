@@ -356,6 +356,10 @@
   - 复用 M4 `AppConfig` 增加按用户 UUID 配置的工单校区/宿舍范围，完整配置严格解析且缺失、畸形或无匹配均 fail-closed；演示种子通过数据库实际 UUID 为 `service01` 幂等写入范围，不新增迁移。
   - 工单仓储在 SQL 中应用本人所有权或处理员范围，并叠加状态、校区和本人处理筛选；列表稳定分页，详情同查询加载评价，时间线在可见性确认后按 sequence 升序返回，禁止全量读取后过滤。
   - 注册 `listWorkOrders/getWorkOrder/listWorkOrderEvents`，要求 `work_order:read`；不可见与不存在统一 `404 WORK_ORDER_NOT_FOUND`。种子、范围、仓储、服务与路由定向测试 `31 passed`、全量 pytest `548 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL 范围查询验证仍待环境可用后执行。
+- [x] [#142 M2：实现工单状态机与流转 API](https://github.com/Doggod727/CampusPilot/issues/142)（2026-07-16）
+  - 新增纯 `WorkOrderStateMachine`，只允许 submitted→accepted/rejected/cancelled、accepted→processing、processing→completed；本人仅可取消自己的 submitted 工单，工作人员必须具备 `work_order:transition` 且命中持久化范围。
+  - 注册 `transitionWorkOrder`，单事务串联 M4 幂等、范围内 `FOR UPDATE`、乐观版本校验、状态副作用、version+1、下一事件序号、脱敏审计和首次 200 信封；不可见、版本冲突与非法迁移分别返回稳定 404/409。
+  - 事件快照只保存工单 ID、状态、版本和处理人，不保存宿舍、描述或原因正文；状态机、事务服务、仓储和路由定向测试 `39 passed`、全量 pytest `567 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过。真实 PostgreSQL 双处理员并发受理验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 

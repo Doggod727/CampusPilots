@@ -246,3 +246,39 @@ def test_work_order_read_operation_ids_are_registered_once() -> None:
     ]
     for operation_id in ("listWorkOrders", "getWorkOrder", "listWorkOrderEvents"):
         assert operation_ids.count(operation_id) == 1
+
+
+def test_transition_route_accepts_owner_without_staff_permission() -> None:
+    body = {
+        "code": "OK", "message": "success", "data": {"id": str(_work_order().id)},
+        "request_id": "transition-original", "timestamp": NOW.isoformat(),
+    }
+    service = MagicMock()
+    service.transition = AsyncMock(
+        return_value=WorkOrderMutationResult(200, "transition-original", body)
+    )
+    response = _client(service, user=_user(permitted=False)).post(
+        f"/api/v1/work-orders/{_work_order().id}/transitions",
+        json={"target_status": "cancelled", "reason": "不再需要维修", "version": 1},
+        headers={"Idempotency-Key": "transition-1"},
+    )
+    assert response.status_code == 200
+    assert response.json() == body
+    assert service.transition.await_args.kwargs["command"].target_status == "cancelled"
+
+
+def test_transition_route_requires_auth_key_and_strict_payload() -> None:
+    service = MagicMock(); service.transition = AsyncMock()
+    path = f"/api/v1/work-orders/{_work_order().id}/transitions"
+    payload = {"target_status": "accepted", "reason": "接单处理", "version": 1}
+    assert _client(service, user=None).post(path, json=payload, headers={"Idempotency-Key": "x"}).status_code == 401
+    client = _client(service, user=_user(permitted=False))
+    assert client.post(path, json=payload).status_code == 422
+    assert client.post(path, json=payload | {"version": 0}, headers={"Idempotency-Key": "x"}).status_code == 422
+    assert client.post(path, json=payload | {"extra": True}, headers={"Idempotency-Key": "x"}).status_code == 422
+    service.transition.assert_not_awaited()
+
+
+def test_transition_operation_id_is_registered_once() -> None:
+    operation_ids = [route.operation_id for route in create_app().routes if getattr(route, "operation_id", None)]
+    assert operation_ids.count("transitionWorkOrder") == 1

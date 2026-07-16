@@ -207,3 +207,21 @@ def test_visible_detail_uses_owner_only_when_scope_is_empty() -> None:
     sql = _sql(session.execute.await_args.args[0])
     assert "work_orders.created_by" in sql
     assert "dormitory_area IN" not in sql
+
+
+def test_transition_load_uses_scope_and_for_update_before_event_sequence() -> None:
+    order = MagicMock(spec=WorkOrder)
+    session = _session(_ScalarResult(order), _ScalarResult(3))
+    repository = WorkOrderRepository(session)
+    events = WorkOrderEventRepository(session)
+    loaded = asyncio.run(repository.get_visible_for_update(
+        WORK_ORDER_ID,
+        actor_user_id=UUID(int=7),
+        scopes=(WorkOrderScope("main", ("梅园",)),),
+    ))
+    sequence = asyncio.run(events.next_sequence(WORK_ORDER_ID))
+    assert loaded is order and sequence == 3
+    lock_sql = _sql(session.execute.await_args_list[0].args[0])
+    sequence_sql = _sql(session.execute.await_args_list[1].args[0])
+    assert "FOR UPDATE" in lock_sql
+    assert "max(campus_service.work_order_events.sequence_no)" in sequence_sql

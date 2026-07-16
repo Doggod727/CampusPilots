@@ -21,14 +21,17 @@ from app.modules.campus_service.work_order_schemas import (
     WorkOrderPageResponse,
     WorkOrderResponse,
     WorkOrderStatus,
+    WorkOrderTransitionRequest,
 )
 from app.modules.campus_service.work_orders import (
     CreateWorkOrderCommand,
     WorkOrderService,
+    TransitionWorkOrderCommand,
 )
 from app.modules.platform.audit import AuditService
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
+from app.modules.platform.auth_dependencies import get_authenticated_user
 from app.modules.platform.idempotency import IdempotencyService
 from app.modules.platform.repositories import AuditLogRepository, IdempotencyRecordRepository
 
@@ -142,4 +145,35 @@ async def list_work_order_events(
     data = await service.list_events(actor=actor, work_order_id=work_order_id)
     return WorkOrderEventListResponse(
         data=data, request_id=request.state.request_id, timestamp=datetime.now(UTC)
+    )
+
+
+@router.post(
+    "/{work_order_id}/transitions",
+    operation_id="transitionWorkOrder",
+    response_model=WorkOrderResponse,
+)
+async def transition_work_order(
+    work_order_id: UUID,
+    payload: WorkOrderTransitionRequest,
+    request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
+    service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+    idempotency_key: Annotated[
+        str, Header(alias="Idempotency-Key", min_length=1, max_length=128)
+    ],
+) -> JSONResponse:
+    result = await service.transition(
+        actor=actor,
+        work_order_id=work_order_id,
+        command=TransitionWorkOrderCommand(**payload.model_dump()),
+        idempotency_key=idempotency_key,
+        request_id=request.state.request_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    return JSONResponse(
+        result.body,
+        status_code=result.status_code,
+        headers={REQUEST_ID_HEADER: result.request_id},
     )
