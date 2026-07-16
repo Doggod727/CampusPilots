@@ -242,6 +242,15 @@ class EventRepository:
         )
         return dict((await self._session.execute(statement)).all())
 
+    async def get_for_update(self, event_id: UUID) -> CampusEvent | None:
+        statement = select(CampusEvent).where(
+            CampusEvent.id == event_id, CampusEvent.deleted_at.is_(None),
+        ).with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    def add(self, event: CampusEvent) -> None:
+        self._session.add(event)
+
 
 @dataclass(frozen=True)
 class CommentPage:

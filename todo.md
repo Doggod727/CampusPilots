@@ -424,6 +424,9 @@
 - [x] [#162 M3：实现活动查询仓储与服务](https://github.com/Doggod727/CampusPilot/issues/162)（2026-07-16）
   - SQL 层实现公开/本人可见性、分类/时间/可报名筛选、稳定 `starts_at/id` 分页及内部文本搜索；详情统一安全 404，并批量加载组织者公开资料与本人报名状态。
   - 专项 `2 passed`、全量 pytest `661 passed`（11 条既有警告）、编译、Alembic 单 Head及离线升降级、OpenAPI 解析和 Redocly lint 均通过；lint 保留 5 条既有非阻断警告。
+- [x] [#163 M3：实现活动 CRUD 与 5 个 HTTP API](https://github.com/Doggod727/CampusPilot/issues/163)（2026-07-16）
+  - 注册活动列表、创建、详情、修改和取消；严格请求/响应模型、M4 标题与正文扫描、组织者/运营员授权、版本/时间/容量/终态校验、创建与取消幂等及脱敏审计均在应用服务内完成。
+  - 活动专项 `5 passed`、全量 pytest `664 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级、OpenAPI 和 Redocly lint 均通过；M3 累计注册 `23/38`。
 
 ## M5 项目重审与契约基线
 

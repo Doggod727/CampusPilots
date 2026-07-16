@@ -71,3 +71,18 @@ class AnonymousIdentityNotFound(AppError):
 class EventNotFound(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=404, code="EVENT_NOT_FOUND", message="活动不存在或不可见")
+
+
+class EventTimeInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=422, code="EVENT_TIME_INVALID", message="活动时间范围无效")
+
+
+class EventStateInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="EVENT_STATE_INVALID", message="当前活动状态不允许此操作")
+
+
+class EventCapacityInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="EVENT_CAPACITY_INVALID", message="活动容量不能低于已报名人数")
