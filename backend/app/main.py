@@ -25,6 +25,7 @@ from app.modules.agent_platform.internal_tools import router as internal_tool_ro
 from app.modules.campus_service.department_routes import router as department_router
 from app.modules.campus_service.guide_routes import router as guide_router
 from app.modules.campus_service.work_order_routes import router as work_order_router
+from app.modules.campus_service.electricity_routes import router as electricity_router
 
 
 def create_app() -> FastAPI:
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
     application.include_router(department_router)
     application.include_router(guide_router)
     application.include_router(work_order_router)
+    application.include_router(electricity_router)
     return application
 
 

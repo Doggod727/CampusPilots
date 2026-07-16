@@ -344,6 +344,10 @@
   - 注册 `createWorkOrder`，严格校验请求、时区时间和窗口，要求 `work_order:create` 与幂等键；禁用或不存在校区统一返回 `404 CAMPUS_NOT_FOUND`。
   - 单事务串联 M4 幂等、启用校区校验、上海日期安全编号、submitted 工单、sequence=1 不可变事件和脱敏审计；相同请求重放首次 201 信封，不在事件或审计中保存宿舍与描述。
   - 工单创建、路由与仓储定向测试 `12 passed`、全量 pytest `518 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL 并发幂等和编号验证仍待环境可用后执行。
+- [x] [#139 M2：实现电费余额与模拟充值 HTTP API](https://github.com/Doggod727/CampusPilot/issues/139)（2026-07-16）
+  - 注册 `getElectricityBalance/createElectricityTopupRequest`，分别要求 `electricity:read_own` 和 `electricity:topup_request:create`；本人房间范围始终从数据库成员关系加载，不信任客户端自报范围。
+  - 余额补充确定性生成并限长的 `room_name`；公共充值复用 M4 幂等记录保存完整 201 信封，固定 `mock/simulated`、不修改余额，并拒绝 UI 直调携带 Agent/Approval 字段；审计仅保存申请状态与模拟标志。
+  - 电费领域、Tool、HTTP 与路由定向测试 `28 passed`、全量 pytest `528 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；Redocly 保留 5 条既有非阻断警告。OpenAPI 电费接口尚未声明自然 `401`，留最终契约收尾统一修订；真实 PostgreSQL 幂等验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 
