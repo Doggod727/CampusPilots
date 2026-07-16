@@ -439,6 +439,9 @@
 - [x] [#167 M3：实现确定性 Matcher 与匹配 API](https://github.com/Doggod727/CampusPilot/issues/167)（2026-07-16）
   - NFKC/固定 token、严格 AppConfig、类别/地点/时间/关键词四因子、5 位小数量化、200 条候选上限、算法版本 upsert/过期清理和 owner-only 查询已实现；注册 `listLostFoundMatches`。
   - Matcher 专项 `3 passed`、全量 pytest `675 passed`（11 条既有警告）及全部门禁通过；内容写入重算使用 savepoint，失败仅记录安全待重算审计。M3 累计 `32/38`。
+- [x] [#168 M3：实现认领创建、列表和详情 API](https://github.com/Doggod727/CampusPilot/issues/168)（2026-07-16）
+  - 注册创建、本人列表和参与者详情；目标/claimant item 规则、活动认领唯一、evidence 加密、目标 claiming、SQL 参与者可见性与批量加载均已实现。幂等记录只保存 request/timestamp/resource_id，重放重新授权并解密。
+  - 认领专项 `2 passed`、全量 pytest `677 passed`（11 条既有警告）及全部门禁通过；M3 累计注册 `35/38`。
 
 ## M5 项目重审与契约基线
 

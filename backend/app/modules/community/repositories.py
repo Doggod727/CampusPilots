@@ -417,6 +417,79 @@ class LostFoundRepository:
         return {row.id: row for row in rows}
 
 
+class LostFoundClaimRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_target_for_update(self, item_id: UUID) -> LostFoundItem | None:
+        statement = select(LostFoundItem).where(
+            LostFoundItem.id == item_id, LostFoundItem.deleted_at.is_(None),
+        ).with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_claimant_item(self, item_id: UUID) -> LostFoundItem | None:
+        statement = select(LostFoundItem).where(
+            LostFoundItem.id == item_id, LostFoundItem.deleted_at.is_(None),
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def active_exists(self, *, target_id: UUID, claimant_id: UUID) -> bool:
+        statement = select(LostFoundClaim.id).where(
+            LostFoundClaim.target_item_id == target_id,
+            LostFoundClaim.claimant_user_id == claimant_id,
+            LostFoundClaim.status.in_(("pending", "verified")),
+        ).limit(1)
+        return (await self._session.execute(statement)).scalar_one_or_none() is not None
+
+    async def get_visible(self, *, claim_id: UUID, user_id: UUID,
+                          for_update: bool = False) -> LostFoundClaim | None:
+        owner = select(LostFoundItem.id).where(
+            LostFoundItem.id == LostFoundClaim.target_item_id,
+            LostFoundItem.owner_user_id == user_id,
+        ).exists()
+        statement = select(LostFoundClaim).where(
+            LostFoundClaim.id == claim_id,
+            or_(LostFoundClaim.claimant_user_id == user_id, owner),
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def list_visible(
+        self, *, user_id: UUID, role: str, status: str | None,
+        page: int, page_size: int,
+    ) -> tuple[tuple[LostFoundClaim, ...], int]:
+        owner = select(LostFoundItem.id).where(
+            LostFoundItem.id == LostFoundClaim.target_item_id,
+            LostFoundItem.owner_user_id == user_id,
+        ).exists()
+        if role == "claimant":
+            visibility = LostFoundClaim.claimant_user_id == user_id
+        elif role == "owner":
+            visibility = owner
+        else:
+            visibility = or_(LostFoundClaim.claimant_user_id == user_id, owner)
+        predicates = [visibility]
+        if status:
+            predicates.append(LostFoundClaim.status == status)
+        statement = select(LostFoundClaim).where(*predicates).order_by(
+            LostFoundClaim.created_at.desc(), LostFoundClaim.id,
+        ).offset((page - 1) * page_size).limit(page_size)
+        count = select(func.count()).select_from(LostFoundClaim).where(*predicates)
+        rows = tuple((await self._session.execute(statement)).scalars().all())
+        return rows, int((await self._session.execute(count)).scalar_one())
+
+    async def targets_by_ids(self, ids: set[UUID]) -> dict[UUID, LostFoundItem]:
+        if not ids:
+            return {}
+        statement = select(LostFoundItem).where(LostFoundItem.id.in_(ids))
+        rows = (await self._session.execute(statement)).scalars().all()
+        return {row.id: row for row in rows}
+
+    def add(self, claim: LostFoundClaim) -> None:
+        self._session.add(claim)
+
+
 @dataclass(frozen=True)
 class CommentPage:
     items: tuple[Comment, ...]

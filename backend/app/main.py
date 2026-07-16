@@ -35,6 +35,8 @@ from app.modules.community.report_routes import router as community_report_route
 from app.modules.community.anonymous_identity_routes import router as community_anonymous_router
 from app.modules.community.event_routes import router as community_event_router
 from app.modules.community.lost_found_routes import router as community_lost_found_router
+from app.modules.community.claim_routes import item_router as community_item_claim_router
+from app.modules.community.claim_routes import router as community_claim_router
 
 
 def create_app() -> FastAPI:
@@ -90,6 +92,8 @@ def create_app() -> FastAPI:
     application.include_router(community_anonymous_router)
     application.include_router(community_event_router)
     application.include_router(community_lost_found_router)
+    application.include_router(community_item_claim_router)
+    application.include_router(community_claim_router)
     return application
 
 
