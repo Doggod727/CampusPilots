@@ -381,6 +381,9 @@
 - [x] [#148 M3：实现话题、帖子和评论 ORM](https://github.com/Doggod727/CampusPilot/issues/148)（2026-07-16）
   - 新增扁平 `community` 模型模块，映射 Topic/Post/Comment，完整保留逻辑删除、版本、审核状态、风险、发布和计数约束，以及公开列表、作者和审核案件部分索引。
   - 作者和审核案件保持逻辑 UUID，M3 自有外键严格使用 RESTRICT/CASCADE/SET NULL；不增加 relationship、仓储、服务或路由。模型专项 `3 passed`、全量 pytest `592 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#149 M3：实现互动与举报 ORM](https://github.com/Doggod727/CampusPilot/issues/149)（2026-07-16）
+  - 映射 PostReaction 三字段复合主键、互动类型约束和用户时间索引；映射 ContentReport 业务唯一键、受控目标/原因/状态/详情约束及目标、审核案件索引。
+  - 举报人和审核案件仍为逻辑 UUID，对象表示不泄露举报正文或举报人；不实现计数、案件复用、审计或 API。累计模型专项 `5 passed`、全量 pytest `594 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 

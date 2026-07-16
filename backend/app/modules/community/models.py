@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
@@ -123,3 +124,45 @@ class Comment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PostReaction(Base):
+    __tablename__ = "post_reactions"
+    __table_args__ = (
+        CheckConstraint("reaction_type IN ('like', 'favorite')", name="ck_post_reactions_type"),
+        Index("ix_post_reactions_user", "user_id", "reaction_type", text("created_at DESC")),
+        {"schema": COMMUNITY_SCHEMA},
+    )
+
+    post_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("community.posts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    reaction_type: Mapped[str] = mapped_column(String(16), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class ContentReport(Base):
+    __tablename__ = "content_reports"
+    __table_args__ = (
+        UniqueConstraint("reporter_user_id", "target_type", "target_id"),
+        CheckConstraint("target_type IN ('post', 'comment', 'event', 'lost_found')", name="ck_content_reports_target"),
+        CheckConstraint("reason_code IN ('spam', 'abuse', 'privacy', 'fraud', 'unsafe', 'other')", name="ck_content_reports_reason"),
+        CheckConstraint("char_length(details) BETWEEN 2 AND 500", name="ck_content_reports_details"),
+        CheckConstraint("status IN ('submitted', 'linked', 'closed')", name="ck_content_reports_status"),
+        Index("ix_content_reports_target", "target_type", "target_id", text("created_at DESC")),
+        Index("ix_content_reports_case", "moderation_case_id", postgresql_where=text("moderation_case_id IS NOT NULL")),
+        {"schema": COMMUNITY_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    reporter_user_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    target_type: Mapped[str] = mapped_column(String(20))
+    target_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    reason_code: Mapped[str] = mapped_column(String(30))
+    details: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(16), server_default=text("'submitted'"))
+    moderation_case_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from app.modules.community.models import Comment, Post, Topic
+from app.modules.community.models import Comment, ContentReport, Post, PostReaction, Topic
 
 
 def _table_sql(model: type[object]) -> str:
@@ -64,3 +64,34 @@ def test_comment_model_preserves_self_reference_and_safe_repr() -> None:
     assert "private post body" not in rendered
     assert "private comment body" not in rendered
     assert str(secret_user) not in rendered and str(secret_case) not in rendered
+
+
+def test_post_reaction_model_has_composite_primary_key_and_user_index() -> None:
+    table = PostReaction.__table__
+    assert [column.name for column in table.primary_key.columns] == [
+        "post_id", "user_id", "reaction_type"
+    ]
+    sql = _table_sql(PostReaction)
+    indexes = _index_sql(PostReaction)
+    assert "ON DELETE CASCADE" in sql and "ck_post_reactions_type" in sql
+    assert "ix_post_reactions_user" in indexes and "created_at DESC" in indexes
+
+
+def test_content_report_model_preserves_business_uniqueness_and_safe_repr() -> None:
+    sql = _table_sql(ContentReport)
+    indexes = _index_sql(ContentReport)
+    assert "UNIQUE (reporter_user_id, target_type, target_id)" in sql
+    for name in (
+        "ck_content_reports_target", "ck_content_reports_reason",
+        "ck_content_reports_details", "ck_content_reports_status",
+    ):
+        assert name in sql
+    assert "FOREIGN KEY(reporter_user_id)" not in sql
+    assert "FOREIGN KEY(moderation_case_id)" not in sql
+    assert "ix_content_reports_target" in indexes
+    assert "ix_content_reports_case" in indexes and "moderation_case_id IS NOT NULL" in indexes
+
+    secret_user = UUID("90000000-0000-4000-8000-000000000003")
+    report = ContentReport(reporter_user_id=secret_user, details="private report details")
+    assert str(secret_user) not in repr(report)
+    assert "private report details" not in repr(report)
