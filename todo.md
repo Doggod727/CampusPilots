@@ -348,6 +348,10 @@
   - 注册 `getElectricityBalance/createElectricityTopupRequest`，分别要求 `electricity:read_own` 和 `electricity:topup_request:create`；本人房间范围始终从数据库成员关系加载，不信任客户端自报范围。
   - 余额补充确定性生成并限长的 `room_name`；公共充值复用 M4 幂等记录保存完整 201 信封，固定 `mock/simulated`、不修改余额，并拒绝 UI 直调携带 Agent/Approval 字段；审计仅保存申请状态与模拟标志。
   - 电费领域、Tool、HTTP 与路由定向测试 `28 passed`、全量 pytest `528 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；Redocly 保留 5 条既有非阻断警告。OpenAPI 电费接口尚未声明自然 `401`，留最终契约收尾统一修订；真实 PostgreSQL 幂等验证仍待环境可用后执行。
+- [x] [#140 M2：实现外部事项进度 Mock Adapter 与 API](https://github.com/Doggod727/CampusPilot/issues/140)（2026-07-16）
+  - 新增 `CampusSystemPort/ServiceProgressService/MockCampusSystemAdapter` 并注册 `queryExternalServiceProgress`；Mock 数据按当前用户隔离，未归属与不存在统一返回安全的 `404 SERVICE_PROGRESS_NOT_FOUND`。
+  - 支持学生事务和教务系统固定演示结果，超时仅执行一次 50ms 重试；不支持系统、上游超时、非法响应和 Mock 关闭分别映射稳定的 422/503 错误，模块导入与存活检查不访问外部系统。
+  - 响应业务号保持原长度掩码且只显示末四位；日志和审计仅保存系统代码、SHA-256、末四位、耗时与结果。专项测试 `9 passed`、全量 pytest `537 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；Redocly 保留 5 条既有非阻断警告，真实校园系统 Adapter 不在本任务范围。
 
 ## M5 项目重审与契约基线
 
