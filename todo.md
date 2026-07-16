@@ -308,6 +308,10 @@
   - 映射 `service_guides`、`guide_applicabilities`、`guide_materials`、`guide_steps`，字段、PostgreSQL 类型、默认值、复合主键、唯一约束、CHECK、GIN/排序索引和外键删除策略与 `0002` 迁移一致。
   - 保持扁平 ORM 边界，不新增 Alembic Revision、relationship、Repository、Service、HTTP 路由或 OpenAPI 变更。
   - M2 模型定向测试 `10 passed`、全量 pytest `461 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL 验证仍待环境可用后执行。
+- [x] [#130 M2：实现工单 ORM](https://github.com/Doggod727/CampusPilot/issues/130)（2026-07-16）
+  - 映射 `work_orders`、`work_order_events`、`work_order_ratings`，完整保留状态、故障类型、描述长度、时间窗口、终态说明、版本、评分、复合唯一约束和队列/处理人/时间线索引。
+  - `created_by`、`assigned_to`、`actor_user_id`、`user_id` 保持逻辑 UUID 且无跨 Schema 外键；本任务不新增状态机、编号、幂等、Repository、Service、路由或 OpenAPI 变更。
+  - M2 模型定向测试 `13 passed`、全量 pytest `464 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL 验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 

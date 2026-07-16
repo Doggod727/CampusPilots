@@ -15,6 +15,9 @@ from app.modules.campus_service.models import (
     GuideMaterial,
     GuideStep,
     ServiceGuide,
+    WorkOrder,
+    WorkOrderEvent,
+    WorkOrderRating,
 )
 
 EXPECTED_TABLES = {
@@ -26,6 +29,9 @@ EXPECTED_TABLES = {
     "campus_service.guide_applicabilities",
     "campus_service.guide_materials",
     "campus_service.guide_steps",
+    "campus_service.work_orders",
+    "campus_service.work_order_events",
+    "campus_service.work_order_ratings",
     "campus_service.electricity_accounts",
     "campus_service.electricity_account_members",
     "campus_service.electricity_topup_requests",
@@ -176,6 +182,86 @@ def test_guide_foreign_keys_indexes_and_postgresql_ddl_match_migration() -> None
     assert "ix_guide_applicabilities_audience" in indexes
     assert "ix_guide_materials_guide" in indexes
     assert "USING gin (condition)" in indexes
+
+
+def test_work_order_metadata_and_constraints_match_migration() -> None:
+    assert set(WorkOrder.__table__.columns.keys()) == {
+        "id", "order_no", "created_by", "campus_code", "dormitory_area", "building",
+        "room", "fault_category", "description", "preferred_start_at", "preferred_end_at",
+        "status", "assigned_to", "assigned_department_id", "rejection_reason",
+        "completion_note", "version", "submitted_at", "accepted_at", "processing_at",
+        "completed_at", "cancelled_at", "rejected_at", "created_at", "updated_at",
+    }
+    assert set(WorkOrderEvent.__table__.columns.keys()) == {
+        "id", "work_order_id", "sequence_no", "event_type", "from_status", "to_status",
+        "actor_user_id", "actor_role", "reason", "snapshot", "created_at",
+    }
+    assert set(WorkOrderRating.__table__.columns.keys()) == {
+        "id", "work_order_id", "user_id", "score", "comment", "created_at"
+    }
+    assert constraint_names(WorkOrder) == {
+        "ck_work_orders_fault_category", "ck_work_orders_description_length",
+        "ck_work_orders_preferred_window", "ck_work_orders_status",
+        "ck_work_orders_version", "ck_work_orders_terminal_reason",
+    }
+    assert constraint_names(WorkOrderEvent) == {
+        "ck_work_order_events_sequence", "ck_work_order_events_snapshot",
+        "ck_work_order_events_to_status", "ck_work_order_events_from_status",
+    }
+    assert constraint_names(WorkOrderRating) == {"ck_work_order_ratings_score"}
+
+
+def test_work_order_foreign_keys_indexes_and_postgresql_ddl_match_migration() -> None:
+    models = (WorkOrder, WorkOrderEvent, WorkOrderRating)
+    foreign_keys = {
+        (model.__tablename__, key.parent.name): (key.target_fullname, key.ondelete)
+        for model in models for key in model.__table__.foreign_keys
+    }
+    assert foreign_keys == {
+        ("work_orders", "campus_code"): ("campus_service.campuses.code", "RESTRICT"),
+        ("work_orders", "assigned_department_id"): (
+            "campus_service.departments.id", "SET NULL"
+        ),
+        ("work_order_events", "work_order_id"): (
+            "campus_service.work_orders.id", "CASCADE"
+        ),
+        ("work_order_ratings", "work_order_id"): (
+            "campus_service.work_orders.id", "CASCADE"
+        ),
+    }
+    assert not WorkOrder.created_by.foreign_keys
+    assert not WorkOrder.assigned_to.foreign_keys
+    assert not WorkOrderEvent.actor_user_id.foreign_keys
+    assert not WorkOrderRating.user_id.foreign_keys
+    dialect = postgresql.dialect()
+    ddl = "\n".join(str(CreateTable(model.__table__).compile(dialect=dialect)) for model in models)
+    indexes = "\n".join(
+        str(CreateIndex(index).compile(dialect=dialect))
+        for model in models for index in model.__table__.indexes
+    )
+    assert "UNIQUE (work_order_id, sequence_no)" in ddl
+    assert "UNIQUE (work_order_id)" in ddl
+    assert "score SMALLINT" in ddl
+    assert "snapshot JSONB DEFAULT '{}'::jsonb" in ddl
+    assert "ix_work_orders_owner" in indexes and "created_at DESC" in indexes
+    assert "ix_work_orders_staff_queue" in indexes and "submitted_at ASC" in indexes
+    assert "ix_work_orders_assignee" in indexes and "WHERE assigned_to IS NOT NULL" in indexes
+    assert "ix_work_order_events_timeline" in indexes
+
+
+def test_work_order_repr_hides_private_business_values() -> None:
+    work_order = WorkOrder(
+        dormitory_area="Private dorm",
+        building="Secret building",
+        room="512",
+        description="Sensitive repair description",
+    )
+    event = WorkOrderEvent(snapshot={"room": "512", "description": "Sensitive snapshot"})
+    rating = WorkOrderRating(comment="Sensitive rating comment")
+    assert "Private dorm" not in repr(work_order)
+    assert "Sensitive repair description" not in repr(work_order)
+    assert "Sensitive snapshot" not in repr(event)
+    assert "Sensitive rating comment" not in repr(rating)
 
 
 def test_electricity_metadata_matches_migration() -> None:

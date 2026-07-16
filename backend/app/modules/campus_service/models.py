@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -251,6 +252,148 @@ class GuideStep(Base):
     description: Mapped[str] = mapped_column(Text())
     location: Mapped[str | None] = mapped_column(String(300))
     estimated_minutes: Mapped[int | None] = mapped_column(Integer())
+
+
+class WorkOrder(Base):
+    __tablename__ = "work_orders"
+    __table_args__ = (
+        CheckConstraint(
+            "fault_category IN ('electric', 'plumbing', 'network', 'furniture', "
+            "'door_window', 'other')",
+            name="ck_work_orders_fault_category",
+        ),
+        CheckConstraint(
+            "char_length(description) BETWEEN 10 AND 1000",
+            name="ck_work_orders_description_length",
+        ),
+        CheckConstraint(
+            "preferred_end_at > preferred_start_at",
+            name="ck_work_orders_preferred_window",
+        ),
+        CheckConstraint(
+            "status IN ('submitted', 'accepted', 'processing', 'completed', "
+            "'cancelled', 'rejected')",
+            name="ck_work_orders_status",
+        ),
+        CheckConstraint("version >= 1", name="ck_work_orders_version"),
+        CheckConstraint(
+            "(status <> 'rejected' OR rejection_reason IS NOT NULL) AND "
+            "(status <> 'completed' OR completion_note IS NOT NULL)",
+            name="ck_work_orders_terminal_reason",
+        ),
+        Index("ix_work_orders_owner", "created_by", text("created_at DESC")),
+        Index(
+            "ix_work_orders_staff_queue",
+            "campus_code",
+            "dormitory_area",
+            "status",
+            text("submitted_at ASC"),
+        ),
+        Index(
+            "ix_work_orders_assignee",
+            "assigned_to",
+            "status",
+            text("updated_at DESC"),
+            postgresql_where=text("assigned_to IS NOT NULL"),
+        ),
+        {"schema": CAMPUS_SERVICE_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    order_no: Mapped[str] = mapped_column(String(32), unique=True)
+    created_by: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    campus_code: Mapped[str] = mapped_column(
+        String(30), ForeignKey("campus_service.campuses.code", ondelete="RESTRICT")
+    )
+    dormitory_area: Mapped[str] = mapped_column(String(100))
+    building: Mapped[str] = mapped_column(String(50))
+    room: Mapped[str] = mapped_column(String(30))
+    fault_category: Mapped[str] = mapped_column(String(30))
+    description: Mapped[str] = mapped_column(String(1000))
+    preferred_start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    preferred_end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), server_default=text("'submitted'"))
+    assigned_to: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    assigned_department_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("campus_service.departments.id", ondelete="SET NULL"),
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(String(500))
+    completion_note: Mapped[str | None] = mapped_column(String(1000))
+    version: Mapped[int] = mapped_column(Integer(), server_default=text("1"))
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processing_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class WorkOrderEvent(Base):
+    __tablename__ = "work_order_events"
+    __table_args__ = (
+        UniqueConstraint("work_order_id", "sequence_no"),
+        CheckConstraint("sequence_no >= 1", name="ck_work_order_events_sequence"),
+        CheckConstraint(
+            "jsonb_typeof(snapshot) = 'object'", name="ck_work_order_events_snapshot"
+        ),
+        CheckConstraint(
+            "to_status IN ('submitted', 'accepted', 'processing', 'completed', "
+            "'cancelled', 'rejected')",
+            name="ck_work_order_events_to_status",
+        ),
+        CheckConstraint(
+            "from_status IS NULL OR from_status IN ('submitted', 'accepted', 'processing', "
+            "'completed', 'cancelled', 'rejected')",
+            name="ck_work_order_events_from_status",
+        ),
+        Index("ix_work_order_events_timeline", "work_order_id", "sequence_no"),
+        {"schema": CAMPUS_SERVICE_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    work_order_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("campus_service.work_orders.id", ondelete="CASCADE"),
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer())
+    event_type: Mapped[str] = mapped_column(String(40))
+    from_status: Mapped[str | None] = mapped_column(String(16))
+    to_status: Mapped[str] = mapped_column(String(16))
+    actor_user_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    actor_role: Mapped[str] = mapped_column(String(50))
+    reason: Mapped[str | None] = mapped_column(String(500))
+    snapshot: Mapped[dict[str, object]] = mapped_column(
+        JSONB(), server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class WorkOrderRating(Base):
+    __tablename__ = "work_order_ratings"
+    __table_args__ = (
+        CheckConstraint("score BETWEEN 1 AND 5", name="ck_work_order_ratings_score"),
+        {"schema": CAMPUS_SERVICE_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    work_order_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("campus_service.work_orders.id", ondelete="CASCADE"),
+        unique=True,
+    )
+    user_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    score: Mapped[int] = mapped_column(SmallInteger())
+    comment: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class ElectricityAccount(Base):
