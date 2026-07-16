@@ -279,6 +279,71 @@ class EventRepository:
 
 
 @dataclass(frozen=True)
+class LostFoundPage:
+    items: tuple[LostFoundItem, ...]
+    total: int
+
+
+class LostFoundRepository:
+    """Lost-found persistence with visibility enforced in SQL."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list(
+        self, *, user_id: UUID, mine: bool, item_type: str | None,
+        category: str | None, location: str | None, occurred_from: object | None,
+        occurred_to: object | None, page: int, page_size: int,
+    ) -> LostFoundPage:
+        predicates = [LostFoundItem.deleted_at.is_(None)]
+        if mine:
+            predicates.append(LostFoundItem.owner_user_id == user_id)
+        else:
+            predicates.append(LostFoundItem.status.in_(("published", "claiming")))
+        if item_type:
+            predicates.append(LostFoundItem.item_type == item_type)
+        if category:
+            predicates.append(LostFoundItem.category == category)
+        if location:
+            escaped = location.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            if escaped:
+                predicates.append(LostFoundItem.location.ilike(f"%{escaped}%", escape="\\"))
+        if occurred_from is not None:
+            predicates.append(LostFoundItem.occurred_at >= occurred_from)
+        if occurred_to is not None:
+            predicates.append(LostFoundItem.occurred_at <= occurred_to)
+        statement = select(LostFoundItem).where(*predicates).order_by(
+            LostFoundItem.occurred_at.desc(), LostFoundItem.id.desc(),
+        ).offset((page - 1) * page_size).limit(page_size)
+        count = select(func.count()).select_from(LostFoundItem).where(*predicates)
+        items = tuple((await self._session.execute(statement)).scalars().all())
+        return LostFoundPage(items, int((await self._session.execute(count)).scalar_one()))
+
+    async def get_visible(
+        self, *, item_id: UUID, user_id: UUID, moderator: bool,
+    ) -> LostFoundItem | None:
+        visibility = or_(
+            LostFoundItem.status.in_(("published", "claiming")),
+            LostFoundItem.owner_user_id == user_id,
+        )
+        if moderator:
+            visibility = or_(visibility, LostFoundItem.status != "deleted")
+        statement = select(LostFoundItem).where(
+            LostFoundItem.id == item_id, LostFoundItem.deleted_at.is_(None), visibility,
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_for_update(self, item_id: UUID) -> LostFoundItem | None:
+        statement = select(LostFoundItem).where(
+            LostFoundItem.id == item_id, LostFoundItem.deleted_at.is_(None),
+        ).with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    def add(self, item: LostFoundItem) -> None:
+        self._session.add(item)
+
+
+@dataclass(frozen=True)
 class CommentPage:
     items: tuple[Comment, ...]
     total: int

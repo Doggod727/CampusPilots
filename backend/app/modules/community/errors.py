@@ -106,3 +106,8 @@ class EventCapacityFull(AppError):
 class EventRegistrationNotFound(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=404, code="EVENT_REGISTRATION_NOT_FOUND", message="报名记录不存在")
+
+
+class LostFoundItemNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, code="LOST_FOUND_ITEM_NOT_FOUND", message="失物招领记录不存在或不可见")
