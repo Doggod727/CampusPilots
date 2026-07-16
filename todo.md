@@ -393,6 +393,9 @@
 - [x] [#152 M3：建立社区配置、演示话题与认证加密基线](https://github.com/Doggod727/CampusPilot/issues/152)（2026-07-16）
   - 将 SQL 008 的 9 项社区配置和三个固定话题纳入既有单事务种子；创建者通过 community01 自然键解析，只有 tree-hole 允许匿名，重复执行按固定 ID 幂等更新。
   - 新增可选社区加密/匹配设置和 Fernet 认证加密 Codec；密钥缺失不影响导入与非敏感 API，错误密钥、篡改和非法明文均返回不含敏感值的稳定错误。定向测试 `27 passed`、全量 pytest `603 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#153 M3：实现话题仓储与应用服务](https://github.com/Doggod727/CampusPilot/issues/153)（2026-07-16）
+  - TopicRepository 在 SQL 层过滤逻辑删除和状态，提供稳定分页、行锁详情、code/name 冲突检查及未删除帖子存在性检查，并保持调用方 Session 所有权。
+  - TopicService 实现查询、M4 幂等创建、乐观锁更新和受保护逻辑删除；审计仅保存 ID/code/status/version，不保存描述。定向测试 `8 passed`、全量 pytest `611 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 
