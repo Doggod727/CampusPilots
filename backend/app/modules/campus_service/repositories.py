@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.campus_service.models import (
@@ -12,7 +12,11 @@ from app.modules.campus_service.models import (
     ElectricityAccount,
     ElectricityAccountMember,
     ElectricityTopupRequest,
+    GuideApplicability,
     GuideCategory,
+    GuideMaterial,
+    GuideStep,
+    ServiceGuide,
 )
 
 
@@ -28,6 +32,42 @@ class ContactListQuery:
     department_id: UUID | None
     campus_code: str | None
     as_of: date
+
+
+@dataclass(frozen=True)
+class GuideSearchQuery:
+    page: int
+    page_size: int
+    q: str | None
+    category_code: str | None
+    department_id: UUID | None
+    campus_code: str | None
+    student_type: str | None
+    as_of: date
+
+
+@dataclass(frozen=True)
+class GuideSearchRow:
+    guide: ServiceGuide
+    category: GuideCategory
+    department: Department
+
+
+@dataclass(frozen=True)
+class GuideSearchPage:
+    rows: tuple[GuideSearchRow, ...]
+    total: int
+
+
+@dataclass(frozen=True)
+class GuideDetailRecord:
+    guide: ServiceGuide
+    category: GuideCategory
+    department: Department
+    applicability: GuideApplicability
+    materials: tuple[GuideMaterial, ...]
+    steps: tuple[GuideStep, ...]
+    contacts: tuple[DepartmentContact, ...]
 
 
 def _active_contact_filters(as_of: date):
@@ -136,6 +176,148 @@ class DepartmentRepository:
         )
         return tuple((await self._session.execute(statement)).scalars().all())
 
+
+class GuideRepository:
+    """Published guide queries with audience and validity enforced in SQL."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    @staticmethod
+    def _visibility_filters(as_of: date):
+        return (
+            ServiceGuide.status == "published",
+            or_(ServiceGuide.valid_until.is_(None), ServiceGuide.valid_until >= as_of),
+            GuideCategory.enabled.is_(True),
+            Department.enabled.is_(True),
+        )
+
+    @staticmethod
+    def _audience_exists(
+        *, campus_code: str | None, student_type: str | None
+    ):
+        filters = [GuideApplicability.guide_id == ServiceGuide.id]
+        if campus_code is not None:
+            filters.append(GuideApplicability.campus_code == campus_code)
+        if student_type is not None:
+            filters.append(GuideApplicability.student_type.in_((student_type, "all")))
+        return exists(select(1).where(*filters))
+
+    async def search_published(self, query: GuideSearchQuery) -> GuideSearchPage:
+        filters = [
+            *self._visibility_filters(query.as_of),
+            self._audience_exists(
+                campus_code=query.campus_code,
+                student_type=query.student_type,
+            ),
+        ]
+        pattern = _literal_search_pattern(query.q)
+        if pattern is not None:
+            filters.append(
+                or_(
+                    ServiceGuide.title.ilike(pattern, escape="\\"),
+                    ServiceGuide.summary.ilike(pattern, escape="\\"),
+                )
+            )
+        if query.category_code is not None:
+            filters.append(GuideCategory.code == query.category_code)
+        if query.department_id is not None:
+            filters.append(ServiceGuide.department_id == query.department_id)
+
+        count_statement = (
+            select(func.count(ServiceGuide.id))
+            .join(GuideCategory, GuideCategory.id == ServiceGuide.category_id)
+            .join(Department, Department.id == ServiceGuide.department_id)
+            .where(*filters)
+        )
+        total = (await self._session.execute(count_statement)).scalar_one()
+
+        statement = (
+            select(ServiceGuide, GuideCategory, Department)
+            .join(GuideCategory, GuideCategory.id == ServiceGuide.category_id)
+            .join(Department, Department.id == ServiceGuide.department_id)
+            .where(*filters)
+            .order_by(
+                GuideCategory.sort_order,
+                ServiceGuide.updated_at.desc(),
+                ServiceGuide.id,
+            )
+            .limit(query.page_size)
+            .offset((query.page - 1) * query.page_size)
+        )
+        rows = tuple(
+            GuideSearchRow(guide=guide, category=category, department=department)
+            for guide, category, department in (await self._session.execute(statement)).all()
+        )
+        return GuideSearchPage(rows=rows, total=total)
+
+    async def get_published_detail(
+        self,
+        *,
+        guide_id: UUID,
+        campus_code: str,
+        student_type: str,
+        as_of: date,
+    ) -> GuideDetailRecord | None:
+        statement = (
+            select(ServiceGuide, GuideCategory, Department, GuideApplicability)
+            .join(GuideCategory, GuideCategory.id == ServiceGuide.category_id)
+            .join(Department, Department.id == ServiceGuide.department_id)
+            .join(
+                GuideApplicability,
+                GuideApplicability.guide_id == ServiceGuide.id,
+            )
+            .where(
+                ServiceGuide.id == guide_id,
+                *self._visibility_filters(as_of),
+                GuideApplicability.campus_code == campus_code,
+                GuideApplicability.student_type.in_((student_type, "all")),
+            )
+            .order_by(
+                case((GuideApplicability.student_type == student_type, 0), else_=1)
+            )
+            .limit(1)
+        )
+        row = (await self._session.execute(statement)).first()
+        if row is None:
+            return None
+        guide, category, department, applicability = row
+
+        material_statement = (
+            select(GuideMaterial)
+            .where(GuideMaterial.guide_id == guide.id)
+            .order_by(GuideMaterial.sort_order, GuideMaterial.id)
+        )
+        materials = tuple(
+            (await self._session.execute(material_statement)).scalars().all()
+        )
+        step_statement = (
+            select(GuideStep)
+            .where(GuideStep.guide_id == guide.id)
+            .order_by(GuideStep.step_no, GuideStep.id)
+        )
+        steps = tuple((await self._session.execute(step_statement)).scalars().all())
+        contact_statement = (
+            select(DepartmentContact)
+            .where(
+                DepartmentContact.department_id == department.id,
+                DepartmentContact.campus_code == campus_code,
+                *_active_contact_filters(as_of),
+            )
+            .order_by(DepartmentContact.office_name, DepartmentContact.id)
+        )
+        contacts = tuple(
+            (await self._session.execute(contact_statement)).scalars().all()
+        )
+        return GuideDetailRecord(
+            guide=guide,
+            category=category,
+            department=department,
+            applicability=applicability,
+            materials=materials,
+            steps=steps,
+            contacts=contacts,
+        )
 
 class ElectricityRepository:
     """Caller-owned-session persistence for mock electricity operations."""
