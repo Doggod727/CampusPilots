@@ -592,6 +592,16 @@ CELERY_RESULT_BACKEND=redis://redis:6379/2
 
 文档版本：V1.0。评审时优先确认：知识库授权规则、0.62 阈值、SSE 事件协议、M5 Tool Schema、演示知识文件和 30 道题集。
 
+## V1.1 实现收尾（2026-07-15）
+
+- 已实现知识库、文档、入库任务、会话、消息、同步 Chat、SSE、引用和反馈的后端接口。
+- 文档删除严格返回 HTTP 204；上传批次返回 202，并要求 `Idempotency-Key`。
+- 检索固定先求授权知识库交集，再执行向量召回和 PostgreSQL 发布状态回查；最高分低于 0.62 时返回 fallback，不调用 DeepSeek、不伪造引用。
+- SSE 固定使用 `meta → delta* → sources → done`，失败为 `meta → error`；首个 delta 后禁止透明重试，断线通过 `getMessage` 恢复。
+- `knowledge.search` 和 `knowledge.answer` 已替换 M5 Mock；Tool 上下文提交的知识库范围只能缩小，空范围返回安全兜底。
+- PostgreSQL 是文档与 Chunk 事实源，Chroma 仅保存可重建索引；本地 BGE 模型必须预置，模块导入和 `/health/live` 不加载模型。
+- 稳定资源错误包括 `KNOWLEDGE_BASE_NOT_FOUND`、`DOCUMENT_NOT_FOUND`、`INGESTION_JOB_NOT_FOUND`、`CONVERSATION_NOT_FOUND`、`MESSAGE_STATE_CONFLICT` 和 `FEEDBACK_NOT_ALLOWED`，均使用统一扁平错误信封。
+
 # 18. M5 Tool Adapter 回补设计
 
 ## 18.1 首期范围调整

@@ -73,6 +73,7 @@ async def delete_conversation(conversation_id: UUID, user: Annotated[Authenticat
     entity = await state[1].get_owned(conversation_id, user.user_id, lock=True)
     if entity is None: raise ConversationNotFound()
     entity.status, entity.deleted_at = "deleted", datetime.now(UTC)
+    await state[0].commit()
     return Response(status_code=204)
 
 
@@ -111,4 +112,5 @@ async def create_feedback(message_id: UUID, body: FeedbackRequest, request: Requ
     else:
         existing.rating, existing.correction = body.rating, body.correction
     await state[0].flush()
+    await state[0].commit()
     return SuccessResponse(data={"id": existing.id, "message_id": existing.message_id, "rating": existing.rating, "correction": existing.correction, "created_at": existing.created_at}, request_id=request.state.request_id, timestamp=datetime.now(UTC))

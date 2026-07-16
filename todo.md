@@ -562,8 +562,12 @@
   - 原子追加有界引用快照，并为本人已完成/兜底回答提供-1/1幂等反馈upsert。
 - [x] [#126 M1：真实知识Tool Adapter](https://github.com/Doggod727/CampusPilot/issues/126)（2026-07-15）
   - knowledge.search/answer改用M1授权检索与DeepSeek网关；Tool传入知识范围只能缩小，空范围安全兜底。
+- [x] [#127 M1：种子、RAG评测与最终验收](https://github.com/Doggod727/CampusPilot/issues/127)（2026-07-15）
+  - 提供幂等M1配置/演示知识种子、入库Worker CLI和30题冻结评测集；同步OpenAPI行为、详细设计与README；483项后端测试通过。
 
 ## 待办
+
+- [ ] 在具备PostgreSQL、Chroma、本地BGE模型及DeepSeek密钥的环境执行M1真实上传→入库→检索→REST/SSE→Tool端到端验证。
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
 - [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。

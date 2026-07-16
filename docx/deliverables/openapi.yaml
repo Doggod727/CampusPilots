@@ -17,6 +17,19 @@ servers:
     description: 后端本地开发
   - url: http://localhost
     description: Docker Compose 演示环境
+x-m1-stable-error-codes:
+  KNOWLEDGE_BASE_NOT_FOUND: 404
+  KNOWLEDGE_BASE_IN_USE: 409
+  DOCUMENT_NOT_FOUND: 404
+  DOCUMENT_NOT_READY: 409
+  DOCUMENT_FORMAT_UNSUPPORTED: 415
+  INGESTION_JOB_NOT_FOUND: 404
+  INGESTION_RETRY_NOT_ALLOWED: 409
+  CONVERSATION_NOT_FOUND: 404
+  MESSAGE_STATE_CONFLICT: 409
+  FEEDBACK_NOT_ALLOWED: 409
+  VECTOR_STORE_UNAVAILABLE: 502
+  LLM_TIMEOUT: 504
 tags:
   - name: Health
     description: 存活与就绪检查

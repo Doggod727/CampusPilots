@@ -79,7 +79,8 @@ async def stream_chat(body: ChatRequest, request: Request, user: Annotated[Authe
             raise ConversationNotFound()
         user_message, assistant = await conversations.append_turn(conversation.id, user.user_id, body.question, request.state.request_id)
         result = await service.retrieval.search(user, body.question, body.knowledge_base_ids)
-        append_citations(session, assistant.id, result.citations)
+        if result.citations:
+            append_citations(session, assistant.id, result.citations)
         await session.commit()
         yield sse("meta", {"conversation_id": conversation.id, "message_id": assistant.id, "request_id": request.state.request_id})
         citations = [{"citation_no": index + 1, "document_id": item.document_id, "document_title": item.document_title, "source_location": item.source_location, "page_number": item.page_number, "quote_excerpt": item.content[:500], "relevance_score": item.score} for index, item in enumerate(result.citations)]

@@ -93,9 +93,25 @@ Worker 接入，不能把排队成功解释为评估已完成。
 调用 Worker，API 进程和 `/health/live` 不会自动启动评估或加载模型。
 
 M5 P0 后端已覆盖 Agent/Tool 目录、运行、审批、SSE、数据集、训练任务骨架、模型注册和
-评估任务骨架。当前 M2 电费与 M4 治理为真实 Service Adapter；M1 知识和 M3 社区仍为明确
+评估任务骨架。当前 M1 知识、M2 电费与 M4 治理为真实 Service Adapter；M3 社区仍为明确
 Mock，必须在相应模块完成后替换。MCP、Reranker、真实 LoRA/QLoRA、并行 Agent、前端与
 Compose 属于后续增强，不计入本次 P0 验收。
+
+## M1 知识库与 RAG
+
+M1 提供知识库和文档生命周期、异步入库、授权检索、会话、同步 Chat、SSE、引用和反馈。
+本地向量能力使用可选 AI 依赖；生产启动前执行 `pip install -e ".[ai]"`，并预先将
+`BAAI/bge-small-zh-v1.5` 放置到 `KNOWLEDGE_EMBEDDING_MODEL_PATH`，禁止运行时自动下载。
+
+```powershell
+cd backend
+python -m app.scripts.seed_ai_knowledge
+python -m app.scripts.ingestion_worker
+```
+
+`KNOWLEDGE_CHROMA_PATH` 只保存可重建向量索引，PostgreSQL 中的 Document/Chunk/发布状态
+始终是事实源。DeepSeek 仅在检索达到 0.62 阈值时调用；无可靠上下文直接返回 fallback。
+当前环境未提供真实 PostgreSQL、Chroma、本地模型和 DeepSeek，因此保留真实端到端验收待办。
 
 运行当前后端测试：
 
