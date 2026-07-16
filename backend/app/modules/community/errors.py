@@ -136,3 +136,8 @@ class LostFoundClaimNotFound(AppError):
 class LostFoundClaimConflict(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=409, code="LOST_FOUND_CLAIM_CONFLICT", message="已存在进行中的认领")
+
+
+class LostFoundClaimStateInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="LOST_FOUND_CLAIM_STATE_INVALID", message="当前认领状态不允许此操作")

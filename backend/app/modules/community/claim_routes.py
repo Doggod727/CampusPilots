@@ -3,14 +3,15 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.community.claim_schemas import (
-    ClaimCreateRequest, ClaimPageResponse, ClaimResponse, ClaimStatus,
-    claim_model, claim_page_model,
+    ClaimCompletionRequest, ClaimContactResponse, ClaimCreateRequest,
+    ClaimDecisionRequest, ClaimPageResponse, ClaimResponse, ClaimStatus,
+    claim_model, claim_page_model, contact_model,
 )
 from app.modules.community.claims import LostFoundClaimService
 from app.modules.community.encryption import CommunityCipher
@@ -84,3 +85,47 @@ async def get_claim(
 ) -> ClaimResponse:
     return SuccessResponse(data=claim_model(await service.get(actor=actor, claim_id=claim_id)),
                            request_id=request.state.request_id, timestamp=datetime.now(UTC))
+
+
+@router.post("/{claim_id}/decision", operation_id="decideLostFoundClaim",
+             response_model=ClaimResponse)
+async def decide_claim(
+    claim_id: UUID, payload: ClaimDecisionRequest, request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("community:write"))],
+    service: Annotated[LostFoundClaimService, Depends(get_claim_service)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
+) -> JSONResponse:
+    body = payload.model_dump(mode="json")
+    result = await service.decide(actor=actor, claim_id=claim_id,
+        decision_value=payload.decision, reason=payload.reason, version=payload.version,
+        idempotency_key=idempotency_key, request_id=request.state.request_id,
+        request_body=body)
+    return JSONResponse(status_code=result.status_code, content=result.body)
+
+
+@router.get("/{claim_id}/contact", operation_id="getLostFoundClaimContact",
+            response_model=ClaimContactResponse)
+async def get_claim_contact(
+    claim_id: UUID, request: Request, response: Response,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("community:write"))],
+    service: Annotated[LostFoundClaimService, Depends(get_claim_service)],
+) -> ClaimContactResponse:
+    data = await service.contact(actor=actor, claim_id=claim_id, request_id=request.state.request_id)
+    response.headers["Cache-Control"] = "no-store"
+    return SuccessResponse(data=contact_model(data), request_id=request.state.request_id,
+                           timestamp=datetime.now(UTC))
+
+
+@router.post("/{claim_id}/completion", operation_id="confirmLostFoundClaimCompletion",
+             response_model=ClaimResponse)
+async def complete_claim(
+    claim_id: UUID, payload: ClaimCompletionRequest, request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("community:write"))],
+    service: Annotated[LostFoundClaimService, Depends(get_claim_service)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
+) -> JSONResponse:
+    body = payload.model_dump(mode="json")
+    result = await service.complete(actor=actor, claim_id=claim_id, version=payload.version,
+        idempotency_key=idempotency_key, request_id=request.state.request_id,
+        request_body=body)
+    return JSONResponse(status_code=result.status_code, content=result.body)

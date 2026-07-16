@@ -489,6 +489,23 @@ class LostFoundClaimRepository:
     def add(self, claim: LostFoundClaim) -> None:
         self._session.add(claim)
 
+    async def other_active_exists(self, *, target_id: UUID, excluding: UUID) -> bool:
+        statement = select(LostFoundClaim.id).where(
+            LostFoundClaim.target_item_id == target_id,
+            LostFoundClaim.id != excluding,
+            LostFoundClaim.status.in_(("pending", "verified")),
+        ).limit(1)
+        return (await self._session.execute(statement)).scalar_one_or_none() is not None
+
+    async def items_for_update(self, ids: set[UUID]) -> dict[UUID, LostFoundItem]:
+        if not ids:
+            return {}
+        statement = select(LostFoundItem).where(LostFoundItem.id.in_(ids)).order_by(
+            LostFoundItem.id,
+        ).with_for_update()
+        rows = (await self._session.execute(statement)).scalars().all()
+        return {row.id: row for row in rows}
+
 
 @dataclass(frozen=True)
 class CommentPage:

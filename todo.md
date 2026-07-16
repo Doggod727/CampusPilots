@@ -442,6 +442,9 @@
 - [x] [#168 M3：实现认领创建、列表和详情 API](https://github.com/Doggod727/CampusPilot/issues/168)（2026-07-16）
   - 注册创建、本人列表和参与者详情；目标/claimant item 规则、活动认领唯一、evidence 加密、目标 claiming、SQL 参与者可见性与批量加载均已实现。幂等记录只保存 request/timestamp/resource_id，重放重新授权并解密。
   - 认领专项 `2 passed`、全量 pytest `677 passed`（11 条既有警告）及全部门禁通过；M3 累计注册 `35/38`。
+- [x] [#169 M3：完成认领决策、联系方式与双方完成 API](https://github.com/Doggod727/CampusPilot/issues/169)（2026-07-16）
+  - 目标所有者决策、verified/completed 双方 no-store 联系方式交换、站内联系回退、按 UUID 排序锁定物品和双方确认完成均已实现；决策/完成幂等记录只存安全元数据，审计不保存联系方式或 evidence。
+  - 认领专项 `3 passed`、全量 pytest `678 passed`（11 条既有警告）及全部门禁通过；M3 HTTP operationId 达到 `38/38`。真实 PostgreSQL 锁顺序和完整加密认领 E2E 待环境验证。
 
 ## M5 项目重审与契约基线
 

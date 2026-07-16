@@ -33,3 +33,9 @@ class PlatformPublicUserProfileAdapter:
             user_id: PublicUserProfile(user_id, display_name)
             for user_id, display_name in (await self._session.execute(statement)).all()
         }
+
+    async def usernames(self, user_ids: set[UUID]) -> dict[UUID, str]:
+        if not user_ids:
+            return {}
+        statement = select(User.id, User.username).where(User.id.in_(user_ids))
+        return dict((await self._session.execute(statement)).all())

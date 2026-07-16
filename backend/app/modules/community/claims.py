@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.community.encryption import CommunityCipher
 from app.modules.community.errors import (
     LostFoundClaimConflict, LostFoundClaimInvalid, LostFoundClaimNotFound,
-    LostFoundItemNotFound,
+    LostFoundClaimStateInvalid, LostFoundItemNotFound,
 )
 from app.modules.community.lost_found import (
     LostFoundItemData, LostFoundQueryService, lost_found_payload,
@@ -51,6 +51,20 @@ class ClaimPageData:
 class ClaimMutationResult:
     status_code: int
     body: dict[str, object] = field(repr=False)
+
+
+@dataclass(frozen=True)
+class ContactPartyData:
+    user: PublicAuthorData
+    contact_type: str
+    contact_value: str = field(repr=False)
+
+
+@dataclass(frozen=True)
+class ClaimContactData:
+    claim_id: UUID
+    requester: ContactPartyData
+    counterpart: ContactPartyData
 
 
 class LostFoundClaimService:
@@ -126,6 +140,137 @@ class LostFoundClaimService:
     async def get(self, *, actor: AuthenticatedUser, claim_id: UUID) -> ClaimData:
         return await self._get(actor=actor, claim_id=claim_id)
 
+    async def decide(self, *, actor: AuthenticatedUser, claim_id: UUID,
+                     decision_value: str, reason: str | None, version: int,
+                     idempotency_key: str, request_id: str,
+                     request_body: object) -> ClaimMutationResult:
+        if decision_value == "rejected" and (reason is None or not 2 <= len(reason) <= 500):
+            raise LostFoundClaimInvalid()
+        async with self._session.begin():
+            idem = await self._idempotency.begin(user_id=actor.user_id,
+                endpoint=f"POST /api/v1/lost-found-claims/{claim_id}/decision",
+                idempotency_key=idempotency_key, request_body=request_body)
+            if idem.replay is not None:
+                data = await self._get(actor=actor, claim_id=claim_id)
+                meta = idem.replay.response_body
+                return ClaimMutationResult(200, claim_response_body(data,
+                    request_id=str(meta["request_id"]), timestamp=datetime.fromisoformat(str(meta["timestamp"]))))
+            if idem.pending:
+                raise IdempotencyConflict()
+            claim = await self._repository.get_visible(claim_id=claim_id,
+                                                       user_id=actor.user_id, for_update=True)
+            if claim is None:
+                raise LostFoundClaimNotFound()
+            target = await self._repository.get_target_for_update(claim.target_item_id)
+            if target is None or target.owner_user_id != actor.user_id:
+                raise LostFoundClaimNotFound()
+            if claim.status != "pending":
+                raise LostFoundClaimStateInvalid()
+            if claim.version != version:
+                from app.modules.community.errors import CommunityResourceVersionConflict
+                raise CommunityResourceVersionConflict()
+            now = self._time()
+            claim.status, claim.decided_by, claim.decided_at = decision_value, actor.user_id, now
+            claim.decision_reason = reason if decision_value == "rejected" else None
+            claim.version += 1
+            claim.updated_at = now
+            if decision_value == "rejected" and not await self._repository.other_active_exists(
+                    target_id=target.id, excluding=claim.id):
+                target.status, target.updated_at = "published", now
+            await self._session.flush()
+            data = await self._hydrate(actor, (claim,))
+            body = claim_response_body(data[0], request_id=request_id, timestamp=now)
+            self._audit.record_success(action="community.lost_found.claim.decide",
+                resource_type="lost_found_claim", resource_id=str(claim.id), request_id=request_id,
+                actor_user_id=actor.user_id, actor_username=actor.username,
+                after_data={"id": str(claim.id), "status": claim.status, "version": claim.version})
+            await self._complete_safe(idem.record_id, claim.id, request_id, now, 200)
+            return ClaimMutationResult(200, body)
+
+    async def contact(self, *, actor: AuthenticatedUser, claim_id: UUID,
+                      request_id: str) -> ClaimContactData:
+        claim = await self._repository.get_visible(claim_id=claim_id, user_id=actor.user_id)
+        if claim is None:
+            raise LostFoundClaimNotFound()
+        if claim.status not in {"verified", "completed"}:
+            raise LostFoundClaimStateInvalid()
+        targets = await self._repository.targets_by_ids({claim.target_item_id} |
+            ({claim.claimant_item_id} if claim.claimant_item_id else set()))
+        target = targets.get(claim.target_item_id)
+        if target is None:
+            raise LostFoundClaimNotFound()
+        profiles = await self._profiles.get_many({target.owner_user_id, claim.claimant_user_id})
+        usernames = await getattr(self._profiles, "usernames")({claim.claimant_user_id})
+        owner_party = self._item_contact(target, profiles)
+        if claim.claimant_item_id and claim.claimant_item_id in targets:
+            claimant_party = self._item_contact(targets[claim.claimant_item_id], profiles)
+        else:
+            profile = profiles.get(claim.claimant_user_id)
+            claimant_party = ContactPartyData(PublicAuthorData(claim.claimant_user_id,
+                profile.display_name if profile else "未知用户",
+                profile.avatar_url if profile else None, False), "other",
+                f"站内联系：{usernames.get(claim.claimant_user_id, 'unknown')}")
+        is_owner = actor.user_id == target.owner_user_id
+        result = ClaimContactData(claim.id, owner_party if is_owner else claimant_party,
+                                  claimant_party if is_owner else owner_party)
+        self._audit.record_success(action="community.lost_found.claim.contact",
+            resource_type="lost_found_claim", resource_id=str(claim.id), request_id=request_id,
+            actor_user_id=actor.user_id, actor_username=actor.username,
+            after_data={"id": str(claim.id), "authorized": True})
+        await self._session.commit()
+        return result
+
+    async def complete(self, *, actor: AuthenticatedUser, claim_id: UUID, version: int,
+                       idempotency_key: str, request_id: str,
+                       request_body: object) -> ClaimMutationResult:
+        async with self._session.begin():
+            idem = await self._idempotency.begin(user_id=actor.user_id,
+                endpoint=f"POST /api/v1/lost-found-claims/{claim_id}/completion",
+                idempotency_key=idempotency_key, request_body=request_body)
+            if idem.replay is not None:
+                data = await self._get(actor=actor, claim_id=claim_id)
+                meta = idem.replay.response_body
+                return ClaimMutationResult(200, claim_response_body(data,
+                    request_id=str(meta["request_id"]), timestamp=datetime.fromisoformat(str(meta["timestamp"]))))
+            if idem.pending:
+                raise IdempotencyConflict()
+            claim = await self._repository.get_visible(claim_id=claim_id,
+                                                       user_id=actor.user_id, for_update=True)
+            if claim is None:
+                raise LostFoundClaimNotFound()
+            if claim.status != "verified" or claim.version != version:
+                if claim.status != "verified":
+                    raise LostFoundClaimStateInvalid()
+                from app.modules.community.errors import CommunityResourceVersionConflict
+                raise CommunityResourceVersionConflict()
+            items = await self._repository.items_for_update({claim.target_item_id} |
+                ({claim.claimant_item_id} if claim.claimant_item_id else set()))
+            target = items.get(claim.target_item_id)
+            if target is None or actor.user_id not in {target.owner_user_id, claim.claimant_user_id}:
+                raise LostFoundClaimNotFound()
+            now = self._time()
+            if actor.user_id == claim.claimant_user_id:
+                claim.claimant_confirmed_at = claim.claimant_confirmed_at or now
+            if actor.user_id == target.owner_user_id:
+                claim.owner_confirmed_at = claim.owner_confirmed_at or now
+            claim.version += 1
+            claim.updated_at = now
+            if claim.claimant_confirmed_at and claim.owner_confirmed_at:
+                claim.status, claim.completed_at = "completed", now
+                for item in items.values():
+                    item.status, item.completed_at, item.updated_at = "completed", now, now
+            await self._session.flush()
+            data = await self._hydrate(actor, (claim,))
+            body = claim_response_body(data[0], request_id=request_id, timestamp=now)
+            self._audit.record_success(action="community.lost_found.claim.complete",
+                resource_type="lost_found_claim", resource_id=str(claim.id), request_id=request_id,
+                actor_user_id=actor.user_id, actor_username=actor.username,
+                after_data={"id": str(claim.id), "status": claim.status,
+                            "claimant_confirmed": claim.claimant_confirmed_at is not None,
+                            "owner_confirmed": claim.owner_confirmed_at is not None})
+            await self._complete_safe(idem.record_id, claim.id, request_id, now, 200)
+            return ClaimMutationResult(200, body)
+
     async def _get(self, *, actor: AuthenticatedUser, claim_id: UUID) -> ClaimData:
         row = await self._repository.get_visible(claim_id=claim_id, user_id=actor.user_id)
         if row is None:
@@ -154,6 +299,20 @@ class LostFoundClaimService:
     def _time(self) -> datetime:
         value = self._now()
         return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+    def _item_contact(self, item: object, profiles: dict[UUID, object]) -> ContactPartyData:
+        user_id = getattr(item, "owner_user_id")
+        profile = profiles.get(user_id)
+        return ContactPartyData(PublicAuthorData(user_id,
+            getattr(profile, "display_name", "未知用户"), getattr(profile, "avatar_url", None), False),
+            getattr(item, "contact_type"), self._cipher.decrypt(getattr(item, "contact_ciphertext")))
+
+    async def _complete_safe(self, record_id: UUID, claim_id: UUID,
+                             request_id: str, now: datetime, status: int) -> None:
+        safe = {"request_id": request_id, "timestamp": now.isoformat(), "resource_id": str(claim_id)}
+        if not await self._idempotency.complete(record_id=record_id, response_status=status,
+            response_body=safe, resource_type="lost_found_claim", resource_id=str(claim_id)):
+            raise IdempotencyConflict()
 
 
 def claim_payload(item: ClaimData) -> dict[str, object]:
