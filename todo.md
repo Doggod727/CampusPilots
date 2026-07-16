@@ -336,6 +336,10 @@
   - 注册 `listServiceGuides/getServiceGuide`，严格映射 OpenAPI 的分页、搜索、分类、部门、校区和学生类型参数，继续仅要求有效登录；指南类公共 operationId 累计 3 个且全局唯一。
   - 列表返回精确的指南摘要与分页元数据；详情复用一次授权查询和一次材料纯计算，返回适用规则、可解释材料、步骤与有效联系人，不暴露原始 condition 或契约外字段。
   - 指南 API 与既有查询联合定向测试 `26 passed`、全量 pytest `506 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL验证仍待环境可用后执行。
+- [x] [#137 M2：实现工单仓储、事件仓储与无竞态编号](https://github.com/Doggod727/CampusPilot/issues/137)（2026-07-16）
+  - 新增调用方 Session 所有制的 `WorkOrderRepository/WorkOrderEventRepository`，提供工单追加、不可变事件追加和按序时间线读取，不提交、回滚或关闭连接；资源范围查询留给后续列表与详情任务。
+  - 工单号固定为 `WO-YYYYMMDD-NNNN`，同事务先获取按日期划分的 PostgreSQL advisory lock，再读取严格格式的当天最大号并递增；达到 9999 后返回可重试的 `503 WORK_ORDER_NUMBER_EXHAUSTED`，未新增迁移。
+  - 工单仓储定向测试 `5 passed`、全量 pytest `511 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL并发验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 

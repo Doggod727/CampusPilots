@@ -17,7 +17,10 @@ from app.modules.campus_service.models import (
     GuideMaterial,
     GuideStep,
     ServiceGuide,
+    WorkOrder,
+    WorkOrderEvent,
 )
+from app.modules.campus_service.work_orders import WorkOrderNumberExhausted
 
 
 @dataclass(frozen=True)
@@ -318,6 +321,54 @@ class GuideRepository:
             steps=steps,
             contacts=contacts,
         )
+
+
+class WorkOrderRepository:
+    """Caller-owned-session persistence and locked public number allocation."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def add(self, work_order: WorkOrder) -> None:
+        self._session.add(work_order)
+
+    async def allocate_order_no(self, issue_date: date) -> str:
+        date_part = issue_date.strftime("%Y%m%d")
+        lock_key = f"work_order_number:{date_part}"
+        await self._session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtext(lock_key)))
+        )
+        prefix = f"WO-{date_part}"
+        statement = (
+            select(WorkOrder.order_no)
+            .where(WorkOrder.order_no.op("~")(rf"^{prefix}-[0-9]{{4}}$"))
+            .order_by(WorkOrder.order_no.desc())
+            .limit(1)
+        )
+        latest = (await self._session.execute(statement)).scalar_one_or_none()
+        sequence = int(latest[-4:]) + 1 if latest is not None else 1
+        if sequence > 9999:
+            raise WorkOrderNumberExhausted()
+        return f"{prefix}-{sequence:04d}"
+
+
+class WorkOrderEventRepository:
+    """Append-only work-order event persistence using caller-assigned sequences."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def append(self, event: WorkOrderEvent) -> None:
+        self._session.add(event)
+
+    async def list_timeline(self, work_order_id: UUID) -> tuple[WorkOrderEvent, ...]:
+        statement = (
+            select(WorkOrderEvent)
+            .where(WorkOrderEvent.work_order_id == work_order_id)
+            .order_by(WorkOrderEvent.sequence_no, WorkOrderEvent.id)
+        )
+        return tuple((await self._session.execute(statement)).scalars().all())
+
 
 class ElectricityRepository:
     """Caller-owned-session persistence for mock electricity operations."""
