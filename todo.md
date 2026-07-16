@@ -360,6 +360,10 @@
   - 新增纯 `WorkOrderStateMachine`，只允许 submitted→accepted/rejected/cancelled、accepted→processing、processing→completed；本人仅可取消自己的 submitted 工单，工作人员必须具备 `work_order:transition` 且命中持久化范围。
   - 注册 `transitionWorkOrder`，单事务串联 M4 幂等、范围内 `FOR UPDATE`、乐观版本校验、状态副作用、version+1、下一事件序号、脱敏审计和首次 200 信封；不可见、版本冲突与非法迁移分别返回稳定 404/409。
   - 事件快照只保存工单 ID、状态、版本和处理人，不保存宿舍、描述或原因正文；状态机、事务服务、仓储和路由定向测试 `39 passed`、全量 pytest `567 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过。真实 PostgreSQL 双处理员并发受理验证仍待环境可用后执行。
+- [x] [#143 M2：实现已完成工单一次性评价 API](https://github.com/Doggod727/CampusPilot/issues/143)（2026-07-16）
+  - 注册 `rateWorkOrder`，仅本人通过 owner-only `FOR UPDATE` 读取已完成工单；不可见、未完成和已有评价分别返回安全的 `WORK_ORDER_NOT_FOUND`、`WORK_ORDER_NOT_COMPLETED` 和 `WORK_ORDER_ALREADY_RATED`。
+  - 单事务串联 M4 幂等、完成状态与唯一评价检查、评价写入、脱敏审计和完整 201 信封；数据库一单一评约束继续作为最终并发防线，审计只保存评分与是否包含评论，不保存评论正文。
+  - 评价、仓储和路由定向测试 `39 passed`、全量 pytest `576 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；M2 的 15 个 OpenAPI operationId 已全部注册且全局唯一，真实 PostgreSQL 重复评价并发验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 

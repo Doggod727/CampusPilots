@@ -225,3 +225,19 @@ def test_transition_load_uses_scope_and_for_update_before_event_sequence() -> No
     sequence_sql = _sql(session.execute.await_args_list[1].args[0])
     assert "FOR UPDATE" in lock_sql
     assert "max(campus_service.work_order_events.sequence_no)" in sequence_sql
+
+
+def test_rating_owner_load_is_locked_and_rating_write_keeps_session_ownership() -> None:
+    order = MagicMock(spec=WorkOrder)
+    rating = MagicMock()
+    session = _session(_ScalarResult(order), _ScalarResult(None))
+    repository = WorkOrderRepository(session)
+    loaded = asyncio.run(repository.get_owner_for_update(WORK_ORDER_ID, UUID(int=7)))
+    existing = asyncio.run(repository.get_rating(WORK_ORDER_ID))
+    repository.add_rating(rating)
+    assert loaded is order and existing is None
+    assert "FOR UPDATE" in _sql(session.execute.await_args_list[0].args[0])
+    assert "work_orders.created_by" in _sql(session.execute.await_args_list[0].args[0])
+    assert "work_order_ratings.work_order_id" in _sql(session.execute.await_args_list[1].args[0])
+    session.add.assert_called_once_with(rating)
+    session.commit.assert_not_awaited()

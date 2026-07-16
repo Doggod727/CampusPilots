@@ -282,3 +282,36 @@ def test_transition_route_requires_auth_key_and_strict_payload() -> None:
 def test_transition_operation_id_is_registered_once() -> None:
     operation_ids = [route.operation_id for route in create_app().routes if getattr(route, "operation_id", None)]
     assert operation_ids.count("transitionWorkOrder") == 1
+
+
+def test_rating_route_returns_original_201_and_validates_contract() -> None:
+    body = {
+        "code": "OK", "message": "success", "data": {"score": 5},
+        "request_id": "rating-original", "timestamp": NOW.isoformat(),
+    }
+    service = MagicMock(); service.rate = AsyncMock(
+        return_value=WorkOrderMutationResult(201, "rating-original", body)
+    )
+    path = f"/api/v1/work-orders/{_work_order().id}/rating"
+    client = _client(service, user=_user(permitted=False))
+    response = client.post(
+        path, json={"score": 5, "comment": "维修及时"},
+        headers={"Idempotency-Key": "rating-1"},
+    )
+    assert response.status_code == 201 and response.json() == body
+    assert service.rate.await_args.kwargs["command"].score == 5
+    assert client.post(path, json={"score": 0}, headers={"Idempotency-Key": "x"}).status_code == 422
+    assert client.post(path, json={"score": 5, "extra": True}, headers={"Idempotency-Key": "x"}).status_code == 422
+
+
+def test_rating_route_requires_auth_and_idempotency_key() -> None:
+    service = MagicMock(); service.rate = AsyncMock()
+    path = f"/api/v1/work-orders/{_work_order().id}/rating"
+    assert _client(service, user=None).post(path, json={"score": 5}, headers={"Idempotency-Key": "x"}).status_code == 401
+    assert _client(service, user=_user(permitted=False)).post(path, json={"score": 5}).status_code == 422
+    service.rate.assert_not_awaited()
+
+
+def test_rating_operation_id_is_registered_once() -> None:
+    operation_ids = [route.operation_id for route in create_app().routes if getattr(route, "operation_id", None)]
+    assert operation_ids.count("rateWorkOrder") == 1

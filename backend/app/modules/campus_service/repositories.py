@@ -417,6 +417,28 @@ class WorkOrderRepository:
         )
         return (await self._session.execute(statement)).scalar_one_or_none()
 
+    async def get_owner_for_update(
+        self, work_order_id: UUID, owner_user_id: UUID
+    ) -> WorkOrder | None:
+        statement = (
+            select(WorkOrder)
+            .where(
+                WorkOrder.id == work_order_id,
+                WorkOrder.created_by == owner_user_id,
+            )
+            .with_for_update()
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_rating(self, work_order_id: UUID) -> WorkOrderRating | None:
+        statement = select(WorkOrderRating).where(
+            WorkOrderRating.work_order_id == work_order_id
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    def add_rating(self, rating: WorkOrderRating) -> None:
+        self._session.add(rating)
+
     async def allocate_order_no(self, issue_date: date) -> str:
         date_part = issue_date.strftime("%Y%m%d")
         lock_key = f"work_order_number:{date_part}"

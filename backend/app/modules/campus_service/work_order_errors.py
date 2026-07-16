@@ -44,3 +44,21 @@ class ResourceVersionConflict(AppError):
             code="RESOURCE_VERSION_CONFLICT",
             message="工单版本已变化，请刷新后重试",
         )
+
+
+class WorkOrderAlreadyRated(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="WORK_ORDER_ALREADY_RATED",
+            message="工单已经评价",
+        )
+
+
+class WorkOrderNotCompleted(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="WORK_ORDER_NOT_COMPLETED",
+            message="仅已完成工单可以评价",
+        )

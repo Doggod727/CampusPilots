@@ -22,11 +22,14 @@ from app.modules.campus_service.work_order_schemas import (
     WorkOrderResponse,
     WorkOrderStatus,
     WorkOrderTransitionRequest,
+    WorkOrderRatingRequest,
+    WorkOrderRatingResponse,
 )
 from app.modules.campus_service.work_orders import (
     CreateWorkOrderCommand,
     WorkOrderService,
     TransitionWorkOrderCommand,
+    RateWorkOrderCommand,
 )
 from app.modules.platform.audit import AuditService
 from app.modules.platform.auth import AuthenticatedUser
@@ -167,6 +170,38 @@ async def transition_work_order(
         actor=actor,
         work_order_id=work_order_id,
         command=TransitionWorkOrderCommand(**payload.model_dump()),
+        idempotency_key=idempotency_key,
+        request_id=request.state.request_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    return JSONResponse(
+        result.body,
+        status_code=result.status_code,
+        headers={REQUEST_ID_HEADER: result.request_id},
+    )
+
+
+@router.post(
+    "/{work_order_id}/rating",
+    operation_id="rateWorkOrder",
+    status_code=201,
+    response_model=WorkOrderRatingResponse,
+)
+async def rate_work_order(
+    work_order_id: UUID,
+    payload: WorkOrderRatingRequest,
+    request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
+    service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+    idempotency_key: Annotated[
+        str, Header(alias="Idempotency-Key", min_length=1, max_length=128)
+    ],
+) -> JSONResponse:
+    result = await service.rate(
+        actor=actor,
+        work_order_id=work_order_id,
+        command=RateWorkOrderCommand(**payload.model_dump()),
         idempotency_key=idempotency_key,
         request_id=request.state.request_id,
         ip_address=request.client.host if request.client else None,

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.campus_service.models import WorkOrder, WorkOrderEvent
+from app.modules.campus_service.models import WorkOrder, WorkOrderEvent, WorkOrderRating
 from app.modules.campus_service.repositories import (
     CampusReferenceRepository,
     WorkOrderEventRepository,
@@ -26,6 +26,8 @@ from app.modules.campus_service.work_order_errors import (
     ResourceVersionConflict,
     WorkOrderIllegalTransition,
     WorkOrderNotFound,
+    WorkOrderAlreadyRated,
+    WorkOrderNotCompleted,
 )
 from app.modules.campus_service.work_order_state import WorkOrderStateMachine
 from app.modules.platform.auth import PermissionDenied
@@ -62,6 +64,12 @@ class TransitionWorkOrderCommand:
     reason: str = field(repr=False)
     completion_note: str | None = field(default=None, repr=False)
     version: int = 1
+
+
+@dataclass(frozen=True)
+class RateWorkOrderCommand:
+    score: int
+    comment: str | None = field(default=None, repr=False)
 
 
 class WorkOrderService:
@@ -389,6 +397,93 @@ class WorkOrderService:
             if not completed:
                 raise IdempotencyConflict()
         return WorkOrderMutationResult(200, request_id, body)
+
+    async def rate(
+        self,
+        *,
+        actor: AuthenticatedUser,
+        work_order_id: UUID,
+        command: RateWorkOrderCommand,
+        idempotency_key: str,
+        request_id: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> WorkOrderMutationResult:
+        request_body = {
+            "work_order_id": str(work_order_id),
+            "score": command.score,
+            "comment": command.comment,
+        }
+        async with self._session.begin():
+            decision = await self._idempotency.begin(
+                user_id=actor.user_id,
+                endpoint=f"POST /api/v1/work-orders/{work_order_id}/rating",
+                idempotency_key=idempotency_key,
+                request_body=request_body,
+            )
+            if decision.replay is not None:
+                body = dict(decision.replay.response_body)
+                return WorkOrderMutationResult(
+                    decision.replay.response_status, str(body["request_id"]), body
+                )
+            if decision.pending:
+                raise IdempotencyConflict()
+            work_order = await self._work_orders.get_owner_for_update(
+                work_order_id, actor.user_id
+            )
+            if work_order is None:
+                raise WorkOrderNotFound()
+            if work_order.status != "completed":
+                raise WorkOrderNotCompleted()
+            if await self._work_orders.get_rating(work_order_id) is not None:
+                raise WorkOrderAlreadyRated()
+
+            now = self._utc_now()
+            rating = WorkOrderRating(
+                id=uuid4(),
+                work_order_id=work_order_id,
+                user_id=actor.user_id,
+                score=command.score,
+                comment=command.comment.strip() if command.comment else None,
+                created_at=now,
+            )
+            self._work_orders.add_rating(rating)
+            await self._session.flush()
+            rating_data = {
+                "id": rating.id,
+                "score": rating.score,
+                "comment": rating.comment,
+                "created_at": rating.created_at,
+            }
+            body = SuccessResponse(
+                data=rating_data,
+                request_id=request_id,
+                timestamp=now,
+            ).model_dump(mode="json")
+            self._audit.record_success(
+                action="work_order.rate",
+                resource_type="work_order",
+                resource_id=str(work_order_id),
+                request_id=request_id,
+                actor_user_id=actor.user_id,
+                actor_username=actor.username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                after_data={
+                    "score": command.score,
+                    "has_comment": bool(command.comment and command.comment.strip()),
+                },
+            )
+            completed = await self._idempotency.complete(
+                record_id=decision.record_id,
+                response_status=201,
+                response_body=body,
+                resource_type="work_order_rating",
+                resource_id=str(rating.id),
+            )
+            if not completed:
+                raise IdempotencyConflict()
+        return WorkOrderMutationResult(201, request_id, body)
 
     async def _actor_scopes(self, actor_user_id: UUID):
         return () if self._scopes is None else await self._scopes.get_for_user(actor_user_id)

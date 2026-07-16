@@ -47,6 +47,13 @@ class WorkOrderTransitionRequest(BaseModel):
     version: int = Field(ge=1)
 
 
+class WorkOrderRatingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    score: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=500, repr=False)
+
+
 class WorkOrderRatingData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -128,6 +135,7 @@ class WorkOrderEventListData(BaseModel):
 
 WorkOrderPageResponse = SuccessResponse[WorkOrderPageData]
 WorkOrderEventListResponse = SuccessResponse[WorkOrderEventListData]
+WorkOrderRatingResponse = SuccessResponse[WorkOrderRatingData]
 
 
 def work_order_data(
