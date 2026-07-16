@@ -104,7 +104,8 @@ class ModerationDecisionService:
                 target_module=case.target_module, target_type=case.target_type
             )
             await getattr(handler, {"approved": "approve", "rejected": "reject", "escalated": "escalate"}[decision])(
-                case_id=case.id, target_id=case.target_id, reason=reason, actor=actor
+                session=self._session, case_id=case.id, target_id=case.target_id,
+                reason=reason, actor=actor
             )
             now = self._current_time()
             if not await self._repository.decide_if_version(
@@ -153,10 +154,18 @@ async def moderation_decision_service_context(settings: Settings) -> AsyncIterat
                 idempotency_service=IdempotencyService(
                     session=session, repository=IdempotencyRecordRepository(session)
                 ), audit_service=AuditService(AuditLogRepository(session)),
-                handlers=moderation_handler_registry,
+                handlers=default_moderation_handler_registry(),
             )
     finally:
         await database.dispose()
 
 
 moderation_handler_registry = ModerationHandlerRegistry()
+
+
+def default_moderation_handler_registry() -> ModerationHandlerRegistry:
+    from app.modules.community.moderation_handler import register_community_handlers
+
+    registry = ModerationHandlerRegistry()
+    register_community_handlers(registry)
+    return registry

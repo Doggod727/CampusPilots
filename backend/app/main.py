@@ -27,6 +27,16 @@ from app.modules.campus_service.guide_routes import router as guide_router
 from app.modules.campus_service.work_order_routes import router as work_order_router
 from app.modules.campus_service.electricity_routes import router as electricity_router
 from app.modules.campus_service.service_progress_routes import router as service_progress_router
+from app.modules.community.topic_routes import router as community_topic_router
+from app.modules.community.post_routes import router as community_post_router
+from app.modules.community.comment_routes import router as community_comment_router
+from app.modules.community.reaction_routes import router as community_reaction_router
+from app.modules.community.report_routes import router as community_report_router
+from app.modules.community.anonymous_identity_routes import router as community_anonymous_router
+from app.modules.community.event_routes import router as community_event_router
+from app.modules.community.lost_found_routes import router as community_lost_found_router
+from app.modules.community.claim_routes import item_router as community_item_claim_router
+from app.modules.community.claim_routes import router as community_claim_router
 
 
 def create_app() -> FastAPI:
@@ -74,6 +84,16 @@ def create_app() -> FastAPI:
     application.include_router(work_order_router)
     application.include_router(electricity_router)
     application.include_router(service_progress_router)
+    application.include_router(community_topic_router)
+    application.include_router(community_post_router)
+    application.include_router(community_comment_router)
+    application.include_router(community_reaction_router)
+    application.include_router(community_report_router)
+    application.include_router(community_anonymous_router)
+    application.include_router(community_event_router)
+    application.include_router(community_lost_found_router)
+    application.include_router(community_item_claim_router)
+    application.include_router(community_claim_router)
     return application
 
 

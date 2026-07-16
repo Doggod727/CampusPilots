@@ -25,6 +25,10 @@ from app.modules.agent_platform.tool_gateway.campus_service_adapters import (
     WorkOrderCreateToolHandler,
     WorkOrderGetToolHandler,
 )
+from app.modules.agent_platform.tool_gateway.community_adapters import (
+    EventRegisterToolHandler, EventSearchToolHandler, LostFoundMatchesToolHandler,
+    LostFoundPublishToolHandler,
+)
 from app.modules.agent_platform.tool_gateway.executor import ToolExecutor
 from app.modules.agent_platform.tool_gateway.governance_adapters import (
     GovernanceAuthorizeToolHandler, GovernanceCheckContentHandler, GovernanceWriteAuditHandler,
@@ -43,6 +47,13 @@ from app.modules.campus_service.repositories import (
 )
 from app.modules.campus_service.work_order_access import WorkOrderScopeRepository
 from app.modules.campus_service.work_orders import WorkOrderService
+from app.modules.community.encryption import CommunityCipher, CommunityEncryptionUnavailable
+from app.modules.community.events import EventQueryService
+from app.modules.community.lost_found import LostFoundQueryService, LostFoundService
+from app.modules.community.matcher import LostFoundMatcherService
+from app.modules.community.profiles import PlatformPublicUserProfileAdapter
+from app.modules.community.registrations import EventRegistrationService
+from app.modules.community.repositories import EventRepository, LostFoundRepository
 from app.modules.platform.idempotency import IdempotencyService
 from app.modules.platform.audit import AuditService, redact
 from app.modules.platform.moderation import ModerationService
@@ -125,6 +136,28 @@ class RuntimeCompositionFactory:
             scopes=WorkOrderScopeRepository(session),
             rooms=electricity_repository,
         )
+        profiles = PlatformPublicUserProfileAdapter(session)
+        event_repository = EventRepository(session)
+        event_queries = EventQueryService(event_repository, profiles)
+        event_registrations = EventRegistrationService(
+            session=session, repository=event_repository, profiles=profiles,
+            idempotency=IdempotencyService(session=session,
+                repository=IdempotencyRecordRepository(session)), audit=audit,
+        )
+        lost_repository = LostFoundRepository(session)
+        lost_queries = LostFoundQueryService(lost_repository, profiles)
+        matcher = LostFoundMatcherService(session=session, repository=lost_repository,
+            queries=lost_queries,
+            algorithm_version=self.settings.community_match_algorithm_version)
+        try:
+            community_cipher = CommunityCipher(self.settings.community_data_encryption_key)
+        except CommunityEncryptionUnavailable:
+            community_cipher = _UnavailableCommunityCipher()
+        lost_found = LostFoundService(session=session, repository=lost_repository,
+            queries=lost_queries, cipher=community_cipher,  # type: ignore[arg-type]
+            moderation=moderation,
+            idempotency=IdempotencyService(session=session,
+                repository=IdempotencyRecordRepository(session)), audit=audit, matcher=matcher)
         handlers = build_mock_handlers()
         handlers.update({
             "service.get_guide": ServiceGuideToolHandler(guides),
@@ -132,6 +165,10 @@ class RuntimeCompositionFactory:
             "work_order.get": WorkOrderGetToolHandler(work_orders),
             "electricity.get_balance": ElectricityBalanceToolHandler(electricity),
             "electricity.create_topup_request": ElectricityTopupToolHandler(electricity),
+            "event.search": EventSearchToolHandler(event_queries),
+            "event.register": EventRegisterToolHandler(event_registrations),
+            "lost_found.publish": LostFoundPublishToolHandler(lost_found),
+            "lost_found.search_matches": LostFoundMatchesToolHandler(matcher),
             "governance.check_content": GovernanceCheckContentHandler(moderation),
             "governance.authorize_tool": GovernanceAuthorizeToolHandler(
                 registry=tools,
@@ -208,3 +245,11 @@ class _LazyCompositionCommandProcessor:
                 runtime, RuntimeStartContextLoader(self._session)
             )
         await self._processor.process(command)
+
+
+class _UnavailableCommunityCipher:
+    def encrypt(self, _plaintext: str) -> bytes:
+        raise CommunityEncryptionUnavailable()
+
+    def decrypt(self, _ciphertext: bytes) -> str:
+        raise CommunityEncryptionUnavailable()

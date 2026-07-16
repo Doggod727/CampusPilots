@@ -373,6 +373,86 @@
   - OpenAPI 为两个电费接口补齐自然 401，不修改 operationId 或冻结的 M5 Tool v1.0.0 契约/哈希；M2 详细设计、README 与契约同步 15/15 HTTP 操作、AppConfig 范围、Tool 事务边界和显式 Mock 外部校园系统。
   - 最终专项验收 `23 passed`、全量 pytest `588 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线完整升降级、OpenAPI YAML 解析与 Redocly lint 全部通过；真实 PostgreSQL 空库迁移、并发、重复种子和端到端验证仍待环境可用后执行。
 
+## M3 校园社区与互助开发
+
+- [x] [#146 M3：建立 Community Alembic Schema](https://github.com/Doggod727/CampusPilot/issues/146)（2026-07-16）
+  - 新增 `0007_community_schema`，按 SQL 007 建立 community Schema、更新时间函数、10 张表、完整约束/索引、8 个触发器和字段安全注释；用户及审核案件继续使用逻辑 UUID，不建立跨 Schema 外键。
+  - downgrade 按依赖逆序删除 M3 自有表、函数和 Schema，保留共享扩展；迁移专项 `9 passed`、全量 pytest `589 passed`（11 条既有 httpx 弃用警告）、编译、Alembic 单 Head及离线完整升降级、OpenAPI lint 均通过，真实 PostgreSQL 空库验证仍待环境可用后执行。
+- [x] [#148 M3：实现话题、帖子和评论 ORM](https://github.com/Doggod727/CampusPilot/issues/148)（2026-07-16）
+  - 新增扁平 `community` 模型模块，映射 Topic/Post/Comment，完整保留逻辑删除、版本、审核状态、风险、发布和计数约束，以及公开列表、作者和审核案件部分索引。
+  - 作者和审核案件保持逻辑 UUID，M3 自有外键严格使用 RESTRICT/CASCADE/SET NULL；不增加 relationship、仓储、服务或路由。模型专项 `3 passed`、全量 pytest `592 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#149 M3：实现互动与举报 ORM](https://github.com/Doggod727/CampusPilot/issues/149)（2026-07-16）
+  - 映射 PostReaction 三字段复合主键、互动类型约束和用户时间索引；映射 ContentReport 业务唯一键、受控目标/原因/状态/详情约束及目标、审核案件索引。
+  - 举报人和审核案件仍为逻辑 UUID，对象表示不泄露举报正文或举报人；不实现计数、案件复用、审计或 API。累计模型专项 `5 passed`、全量 pytest `594 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#150 M3：实现校园活动 ORM](https://github.com/Doggod727/CampusPilot/issues/150)（2026-07-16）
+  - 映射 CampusEvent 的时间、容量、审核、取消、发布和版本约束及公开/组织者部分索引；映射 EventRegistration 的 event+user 复合主键、状态/取消时间约束和用户时间索引。
+  - 活动对报名使用 CASCADE，自有用户和审核标识保持逻辑 UUID；不实现行锁、容量变更、状态机或 API。累计模型专项 `7 passed`、全量 pytest `596 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#151 M3：实现失物招领 ORM](https://github.com/Doggod727/CampusPilot/issues/151)（2026-07-16）
+  - 映射 LostFoundItem/Match/Claim，联系方式与证据使用 BYTEA，匹配原因使用 JSONB，分数使用 numeric(6,5)；保留发布/完成、候选唯一、分数和认领状态约束。
+  - M3 自有外键按 CASCADE/RESTRICT/SET NULL，活动认领使用部分唯一索引；对象表示不泄露密文、提示或决策正文。本批累计模型专项 `10 passed`、全量 pytest `599 passed`、编译、Alembic 单 Head及离线完整升降级、OpenAPI lint 均通过，真实 PostgreSQL 验证仍待环境可用后执行。
+- [x] [#152 M3：建立社区配置、演示话题与认证加密基线](https://github.com/Doggod727/CampusPilot/issues/152)（2026-07-16）
+  - 将 SQL 008 的 9 项社区配置和三个固定话题纳入既有单事务种子；创建者通过 community01 自然键解析，只有 tree-hole 允许匿名，重复执行按固定 ID 幂等更新。
+  - 新增可选社区加密/匹配设置和 Fernet 认证加密 Codec；密钥缺失不影响导入与非敏感 API，错误密钥、篡改和非法明文均返回不含敏感值的稳定错误。定向测试 `27 passed`、全量 pytest `603 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#153 M3：实现话题仓储与应用服务](https://github.com/Doggod727/CampusPilot/issues/153)（2026-07-16）
+  - TopicRepository 在 SQL 层过滤逻辑删除和状态，提供稳定分页、行锁详情、code/name 冲突检查及未删除帖子存在性检查，并保持调用方 Session 所有权。
+  - TopicService 实现查询、M4 幂等创建、乐观锁更新和受保护逻辑删除；审计仅保存 ID/code/status/version，不保存描述。定向测试 `8 passed`、全量 pytest `611 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#154 M3：实现话题 HTTP API](https://github.com/Doggod727/CampusPilot/issues/154)（2026-07-16）
+  - 注册 list/create/get/update/deleteTopic 五个 operationId，使用严格 Topic/分页模型、统一 Request-Id 和 204 删除响应；查询要求 community:read，写入要求 community:moderate，创建强制幂等键。
+  - UUID、分页、状态、code、字段长度、空值和 version 均按契约校验；认证、权限、严格响应和 operationId 定向测试累计 `13 passed`，全量 pytest `616 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#155 M3：实现帖子安全查询仓储与服务](https://github.com/Doggod727/CampusPilot/issues/155)（2026-07-16）
+  - PostRepository 在 SQL 中区分公开 published 列表与本人全部未删除内容，支持话题、转义搜索和稳定正/倒序分页；详情将公开、作者本人和运营员可见性合并为单条安全查询。
+  - PostQueryService 固定批次加载话题、本人互动和非匿名作者公开资料；匿名帖子完全跳过用户资料查询且永不暴露作者 UUID，审核案件仅作者本人或运营员可见。定向测试 `6 passed`、全量 pytest `622 passed`（11 条既有 httpx 弃用警告）、编译、Alembic 唯一 Head `0007_community_schema`、离线完整升降级和 OpenAPI lint 均通过；Redocly 保留 5 条既有非阻断警告。
+- [x] [#156 M3：实现帖子写入、M4 扫描与 HTTP API](https://github.com/Doggod727/CampusPilot/issues/156)（2026-07-16）
+  - 注册 list/create/get/update/deletePost 五个 operationId；查询与写入分别要求 community:read/community:write，作者外修改或删除还需 community:moderate，创建强制 M4 幂等并重放首次 201 信封。
+  - 标题与 Markdown 分别执行 M4 community 扫描，按最高风险将 allow/mask、review、block 收敛为 published、pending_review、rejected；需要审核时在同一事务创建案件，匿名限制、版本锁、逻辑删除和审计均 fail-closed，响应不泄露匿名作者或非授权审核案件。
+  - 帖子写入及路由专项 `13 passed`（连同查询累计 `19 passed`）、全量 pytest `635 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0007_community_schema`、离线完整升降级、136 个 OpenAPI operationId YAML 唯一性与 Redocly lint 均通过；M3 当前累计注册 `10/38`，Redocly 保留 5 条既有非阻断警告。
+- [x] [#157 M3：实现评论主流程与 HTTP API](https://github.com/Doggod727/CampusPilot/issues/157)（2026-07-16）
+  - 注册 listPostComments/createComment/updateComment/deleteComment，完整实现 published 帖子与同帖父评论校验、匿名话题限制、M4 扫描、创建幂等、作者/运营员权限、版本锁和逻辑删除。
+  - 评论公开列表稳定分页并批量解析非匿名作者；published 状态边界与帖子 comment_count 在同一事务原子更新，匿名响应及审计不泄露真实身份或正文。专项测试 `7 passed`、全量 pytest `642 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
+- [x] [#158 M3：注册社区审核决定回调](https://github.com/Doggod727/CampusPilot/issues/158)（2026-07-16）
+  - 为 post/comment/event/lost_found 注册请求上下文内的无状态 Handler，M4 将当前 Session 传入回调，使案件决定、目标状态和评论计数位于同一事务；测试仍可注入独立 Registry。
+  - 回调行锁目标并校验案件映射，approved/rejected/escalated、删除保护和重复调用均幂等安全；评论首次发布或撤下只调整一次计数，映射冲突返回稳定 409。专项累计 `11 passed`、全量 pytest `647 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
+- [x] [#159 M3：实现帖子点赞收藏与计数 API](https://github.com/Doggod727/CampusPilot/issues/159)（2026-07-16）
+  - 注册 putPostReaction/deletePostReaction；事实表使用 PostgreSQL ON CONFLICT/DELETE RETURNING，只有真实增删才原子调整 like/favorite 计数，重复请求返回服务端当前状态。
+  - 事务内锁定帖子并限制 published 可见性；本人待审核 PUT 返回 COMMUNITY_CONTENT_PENDING_REVIEW，其他非公开互动安全 404。专项测试 `4 passed`、全量 pytest `651 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
+- [x] [#160 M3：实现内容举报与审核案件复用](https://github.com/Doggod727/CampusPilot/issues/160)（2026-07-16）
+  - 注册 createContentReport，受控解析 post/comment/event/lost_found 并在 SQL 层执行公开、本人或运营员可见性；目标行锁串行化业务重复举报和 pending M4 案件复用。
+  - 新案件固定 review/high/community-report-v1 且不伪造规则命中；同用户重复返回首次事实，只有 Post 首次举报增加 report_count，响应和审计不返回 reporter 或 details。专项测试 `4 passed`、全量 pytest `655 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
+- [x] [#161 M3：实现匿名身份审计反查 API](https://github.com/Doggod727/CampusPilot/issues/161)（2026-07-16）
+  - 注册 revealAnonymousIdentity，仅专用 community:anonymous_identity:read 权限可反查未删除匿名 post/comment；历史身份端口只读取 UUID、用户名和显示名并支持软删除账号。
+  - 成功响应固定 no-store；业务失败在抛出统一 ANONYMOUS_IDENTITY_NOT_FOUND 前先提交失败审计，成功与失败审计均记录事由但不重复保存被反查用户 ID。专项测试 `4 passed`、全量 pytest `659 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级、136 个 OpenAPI operationId 唯一性和 Redocly lint 均通过；M3 累计注册 `18/38`。
+- [x] [#162 M3：实现活动查询仓储与服务](https://github.com/Doggod727/CampusPilot/issues/162)（2026-07-16）
+  - SQL 层实现公开/本人可见性、分类/时间/可报名筛选、稳定 `starts_at/id` 分页及内部文本搜索；详情统一安全 404，并批量加载组织者公开资料与本人报名状态。
+  - 专项 `2 passed`、全量 pytest `661 passed`（11 条既有警告）、编译、Alembic 单 Head及离线升降级、OpenAPI 解析和 Redocly lint 均通过；lint 保留 5 条既有非阻断警告。
+- [x] [#163 M3：实现活动 CRUD 与 5 个 HTTP API](https://github.com/Doggod727/CampusPilot/issues/163)（2026-07-16）
+  - 注册活动列表、创建、详情、修改和取消；严格请求/响应模型、M4 标题与正文扫描、组织者/运营员授权、版本/时间/容量/终态校验、创建与取消幂等及脱敏审计均在应用服务内完成。
+  - 活动专项 `5 passed`、全量 pytest `664 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级、OpenAPI 和 Redocly lint 均通过；M3 累计注册 `23/38`。
+- [x] [#164 M3：实现并发安全活动报名 API](https://github.com/Doggod727/CampusPilot/issues/164)（2026-07-16）
+  - 注册名单、报名与本人取消三个接口；事务内设置 PostgreSQL 1 秒局部锁超时并锁定活动/报名，只有真实状态变化才更新人数，容量、截止时间、开始时间与名单授权均 fail-closed。
+  - 活动累计专项 `7 passed`、全量 pytest `666 passed`（11 条既有警告）及全部静态/迁移/契约门禁通过；M3 累计注册 `26/38`。真实 PostgreSQL 最后名额并发与锁超时仍待环境验证。
+- [x] [#165 M3：实现失物加密与查询仓储基线](https://github.com/Doggod727/CampusPilot/issues/165)（2026-07-16）
+  - 复用 Fernet 认证加密；联系方式提示固定为邮箱首字符与域名、其他类型仅末四位；SQL 层区分公开/本人可见性并支持类型、分类、地点、时间与稳定分页，DTO 永不携带明文或密文。
+  - 加密/查询专项 `5 passed`、全量 pytest `668 passed`（11 条既有警告）及编译、迁移和契约门禁全部通过；缺失密钥只阻断后续敏感接口。
+- [x] [#166 M3：实现失物 CRUD 与 5 个 HTTP API](https://github.com/Doggod727/CampusPilot/issues/166)（2026-07-16）
+  - 注册列表、创建、详情、更新、删除；服务端所有者、M4 扫描、Fernet 加密、contact 成对变更、版本/终态/活动认领保护、幂等创建和脱敏审计均已接入，公共响应只含 contact_hint。
+  - 失物专项 `6 passed`、全量 pytest `672 passed`（11 条既有警告）及全部门禁通过；M3 累计注册 `31/38`，匹配与认领留第五批。
+- [x] [#167 M3：实现确定性 Matcher 与匹配 API](https://github.com/Doggod727/CampusPilot/issues/167)（2026-07-16）
+  - NFKC/固定 token、严格 AppConfig、类别/地点/时间/关键词四因子、5 位小数量化、200 条候选上限、算法版本 upsert/过期清理和 owner-only 查询已实现；注册 `listLostFoundMatches`。
+  - Matcher 专项 `3 passed`、全量 pytest `675 passed`（11 条既有警告）及全部门禁通过；内容写入重算使用 savepoint，失败仅记录安全待重算审计。M3 累计 `32/38`。
+- [x] [#168 M3：实现认领创建、列表和详情 API](https://github.com/Doggod727/CampusPilot/issues/168)（2026-07-16）
+  - 注册创建、本人列表和参与者详情；目标/claimant item 规则、活动认领唯一、evidence 加密、目标 claiming、SQL 参与者可见性与批量加载均已实现。幂等记录只保存 request/timestamp/resource_id，重放重新授权并解密。
+  - 认领专项 `2 passed`、全量 pytest `677 passed`（11 条既有警告）及全部门禁通过；M3 累计注册 `35/38`。
+- [x] [#169 M3：完成认领决策、联系方式与双方完成 API](https://github.com/Doggod727/CampusPilot/issues/169)（2026-07-16）
+  - 目标所有者决策、verified/completed 双方 no-store 联系方式交换、站内联系回退、按 UUID 排序锁定物品和双方确认完成均已实现；决策/完成幂等记录只存安全元数据，审计不保存联系方式或 evidence。
+  - 认领专项 `3 passed`、全量 pytest `678 passed`（11 条既有警告）及全部门禁通过；M3 HTTP operationId 达到 `38/38`。真实 PostgreSQL 锁顺序和完整加密认领 E2E 待环境验证。
+- [x] [#170 M3：将四个 M5 社区 Tool 替换为真实 Adapter](https://github.com/Doggod727/CampusPilot/issues/170)（2026-07-16）
+  - `event.search/register` 与 `lost_found.publish/search_matches` 已在唯一 RuntimeCompositionFactory 中覆盖 Mock；冻结 v1 Schema/hash 不变，审批、幂等、事务所有权、campus 不可表示、站内联系方式、owner scope 和稳定错误映射均已实现。
+  - Tool/M2 回归专项 `7 passed`、全量 pytest `682 passed`（11 条既有警告）及全部门禁通过；缺失社区密钥不会阻断 Runtime 装配，只使敏感发布 Tool 返回依赖不可用。
+- [x] [#171 M3：演示数据、文档与最终验收](https://github.com/Doggod727/CampusPilot/issues/171)（2026-07-16）
+  - seed_demo 同一事务加入固定活动/报名；密钥存在时加入固定失物/候选/认领，缺失时明确跳过敏感演示而不影响既有种子。README、M3 详细设计和自动验收已同步。
+  - 最终全量 pytest `684 passed`（11 条既有警告）、compileall、Alembic 唯一 Head `0007_community_schema` 与离线完整升降级、OpenAPI `136/136` operationId 全局唯一及 Redocly lint 均通过；保留 5 条既有非阻断警告。
+  - M3 已完成 `38/38` HTTP operationId，M5 四个 M3 Tool 全部为真实 Service Adapter。真实 PostgreSQL 最后名额并发、锁超时、重复种子和完整加密认领 E2E 继续作为明确环境待办。
+
 ## M5 项目重审与契约基线
 
 - [x] [#62 M5：校正 M4 兼容契约与状态码](https://github.com/Doggod727/CampusPilot/issues/62)（2026-07-15）

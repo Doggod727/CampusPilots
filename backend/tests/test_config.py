@@ -50,6 +50,9 @@ def test_settings_load_defaults_and_mask_secrets(
     assert str(settings.deepseek_base_url) == "https://api.deepseek.com/"
     assert settings.deepseek_model == "deepseek-v4-pro"
     assert settings.use_mock_campus_adapters is True
+    assert settings.community_data_encryption_key is None
+    assert settings.community_match_algorithm_version == "rule-v1"
+    assert settings.community_contact_audit_enabled is True
     assert settings.local_router_model_path == Path("/models/router")
     assert settings.local_router_confidence == 0.80
     assert settings.local_router_timeout_ms == 500
@@ -90,6 +93,9 @@ def test_environment_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("TOOL_DEFAULT_TIMEOUT_MS", "2500")
     monkeypatch.setenv("MCP_ENABLED", "true")
     monkeypatch.setenv("TRAINING_GPU_ENABLED", "true")
+    monkeypatch.setenv("COMMUNITY_DATA_ENCRYPTION_KEY", "secret-community-key")
+    monkeypatch.setenv("COMMUNITY_MATCH_ALGORITHM_VERSION", "rule-v2")
+    monkeypatch.setenv("COMMUNITY_CONTACT_AUDIT_ENABLED", "false")
 
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
@@ -109,6 +115,10 @@ def test_environment_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.tool_default_timeout_ms == 2500
     assert settings.mcp_enabled is True
     assert settings.training_gpu_enabled is True
+    assert settings.community_data_encryption_key is not None
+    assert settings.community_data_encryption_key.get_secret_value() == "secret-community-key"
+    assert settings.community_match_algorithm_version == "rule-v2"
+    assert settings.community_contact_audit_enabled is False
 
 
 @pytest.mark.parametrize(
