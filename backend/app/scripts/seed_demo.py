@@ -308,6 +308,8 @@ CAMPUS_SEEDS = (
     CampusSeed("east", "东校区", "示例市学府路 8 号", 20),
 )
 
+WORK_ORDER_SCOPES_CONFIG_KEY = "campus_service.work_order_service_scopes"
+
 DEPARTMENT_SEEDS = (
     DepartmentSeed(
         UUID("10000000-0000-4000-8000-000000000001"),
@@ -698,6 +700,36 @@ def _campus_upsert_statement():
     )
 
 
+def _work_order_scope_config_upsert_statement(service_user_id: UUID):
+    statement = insert(AppConfig).values(
+        key=WORK_ORDER_SCOPES_CONFIG_KEY,
+        namespace="campus_service",
+        value={
+            "users": {
+                str(service_user_id): [
+                    {
+                        "campus_code": "main",
+                        "dormitory_areas": ["演示宿舍区", "梅园", "竹园"],
+                    }
+                ]
+            }
+        },
+        value_type="json",
+        description="工单处理员授权校区与宿舍区域",
+        editable=True,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[AppConfig.key],
+        set_={
+            "namespace": statement.excluded.namespace,
+            "value": statement.excluded.value,
+            "value_type": statement.excluded.value_type,
+            "description": statement.excluded.description,
+            "editable": statement.excluded.editable,
+        },
+    )
+
+
 def _department_upsert_statement():
     statement = insert(Department).values(
         [
@@ -988,6 +1020,12 @@ async def seed_demo(
             await session.execute(
                 _user_upsert_statement(account, password_hashes[account.username])
             )
+        service_user_id = (
+            await session.execute(select(User.id).where(User.username == "service01"))
+        ).scalar_one()
+        await session.execute(
+            _work_order_scope_config_upsert_statement(service_user_id)
+        )
         await session.execute(_clear_user_roles_statement(usernames))
         for account in DEMO_ACCOUNTS:
             await session.execute(_user_role_insert_statement(account))

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.modules.campus_service.models import WorkOrder
+from app.modules.campus_service.models import WorkOrder, WorkOrderEvent, WorkOrderRating
 from app.shared.responses import SuccessResponse
 
 FaultCategory = Literal[
@@ -81,7 +81,49 @@ class WorkOrderData(BaseModel):
 WorkOrderResponse = SuccessResponse[WorkOrderData]
 
 
-def work_order_data(item: WorkOrder) -> WorkOrderData:
+class PageMetaData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+
+
+class WorkOrderPageData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[WorkOrderData]
+    pagination: PageMetaData
+
+
+class WorkOrderEventData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    sequence_no: int
+    event_type: str
+    from_status: WorkOrderStatus | None
+    to_status: WorkOrderStatus
+    actor_user_id: UUID
+    actor_role: str
+    reason: str | None
+    created_at: datetime
+
+
+class WorkOrderEventListData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[WorkOrderEventData]
+
+
+WorkOrderPageResponse = SuccessResponse[WorkOrderPageData]
+WorkOrderEventListResponse = SuccessResponse[WorkOrderEventListData]
+
+
+def work_order_data(
+    item: WorkOrder, rating: WorkOrderRating | None = None
+) -> WorkOrderData:
     return WorkOrderData(
         id=item.id,
         order_no=item.order_no,
@@ -99,7 +141,16 @@ def work_order_data(item: WorkOrder) -> WorkOrderData:
         assigned_department_id=item.assigned_department_id,
         rejection_reason=item.rejection_reason,
         completion_note=item.completion_note,
-        rating=None,
+        rating=(
+            WorkOrderRatingData(
+                id=rating.id,
+                score=rating.score,
+                comment=rating.comment,
+                created_at=rating.created_at,
+            )
+            if rating is not None
+            else None
+        ),
         version=item.version,
         submitted_at=item.submitted_at,
         accepted_at=item.accepted_at,
@@ -109,4 +160,18 @@ def work_order_data(item: WorkOrder) -> WorkOrderData:
         rejected_at=item.rejected_at,
         created_at=item.created_at,
         updated_at=item.updated_at,
+    )
+
+
+def work_order_event_data(item: WorkOrderEvent) -> WorkOrderEventData:
+    return WorkOrderEventData(
+        id=item.id,
+        sequence_no=item.sequence_no,
+        event_type=item.event_type,
+        from_status=item.from_status,
+        to_status=item.to_status,
+        actor_user_id=item.actor_user_id,
+        actor_role=item.actor_role,
+        reason=item.reason,
+        created_at=item.created_at,
     )

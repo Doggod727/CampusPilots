@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import case, exists, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.campus_service.models import (
@@ -19,7 +19,9 @@ from app.modules.campus_service.models import (
     ServiceGuide,
     WorkOrder,
     WorkOrderEvent,
+    WorkOrderRating,
 )
+from app.modules.campus_service.work_order_access import WorkOrderScope
 from app.modules.campus_service.work_order_errors import WorkOrderNumberExhausted
 
 
@@ -331,6 +333,72 @@ class WorkOrderRepository:
 
     def add(self, work_order: WorkOrder) -> None:
         self._session.add(work_order)
+
+    @staticmethod
+    def _visible(actor_user_id: UUID, scopes: tuple[WorkOrderScope, ...]):
+        conditions = [WorkOrder.created_by == actor_user_id]
+        conditions.extend(
+            and_(
+                WorkOrder.campus_code == scope.campus_code,
+                WorkOrder.dormitory_area.in_(scope.dormitory_areas),
+            )
+            for scope in scopes
+        )
+        return or_(*conditions)
+
+    async def list_visible(
+        self,
+        *,
+        actor_user_id: UUID,
+        scopes: tuple[WorkOrderScope, ...],
+        page: int,
+        page_size: int,
+        status: str | None,
+        campus_code: str | None,
+        assigned_to_me: bool,
+    ) -> tuple[tuple[tuple[WorkOrder, WorkOrderRating | None], ...], int]:
+        filters = [self._visible(actor_user_id, scopes)]
+        if status is not None:
+            filters.append(WorkOrder.status == status)
+        if campus_code is not None:
+            filters.append(WorkOrder.campus_code == campus_code)
+        if assigned_to_me:
+            filters.append(WorkOrder.assigned_to == actor_user_id)
+        total = int(
+            (
+                await self._session.execute(
+                    select(func.count(WorkOrder.id)).where(*filters)
+                )
+            ).scalar_one()
+        )
+        statement = (
+            select(WorkOrder, WorkOrderRating)
+            .outerjoin(WorkOrderRating, WorkOrderRating.work_order_id == WorkOrder.id)
+            .where(*filters)
+            .order_by(WorkOrder.created_at.desc(), WorkOrder.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return tuple((row[0], row[1]) for row in rows), total
+
+    async def get_visible(
+        self,
+        work_order_id: UUID,
+        *,
+        actor_user_id: UUID,
+        scopes: tuple[WorkOrderScope, ...],
+    ) -> tuple[WorkOrder, WorkOrderRating | None] | None:
+        statement = (
+            select(WorkOrder, WorkOrderRating)
+            .outerjoin(WorkOrderRating, WorkOrderRating.work_order_id == WorkOrder.id)
+            .where(
+                WorkOrder.id == work_order_id,
+                self._visible(actor_user_id, scopes),
+            )
+        )
+        row = (await self._session.execute(statement)).one_or_none()
+        return None if row is None else (row[0], row[1])
 
     async def allocate_order_no(self, issue_date: date) -> str:
         date_part = issue_date.strftime("%Y%m%d")

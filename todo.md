@@ -352,6 +352,10 @@
   - 新增 `CampusSystemPort/ServiceProgressService/MockCampusSystemAdapter` 并注册 `queryExternalServiceProgress`；Mock 数据按当前用户隔离，未归属与不存在统一返回安全的 `404 SERVICE_PROGRESS_NOT_FOUND`。
   - 支持学生事务和教务系统固定演示结果，超时仅执行一次 50ms 重试；不支持系统、上游超时、非法响应和 Mock 关闭分别映射稳定的 422/503 错误，模块导入与存活检查不访问外部系统。
   - 响应业务号保持原长度掩码且只显示末四位；日志和审计仅保存系统代码、SHA-256、末四位、耗时与结果。专项测试 `9 passed`、全量 pytest `537 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；Redocly 保留 5 条既有非阻断警告，真实校园系统 Adapter 不在本任务范围。
+- [x] [#141 M2：实现工单资源范围与查询 API](https://github.com/Doggod727/CampusPilot/issues/141)（2026-07-16）
+  - 复用 M4 `AppConfig` 增加按用户 UUID 配置的工单校区/宿舍范围，完整配置严格解析且缺失、畸形或无匹配均 fail-closed；演示种子通过数据库实际 UUID 为 `service01` 幂等写入范围，不新增迁移。
+  - 工单仓储在 SQL 中应用本人所有权或处理员范围，并叠加状态、校区和本人处理筛选；列表稳定分页，详情同查询加载评价，时间线在可见性确认后按 sequence 升序返回，禁止全量读取后过滤。
+  - 注册 `listWorkOrders/getWorkOrder/listWorkOrderEvents`，要求 `work_order:read`；不可见与不存在统一 `404 WORK_ORDER_NOT_FOUND`。种子、范围、仓储、服务与路由定向测试 `31 passed`、全量 pytest `548 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL 范围查询验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 

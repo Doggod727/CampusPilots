@@ -11,6 +11,7 @@ from app.modules.campus_service.repositories import (
     WorkOrderEventRepository,
     WorkOrderRepository,
 )
+from app.modules.campus_service.work_order_access import WorkOrderScope
 from app.modules.campus_service.work_order_errors import WorkOrderNumberExhausted
 
 WORK_ORDER_ID = UUID("70000000-0000-4000-8000-000000000001")
@@ -21,6 +22,9 @@ class _ScalarResult:
         self._value = value
 
     def scalar_one_or_none(self):
+        return self._value
+
+    def scalar_one(self):
         return self._value
 
 
@@ -38,6 +42,12 @@ class _RowsResult:
 
     def scalars(self):
         return _Scalars(self._values)
+
+    def all(self):
+        return self._values
+
+    def one_or_none(self):
+        return self._values[0] if self._values else None
 
 
 def _session(*results):
@@ -154,3 +164,46 @@ def test_event_timeline_is_filtered_and_stably_ordered_without_transaction_contr
     session.commit.assert_not_awaited()
     session.rollback.assert_not_awaited()
     session.close.assert_not_awaited()
+
+
+def test_visible_list_applies_owner_or_scope_and_filters_in_sql() -> None:
+    order = MagicMock(spec=WorkOrder)
+    session = _session(_ScalarResult(1), _RowsResult([(order, None)]))
+    repository = WorkOrderRepository(session)
+
+    rows, total = asyncio.run(
+        repository.list_visible(
+            actor_user_id=UUID(int=7),
+            scopes=(WorkOrderScope("main", ("梅园", "竹园")),),
+            page=2,
+            page_size=20,
+            status="submitted",
+            campus_code="main",
+            assigned_to_me=True,
+        )
+    )
+
+    assert rows == ((order, None),)
+    assert total == 1
+    list_sql = _sql(session.execute.await_args_list[1].args[0])
+    assert "work_orders.created_by" in list_sql
+    assert "work_orders.campus_code = 'main'" in list_sql
+    assert "work_orders.dormitory_area IN ('梅园', '竹园')" in list_sql
+    assert "work_orders.assigned_to" in list_sql
+    assert "work_orders.status = 'submitted'" in list_sql
+    assert "ORDER BY campus_service.work_orders.created_at DESC" in list_sql
+    assert "LIMIT 20 OFFSET 20" in list_sql
+
+
+def test_visible_detail_uses_owner_only_when_scope_is_empty() -> None:
+    session = _session(_RowsResult([]))
+    repository = WorkOrderRepository(session)
+
+    assert asyncio.run(
+        repository.get_visible(
+            WORK_ORDER_ID, actor_user_id=UUID(int=7), scopes=()
+        )
+    ) is None
+    sql = _sql(session.execute.await_args.args[0])
+    assert "work_orders.created_by" in sql
+    assert "dormitory_area IN" not in sql

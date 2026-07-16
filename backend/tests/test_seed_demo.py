@@ -2,6 +2,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
 
 import pytest
 from sqlalchemy.dialects import postgresql
@@ -20,7 +21,9 @@ class StubPasswordHasher:
 
 def _session_with_transaction() -> MagicMock:
     session = MagicMock()
-    session.execute = AsyncMock()
+    result = MagicMock()
+    result.scalar_one.return_value = UUID("90000000-0000-4000-8000-000000000003")
+    session.execute = AsyncMock(return_value=result)
 
     @asynccontextmanager
     async def begin():
@@ -102,7 +105,7 @@ def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
     assert usernames == tuple(account.username for account in seed_demo.DEMO_ACCOUNTS)
     assert hasher.passwords == ["local-password"] * len(seed_demo.DEMO_ACCOUNTS)
     session.begin.assert_called_once_with()
-    assert session.execute.await_count == 47
+    assert session.execute.await_count == 49
 
 
 def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
@@ -112,6 +115,11 @@ def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
         seed_demo._config_upsert_statement().compile(
             dialect=postgresql.dialect(),
         )
+    )
+    scope_config_sql = str(
+        seed_demo._work_order_scope_config_upsert_statement(
+            UUID("90000000-0000-4000-8000-000000000003")
+        ).compile(dialect=postgresql.dialect())
     )
     user_sql = _compiled_postgresql(
         seed_demo._user_upsert_statement(seed_demo.DEMO_ACCOUNTS[0], "argon2id-hash")
@@ -139,6 +147,13 @@ def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
     assert "ON CONFLICT (code) DO UPDATE" in role_sql
     assert "ON CONFLICT (key) DO UPDATE" in config_sql
     assert "platform.app_configs" in config_sql
+    assert "ON CONFLICT (key) DO UPDATE" in scope_config_sql
+    assert (
+        seed_demo._work_order_scope_config_upsert_statement(
+            UUID("90000000-0000-4000-8000-000000000003")
+        ).compile(dialect=postgresql.dialect()).params["key"]
+        == seed_demo.WORK_ORDER_SCOPES_CONFIG_KEY
+    )
     assert "ON CONFLICT (username) DO UPDATE" in user_sql
     assert "argon2id-hash" in user_sql
     assert "ON CONFLICT DO NOTHING" in role_mapping_sql

@@ -17,3 +17,12 @@ class CampusNotFound(AppError):
             code="CAMPUS_NOT_FOUND",
             message="校区不存在或已停用",
         )
+
+
+class WorkOrderNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=404,
+            code="WORK_ORDER_NOT_FOUND",
+            message="工单不存在或不可见",
+        )

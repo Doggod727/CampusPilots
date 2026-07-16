@@ -13,8 +13,15 @@ from app.modules.campus_service.repositories import (
     WorkOrderEventRepository,
     WorkOrderRepository,
 )
-from app.modules.campus_service.work_order_schemas import work_order_data
-from app.modules.campus_service.work_order_errors import CampusNotFound
+from app.modules.campus_service.work_order_access import WorkOrderScopeRepository
+from app.modules.campus_service.work_order_schemas import (
+    PageMetaData,
+    WorkOrderEventListData,
+    WorkOrderPageData,
+    work_order_data,
+    work_order_event_data,
+)
+from app.modules.campus_service.work_order_errors import CampusNotFound, WorkOrderNotFound
 from app.modules.platform.audit import AuditService
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.idempotency import IdempotencyConflict, IdempotencyService
@@ -52,6 +59,7 @@ class WorkOrderService:
         events: WorkOrderEventRepository,
         idempotency: IdempotencyService,
         audit: AuditService,
+        scopes: WorkOrderScopeRepository | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._session = session
@@ -60,6 +68,7 @@ class WorkOrderService:
         self._events = events
         self._idempotency = idempotency
         self._audit = audit
+        self._scopes = scopes
         self._now = now or (lambda: datetime.now(UTC))
 
     async def create(
@@ -186,6 +195,62 @@ class WorkOrderService:
             if not completed:
                 raise IdempotencyConflict()
         return WorkOrderMutationResult(201, request_id, response)
+
+    async def list_visible(
+        self,
+        *,
+        actor: AuthenticatedUser,
+        page: int,
+        page_size: int,
+        status: str | None,
+        campus_code: str | None,
+        assigned_to_me: bool,
+    ) -> WorkOrderPageData:
+        scopes = await self._actor_scopes(actor.user_id)
+        rows, total = await self._work_orders.list_visible(
+            actor_user_id=actor.user_id,
+            scopes=scopes,
+            page=page,
+            page_size=page_size,
+            status=status,
+            campus_code=campus_code,
+            assigned_to_me=assigned_to_me,
+        )
+        return WorkOrderPageData(
+            items=[work_order_data(item, rating) for item, rating in rows],
+            pagination=PageMetaData(
+                page=page,
+                page_size=page_size,
+                total=total,
+                total_pages=(total + page_size - 1) // page_size,
+            ),
+        )
+
+    async def get_visible(self, *, actor: AuthenticatedUser, work_order_id: UUID):
+        row = await self._work_orders.get_visible(
+            work_order_id,
+            actor_user_id=actor.user_id,
+            scopes=await self._actor_scopes(actor.user_id),
+        )
+        if row is None:
+            raise WorkOrderNotFound()
+        return work_order_data(*row)
+
+    async def list_events(
+        self, *, actor: AuthenticatedUser, work_order_id: UUID
+    ) -> WorkOrderEventListData:
+        row = await self._work_orders.get_visible(
+            work_order_id,
+            actor_user_id=actor.user_id,
+            scopes=await self._actor_scopes(actor.user_id),
+        )
+        if row is None:
+            raise WorkOrderNotFound()
+        events = await self._events.list_timeline(work_order_id)
+        return WorkOrderEventListData(items=[work_order_event_data(item) for item in events])
+
+    async def _actor_scopes(self, actor_user_id: UUID):
+        return () if self._scopes is None else await self._scopes.get_for_user(actor_user_id)
 
     def _utc_now(self) -> datetime:
         value = self._now()

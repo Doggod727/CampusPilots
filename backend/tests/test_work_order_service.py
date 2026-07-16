@@ -5,7 +5,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.modules.campus_service.work_order_errors import CampusNotFound
+from app.modules.campus_service.models import WorkOrder, WorkOrderEvent
+from app.modules.campus_service.work_order_errors import CampusNotFound, WorkOrderNotFound
 from app.modules.campus_service.work_orders import (
     CreateWorkOrderCommand,
     WorkOrderService,
@@ -82,6 +83,36 @@ def _service(*, campus=object(), decision=None):
         now=lambda: NOW,
     )
     return service, session, campuses, work_orders, events, idempotency, audit
+
+
+def _persisted_order() -> WorkOrder:
+    return WorkOrder(
+        id=UUID("70000000-0000-4000-8000-000000000001"),
+        order_no="WO-20260716-0001",
+        created_by=USER_ID,
+        campus_code="main",
+        dormitory_area="梅园",
+        building="3号楼",
+        room="301",
+        fault_category="plumbing",
+        description="洗手池下方持续漏水，需要尽快检修",
+        preferred_start_at=NOW,
+        preferred_end_at=datetime(2026, 7, 16, 18, tzinfo=UTC),
+        status="submitted",
+        assigned_to=None,
+        assigned_department_id=None,
+        rejection_reason=None,
+        completion_note=None,
+        version=1,
+        submitted_at=NOW,
+        accepted_at=None,
+        processing_at=None,
+        completed_at=None,
+        cancelled_at=None,
+        rejected_at=None,
+        created_at=NOW,
+        updated_at=NOW,
+    )
 
 
 def test_create_builds_order_initial_event_audit_and_idempotent_response() -> None:
@@ -181,3 +212,64 @@ def test_create_rejects_disabled_or_missing_campus_before_number_allocation() ->
     orders.allocate_order_no.assert_not_awaited()
     events.append.assert_not_called()
     audit.record_success.assert_not_called()
+
+
+def test_list_visible_loads_scopes_and_builds_pagination() -> None:
+    service, _, _, orders, _, _, _ = _service()
+    scopes = MagicMock()
+    scopes.get_for_user = AsyncMock(return_value=())
+    service._scopes = scopes
+    order = _persisted_order()
+    orders.list_visible = AsyncMock(return_value=(((order, None),), 21))
+
+    result = asyncio.run(
+        service.list_visible(
+            actor=_actor(),
+            page=2,
+            page_size=20,
+            status="submitted",
+            campus_code="main",
+            assigned_to_me=False,
+        )
+    )
+
+    assert result.pagination.total == 21
+    assert result.pagination.total_pages == 2
+    assert result.items[0].id == order.id
+    scopes.get_for_user.assert_awaited_once_with(USER_ID)
+    assert orders.list_visible.await_args.kwargs["scopes"] == ()
+
+
+def test_detail_and_events_hide_missing_or_out_of_scope_order() -> None:
+    service, _, _, orders, events, _, _ = _service()
+    orders.get_visible = AsyncMock(return_value=None)
+
+    with pytest.raises(WorkOrderNotFound):
+        asyncio.run(service.get_visible(actor=_actor(), work_order_id=UUID(int=8)))
+    with pytest.raises(WorkOrderNotFound):
+        asyncio.run(service.list_events(actor=_actor(), work_order_id=UUID(int=8)))
+    events.list_timeline.assert_not_called()
+
+
+def test_event_query_returns_stable_timeline_after_visibility_check() -> None:
+    service, _, _, orders, events, _, _ = _service()
+    order = _persisted_order()
+    orders.get_visible = AsyncMock(return_value=(order, None))
+    event = WorkOrderEvent(
+        id=UUID(int=10),
+        work_order_id=order.id,
+        sequence_no=1,
+        event_type="submitted",
+        from_status=None,
+        to_status="submitted",
+        actor_user_id=USER_ID,
+        actor_role="student",
+        reason=None,
+        snapshot={},
+        created_at=NOW,
+    )
+    events.list_timeline = AsyncMock(return_value=(event,))
+
+    result = asyncio.run(service.list_events(actor=_actor(), work_order_id=order.id))
+
+    assert [item.sequence_no for item in result.items] == [1]
