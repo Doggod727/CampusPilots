@@ -10,7 +10,11 @@ from app.modules.campus_service.models import (
     ElectricityAccount,
     ElectricityAccountMember,
     ElectricityTopupRequest,
+    GuideApplicability,
     GuideCategory,
+    GuideMaterial,
+    GuideStep,
+    ServiceGuide,
 )
 
 EXPECTED_TABLES = {
@@ -18,6 +22,10 @@ EXPECTED_TABLES = {
     "campus_service.departments",
     "campus_service.department_contacts",
     "campus_service.guide_categories",
+    "campus_service.service_guides",
+    "campus_service.guide_applicabilities",
+    "campus_service.guide_materials",
+    "campus_service.guide_steps",
     "campus_service.electricity_accounts",
     "campus_service.electricity_account_members",
     "campus_service.electricity_topup_requests",
@@ -106,6 +114,68 @@ def test_contact_repr_does_not_include_contact_values() -> None:
     assert "010-secret" not in representation
     assert "secret@example.edu" not in representation
     assert "Private room" not in representation
+
+
+def test_guide_metadata_matches_migration() -> None:
+    assert set(ServiceGuide.__table__.columns.keys()) == {
+        "id", "code", "category_id", "department_id", "title", "summary", "location",
+        "service_hours", "source_url", "status", "published_at", "valid_until", "version",
+        "created_at", "updated_at",
+    }
+    assert set(GuideApplicability.__table__.columns.keys()) == {
+        "guide_id", "campus_code", "student_type", "notes"
+    }
+    assert set(GuideMaterial.__table__.columns.keys()) == {
+        "id", "guide_id", "name", "description", "required", "copies", "condition",
+        "sort_order",
+    }
+    assert set(GuideStep.__table__.columns.keys()) == {
+        "id", "guide_id", "step_no", "title", "description", "location",
+        "estimated_minutes",
+    }
+    assert constraint_names(ServiceGuide) == {
+        "ck_service_guides_code", "ck_service_guides_status",
+        "ck_service_guides_publish_state", "ck_service_guides_version",
+    }
+    assert constraint_names(GuideApplicability) == {
+        "ck_guide_applicabilities_student_type"
+    }
+    assert constraint_names(GuideMaterial) == {
+        "ck_guide_materials_copies", "ck_guide_materials_condition",
+        "ck_guide_materials_sort_order",
+    }
+    assert constraint_names(GuideStep) == {
+        "ck_guide_steps_step_no", "ck_guide_steps_estimated_minutes"
+    }
+
+
+def test_guide_foreign_keys_indexes_and_postgresql_ddl_match_migration() -> None:
+    models = (ServiceGuide, GuideApplicability, GuideMaterial, GuideStep)
+    foreign_keys = {
+        (model.__tablename__, key.parent.name): (key.target_fullname, key.ondelete)
+        for model in models for key in model.__table__.foreign_keys
+    }
+    assert foreign_keys == {
+        ("service_guides", "category_id"): ("campus_service.guide_categories.id", "RESTRICT"),
+        ("service_guides", "department_id"): ("campus_service.departments.id", "RESTRICT"),
+        ("guide_applicabilities", "guide_id"): ("campus_service.service_guides.id", "CASCADE"),
+        ("guide_applicabilities", "campus_code"): ("campus_service.campuses.code", "RESTRICT"),
+        ("guide_materials", "guide_id"): ("campus_service.service_guides.id", "CASCADE"),
+        ("guide_steps", "guide_id"): ("campus_service.service_guides.id", "CASCADE"),
+    }
+    dialect = postgresql.dialect()
+    ddl = "\n".join(str(CreateTable(model.__table__).compile(dialect=dialect)) for model in models)
+    indexes = "\n".join(
+        str(CreateIndex(index).compile(dialect=dialect))
+        for model in models for index in model.__table__.indexes
+    )
+    assert "PRIMARY KEY (guide_id, campus_code, student_type)" in ddl
+    assert "UNIQUE (guide_id, step_no)" in ddl
+    assert "condition JSONB DEFAULT '{}'::jsonb" in ddl
+    assert "ix_service_guides_listing" in indexes and "updated_at DESC" in indexes
+    assert "ix_guide_applicabilities_audience" in indexes
+    assert "ix_guide_materials_guide" in indexes
+    assert "USING gin (condition)" in indexes
 
 
 def test_electricity_metadata_matches_migration() -> None:

@@ -304,6 +304,10 @@
   - `create_topup_request` 限制 1–500 CNY，固定 mock/simulated 且不修改余额；同用户同 Key 同哈希重放，不同哈希返回 `409 IDEMPOTENCY_CONFLICT`。
   - Agent 调用强制 Run/Approval UUID 成对且必须由服务端标记确认，否则返回 `409 TOOL_APPROVAL_INVALID`；M2 不导入 M5 contracts、Registry 或 Executor。
   - 全量 pytest `272 passed`（11 条既有 httpx 弃用警告）、Python 编译、OpenAPI lint（3 条既有文档警告）、Alembic 单 head及离线升降级通过；本任务无公共 REST API 契约差异。
+- [x] [#128 M2：实现办事指南 ORM](https://github.com/Doggod727/CampusPilot/issues/128)（2026-07-16）
+  - 映射 `service_guides`、`guide_applicabilities`、`guide_materials`、`guide_steps`，字段、PostgreSQL 类型、默认值、复合主键、唯一约束、CHECK、GIN/排序索引和外键删除策略与 `0002` 迁移一致。
+  - 保持扁平 ORM 边界，不新增 Alembic Revision、relationship、Repository、Service、HTTP 路由或 OpenAPI 变更。
+  - M2 模型定向测试 `10 passed`、全量 pytest `461 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL 验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 

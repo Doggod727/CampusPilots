@@ -13,10 +13,11 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.database import Base
@@ -119,6 +120,137 @@ class GuideCategory(Base):
     sort_order: Mapped[int] = mapped_column(Integer(), server_default=text("0"))
     enabled: Mapped[bool] = mapped_column(Boolean(), server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class ServiceGuide(Base):
+    __tablename__ = "service_guides"
+    __table_args__ = (
+        CheckConstraint(
+            "code ~ '^[a-z][a-z0-9_]{2,59}$'", name="ck_service_guides_code"
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'published', 'archived')",
+            name="ck_service_guides_status",
+        ),
+        CheckConstraint(
+            "status <> 'published' OR published_at IS NOT NULL",
+            name="ck_service_guides_publish_state",
+        ),
+        CheckConstraint("version >= 1", name="ck_service_guides_version"),
+        Index("ix_service_guides_listing", "status", "category_id", text("updated_at DESC")),
+        Index("ix_service_guides_department", "department_id", "status"),
+        {"schema": CAMPUS_SERVICE_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    code: Mapped[str] = mapped_column(String(60), unique=True)
+    category_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("campus_service.guide_categories.id", ondelete="RESTRICT"),
+    )
+    department_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("campus_service.departments.id", ondelete="RESTRICT"),
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    summary: Mapped[str] = mapped_column(String(500))
+    location: Mapped[str | None] = mapped_column(String(300))
+    service_hours: Mapped[str | None] = mapped_column(String(200))
+    source_url: Mapped[str | None] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(16), server_default=text("'published'"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[date | None] = mapped_column(Date())
+    version: Mapped[int] = mapped_column(Integer(), server_default=text("1"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class GuideApplicability(Base):
+    __tablename__ = "guide_applicabilities"
+    __table_args__ = (
+        CheckConstraint(
+            "student_type IN ('undergraduate', 'postgraduate', 'international', 'all')",
+            name="ck_guide_applicabilities_student_type",
+        ),
+        Index(
+            "ix_guide_applicabilities_audience",
+            "campus_code",
+            "student_type",
+            "guide_id",
+        ),
+        {"schema": CAMPUS_SERVICE_SCHEMA},
+    )
+
+    guide_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("campus_service.service_guides.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    campus_code: Mapped[str] = mapped_column(
+        String(30),
+        ForeignKey("campus_service.campuses.code", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    student_type: Mapped[str] = mapped_column(String(30), primary_key=True)
+    notes: Mapped[str | None] = mapped_column(String(300))
+
+
+class GuideMaterial(Base):
+    __tablename__ = "guide_materials"
+    __table_args__ = (
+        CheckConstraint("copies BETWEEN 0 AND 20", name="ck_guide_materials_copies"),
+        CheckConstraint(
+            "jsonb_typeof(condition) = 'object'", name="ck_guide_materials_condition"
+        ),
+        CheckConstraint("sort_order >= 0", name="ck_guide_materials_sort_order"),
+        Index("ix_guide_materials_guide", "guide_id", "sort_order", "id"),
+        Index("ix_guide_materials_condition_gin", "condition", postgresql_using="gin"),
+        {"schema": CAMPUS_SERVICE_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    guide_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("campus_service.service_guides.id", ondelete="CASCADE"),
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(String(500))
+    required: Mapped[bool] = mapped_column(Boolean(), server_default=text("true"))
+    copies: Mapped[int] = mapped_column(Integer(), server_default=text("1"))
+    condition: Mapped[dict[str, object]] = mapped_column(
+        JSONB(), server_default=text("'{}'::jsonb")
+    )
+    sort_order: Mapped[int] = mapped_column(Integer(), server_default=text("0"))
+
+
+class GuideStep(Base):
+    __tablename__ = "guide_steps"
+    __table_args__ = (
+        UniqueConstraint("guide_id", "step_no"),
+        CheckConstraint("step_no >= 1", name="ck_guide_steps_step_no"),
+        CheckConstraint(
+            "estimated_minutes IS NULL OR estimated_minutes BETWEEN 1 AND 10080",
+            name="ck_guide_steps_estimated_minutes",
+        ),
+        {"schema": CAMPUS_SERVICE_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    guide_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("campus_service.service_guides.id", ondelete="CASCADE"),
+    )
+    step_no: Mapped[int] = mapped_column(Integer())
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text())
+    location: Mapped[str | None] = mapped_column(String(300))
+    estimated_minutes: Mapped[int | None] = mapped_column(Integer())
 
 
 class ElectricityAccount(Base):
