@@ -396,6 +396,9 @@
 - [x] [#153 M3：实现话题仓储与应用服务](https://github.com/Doggod727/CampusPilot/issues/153)（2026-07-16）
   - TopicRepository 在 SQL 层过滤逻辑删除和状态，提供稳定分页、行锁详情、code/name 冲突检查及未删除帖子存在性检查，并保持调用方 Session 所有权。
   - TopicService 实现查询、M4 幂等创建、乐观锁更新和受保护逻辑删除；审计仅保存 ID/code/status/version，不保存描述。定向测试 `8 passed`、全量 pytest `611 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#154 M3：实现话题 HTTP API](https://github.com/Doggod727/CampusPilot/issues/154)（2026-07-16）
+  - 注册 list/create/get/update/deleteTopic 五个 operationId，使用严格 Topic/分页模型、统一 Request-Id 和 204 删除响应；查询要求 community:read，写入要求 community:moderate，创建强制幂等键。
+  - UUID、分页、状态、code、字段长度、空值和 version 均按契约校验；认证、权限、严格响应和 operationId 定向测试累计 `13 passed`，全量 pytest `616 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 
