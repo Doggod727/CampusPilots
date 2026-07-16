@@ -111,3 +111,13 @@ class EventRegistrationNotFound(AppError):
 class LostFoundItemNotFound(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=404, code="LOST_FOUND_ITEM_NOT_FOUND", message="失物招领记录不存在或不可见")
+
+
+class LostFoundStateInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="LOST_FOUND_STATE_INVALID", message="当前失物招领状态不允许此操作")
+
+
+class LostFoundClaimInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="LOST_FOUND_CLAIM_INVALID", message="存在进行中的认领，无法执行此操作")

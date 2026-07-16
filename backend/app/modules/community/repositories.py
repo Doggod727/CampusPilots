@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.community.models import (
-    CampusEvent, Comment, ContentReport, EventRegistration, LostFoundItem, Post,
+    CampusEvent, Comment, ContentReport, EventRegistration, LostFoundClaim, LostFoundItem, Post,
     PostReaction, Topic,
 )
 from app.modules.platform.models import ModerationCase
@@ -341,6 +341,13 @@ class LostFoundRepository:
 
     def add(self, item: LostFoundItem) -> None:
         self._session.add(item)
+
+    async def has_active_claim(self, item_id: UUID) -> bool:
+        statement = select(LostFoundClaim.id).where(
+            LostFoundClaim.target_item_id == item_id,
+            LostFoundClaim.status.in_(("pending", "verified")),
+        ).limit(1)
+        return (await self._session.execute(statement)).scalar_one_or_none() is not None
 
 
 @dataclass(frozen=True)
