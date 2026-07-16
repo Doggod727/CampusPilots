@@ -316,6 +316,10 @@
   - 将 SQL 004 的 2 个校区、3 个部门、3 个联系人、3 个指南分类、2 个指南、4 条适用规则、4 份材料和 5 个步骤纳入 `seed_demo` 单一事务，保留现有身份/RBAC和电费房间用户绑定。
   - 字典按自然键 `code` upsert；联系人、指南、适用规则、材料和步骤通过部门/分类/指南自然键解析实际父 ID，固定子记录 ID 与业务唯一键保证重复运行不新增重复参考数据。
   - 种子与模型定向测试 `21 passed`、全量 pytest `466 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL重复种子验证仍待环境可用后执行。
+- [x] [#132 M2：实现基础字典查询仓储与服务](https://github.com/Doggod727/CampusPilot/issues/132)（2026-07-16）
+  - 增加启用校区、指南分类、部门和有效联系人只读仓储与 DTO 服务；部门支持转义后的 code/name/description 模糊搜索，并以 SQL `EXISTS` 按校区和有效联系人筛选。
+  - 联系人统一在 SQL 层应用启用状态和包含边界的有效期条件，日期提供器可注入；固定字典、部门和联系人排序，所有仓储保持调用方 Session 所有权且不产生 N+1。
+  - 定向测试 `10 passed`、全量 pytest `473 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 
