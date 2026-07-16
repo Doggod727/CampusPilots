@@ -8,6 +8,9 @@ from app.modules.community.models import (
     Comment,
     ContentReport,
     EventRegistration,
+    LostFoundClaim,
+    LostFoundItem,
+    LostFoundMatch,
     Post,
     PostReaction,
     Topic,
@@ -137,3 +140,59 @@ def test_event_registration_model_has_composite_key_and_cancellation_contract() 
     assert "ck_event_registrations_status" in sql
     assert "ck_event_registrations_cancelled" in sql
     assert "ix_event_registrations_user" in indexes and "registered_at DESC" in indexes
+
+
+def test_lost_found_item_model_preserves_binary_contact_and_visibility_contract() -> None:
+    sql = _table_sql(LostFoundItem)
+    indexes = _index_sql(LostFoundItem)
+    assert "contact_ciphertext BYTEA NOT NULL" in sql
+    for name in (
+        "ck_lost_found_type", "ck_lost_found_description", "ck_lost_found_contact_type",
+        "ck_lost_found_status", "ck_lost_found_risk", "ck_lost_found_publish",
+        "ck_lost_found_review_case", "ck_lost_found_completed", "ck_lost_found_version",
+    ):
+        assert name in sql
+    assert "FOREIGN KEY(owner_user_id)" not in sql
+    assert "ix_lost_found_public_list" in indexes and "status IN ('published', 'claiming')" in indexes
+    assert "ix_lost_found_owner" in indexes
+
+    item = LostFoundItem(contact_ciphertext=b"secret-contact", contact_hint="private hint")
+    assert "secret-contact" not in repr(item) and "private hint" not in repr(item)
+
+
+def test_lost_found_match_model_preserves_score_json_and_business_uniqueness() -> None:
+    sql = _table_sql(LostFoundMatch)
+    indexes = _index_sql(LostFoundMatch)
+    assert "score NUMERIC(6, 5) NOT NULL" in sql
+    assert "reasons JSONB NOT NULL" in sql
+    assert "UNIQUE (source_item_id, candidate_item_id, algorithm_version)" in sql
+    assert sql.count("ON DELETE CASCADE") == 2
+    assert "ck_lost_found_matches_distinct" in sql
+    assert "ck_lost_found_matches_score" in sql
+    assert "ck_lost_found_matches_reasons" in sql
+    assert "ix_lost_found_matches_source" in indexes and "score DESC" in indexes
+
+
+def test_lost_found_claim_model_preserves_state_and_active_unique_contract() -> None:
+    sql = _table_sql(LostFoundClaim)
+    indexes = _index_sql(LostFoundClaim)
+    assert "evidence_ciphertext BYTEA NOT NULL" in sql
+    assert "ON DELETE RESTRICT" in sql and "ON DELETE SET NULL" in sql
+    assert "FOREIGN KEY(claimant_user_id)" not in sql
+    assert "FOREIGN KEY(decided_by)" not in sql
+    for name in (
+        "ck_lost_found_claims_status", "ck_lost_found_claims_decision",
+        "ck_lost_found_claims_reason", "ck_lost_found_claims_completed",
+        "ck_lost_found_claims_version",
+    ):
+        assert name in sql
+    assert "CREATE UNIQUE INDEX uq_lost_found_claims_active" in indexes
+    assert "status IN ('pending', 'verified')" in indexes
+    assert "ix_lost_found_claims_claimant" in indexes
+    assert "ix_lost_found_claims_target" in indexes
+
+    claim = LostFoundClaim(
+        evidence_ciphertext=b"secret-evidence", decision_reason="private decision"
+    )
+    assert "secret-evidence" not in repr(claim)
+    assert "private decision" not in repr(claim)

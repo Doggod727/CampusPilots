@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
@@ -8,12 +9,14 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.database import Base
@@ -225,4 +228,101 @@ class EventRegistration(Base):
     status: Mapped[str] = mapped_column(String(16), server_default=text("'registered'"))
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class LostFoundItem(Base):
+    __tablename__ = "lost_found_items"
+    __table_args__ = (
+        CheckConstraint("item_type IN ('lost', 'found')", name="ck_lost_found_type"),
+        CheckConstraint("char_length(description) BETWEEN 5 AND 2000", name="ck_lost_found_description"),
+        CheckConstraint("contact_type IN ('phone', 'email', 'wechat', 'other')", name="ck_lost_found_contact_type"),
+        CheckConstraint("status IN ('pending_review', 'published', 'claiming', 'completed', 'closed', 'rejected', 'deleted')", name="ck_lost_found_status"),
+        CheckConstraint("risk_level IN ('low', 'medium', 'high', 'critical')", name="ck_lost_found_risk"),
+        CheckConstraint("(status IN ('published', 'claiming') AND published_at IS NOT NULL) OR status NOT IN ('published', 'claiming')", name="ck_lost_found_publish"),
+        CheckConstraint("status <> 'pending_review' OR moderation_case_id IS NOT NULL", name="ck_lost_found_review_case"),
+        CheckConstraint("(status = 'completed' AND completed_at IS NOT NULL) OR status <> 'completed'", name="ck_lost_found_completed"),
+        CheckConstraint("version >= 1", name="ck_lost_found_version"),
+        Index(
+            "ix_lost_found_public_list", "item_type", "category", text("occurred_at DESC"), text("id DESC"),
+            postgresql_where=text("status IN ('published', 'claiming') AND deleted_at IS NULL"),
+        ),
+        Index("ix_lost_found_owner", "owner_user_id", text("created_at DESC"), postgresql_where=text("deleted_at IS NULL")),
+        {"schema": COMMUNITY_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    owner_user_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    item_type: Mapped[str] = mapped_column(String(10))
+    title: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(50))
+    description: Mapped[str] = mapped_column(String(2000))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    location: Mapped[str] = mapped_column(String(200))
+    contact_type: Mapped[str] = mapped_column(String(16))
+    contact_ciphertext: Mapped[bytes] = mapped_column(LargeBinary())
+    contact_hint: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(20), server_default=text("'pending_review'"))
+    risk_level: Mapped[str] = mapped_column(String(16), server_default=text("'low'"))
+    moderation_case_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    moderation_policy_version: Mapped[str] = mapped_column(String(50))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer(), server_default=text("1"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LostFoundMatch(Base):
+    __tablename__ = "lost_found_matches"
+    __table_args__ = (
+        UniqueConstraint("source_item_id", "candidate_item_id", "algorithm_version"),
+        CheckConstraint("source_item_id <> candidate_item_id", name="ck_lost_found_matches_distinct"),
+        CheckConstraint("score BETWEEN 0 AND 1", name="ck_lost_found_matches_score"),
+        CheckConstraint("jsonb_typeof(reasons) = 'array'", name="ck_lost_found_matches_reasons"),
+        Index("ix_lost_found_matches_source", "source_item_id", text("score DESC"), text("created_at DESC")),
+        {"schema": COMMUNITY_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    source_item_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("community.lost_found_items.id", ondelete="CASCADE"))
+    candidate_item_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("community.lost_found_items.id", ondelete="CASCADE"))
+    score: Mapped[Decimal] = mapped_column(Numeric(6, 5))
+    reasons: Mapped[list[object]] = mapped_column(JSONB())
+    algorithm_version: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class LostFoundClaim(Base):
+    __tablename__ = "lost_found_claims"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'verified', 'rejected', 'cancelled', 'completed')", name="ck_lost_found_claims_status"),
+        CheckConstraint("(status IN ('verified', 'rejected', 'completed') AND decided_by IS NOT NULL AND decided_at IS NOT NULL) OR status IN ('pending', 'cancelled')", name="ck_lost_found_claims_decision"),
+        CheckConstraint("status <> 'rejected' OR decision_reason IS NOT NULL", name="ck_lost_found_claims_reason"),
+        CheckConstraint("(status = 'completed' AND claimant_confirmed_at IS NOT NULL AND owner_confirmed_at IS NOT NULL AND completed_at IS NOT NULL) OR status <> 'completed'", name="ck_lost_found_claims_completed"),
+        CheckConstraint("version >= 1", name="ck_lost_found_claims_version"),
+        Index(
+            "uq_lost_found_claims_active", "target_item_id", "claimant_user_id", unique=True,
+            postgresql_where=text("status IN ('pending', 'verified')"),
+        ),
+        Index("ix_lost_found_claims_claimant", "claimant_user_id", text("created_at DESC")),
+        Index("ix_lost_found_claims_target", "target_item_id", "status", text("created_at DESC")),
+        {"schema": COMMUNITY_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    target_item_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("community.lost_found_items.id", ondelete="RESTRICT"))
+    claimant_item_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("community.lost_found_items.id", ondelete="SET NULL"))
+    claimant_user_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    evidence_ciphertext: Mapped[bytes] = mapped_column(LargeBinary())
+    status: Mapped[str] = mapped_column(String(16), server_default=text("'pending'"))
+    decision_reason: Mapped[str | None] = mapped_column(String(500))
+    decided_by: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claimant_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    owner_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer(), server_default=text("1"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

@@ -387,6 +387,9 @@
 - [x] [#150 M3：实现校园活动 ORM](https://github.com/Doggod727/CampusPilot/issues/150)（2026-07-16）
   - 映射 CampusEvent 的时间、容量、审核、取消、发布和版本约束及公开/组织者部分索引；映射 EventRegistration 的 event+user 复合主键、状态/取消时间约束和用户时间索引。
   - 活动对报名使用 CASCADE，自有用户和审核标识保持逻辑 UUID；不实现行锁、容量变更、状态机或 API。累计模型专项 `7 passed`、全量 pytest `596 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#151 M3：实现失物招领 ORM](https://github.com/Doggod727/CampusPilot/issues/151)（2026-07-16）
+  - 映射 LostFoundItem/Match/Claim，联系方式与证据使用 BYTEA，匹配原因使用 JSONB，分数使用 numeric(6,5)；保留发布/完成、候选唯一、分数和认领状态约束。
+  - M3 自有外键按 CASCADE/RESTRICT/SET NULL，活动认领使用部分唯一索引；对象表示不泄露密文、提示或决策正文。本批累计模型专项 `10 passed`、全量 pytest `599 passed`、编译、Alembic 单 Head及离线完整升降级、OpenAPI lint 均通过，真实 PostgreSQL 验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 
