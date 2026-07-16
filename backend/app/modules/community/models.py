@@ -166,3 +166,63 @@ class ContentReport(Base):
     moderation_case_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class CampusEvent(Base):
+    __tablename__ = "campus_events"
+    __table_args__ = (
+        CheckConstraint("char_length(description_markdown) BETWEEN 1 AND 5000", name="ck_events_description"),
+        CheckConstraint("starts_at < ends_at AND registration_deadline <= starts_at", name="ck_events_times"),
+        CheckConstraint("capacity BETWEEN 1 AND 10000 AND registered_count BETWEEN 0 AND capacity", name="ck_events_capacity"),
+        CheckConstraint("status IN ('pending_review', 'published', 'rejected', 'cancelled', 'ended', 'deleted')", name="ck_events_status"),
+        CheckConstraint("risk_level IN ('low', 'medium', 'high', 'critical')", name="ck_events_risk"),
+        CheckConstraint("(status = 'published' AND published_at IS NOT NULL) OR status <> 'published'", name="ck_events_publish"),
+        CheckConstraint("status <> 'pending_review' OR moderation_case_id IS NOT NULL", name="ck_events_review_case"),
+        CheckConstraint("status <> 'cancelled' OR cancellation_reason IS NOT NULL", name="ck_events_cancel_reason"),
+        CheckConstraint("version >= 1", name="ck_events_version"),
+        Index("ix_events_public_list", "starts_at", "id", postgresql_where=text("status = 'published' AND deleted_at IS NULL")),
+        Index("ix_events_organizer", "organizer_user_id", text("created_at DESC"), postgresql_where=text("deleted_at IS NULL")),
+        {"schema": COMMUNITY_SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    organizer_user_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    title: Mapped[str] = mapped_column(String(120))
+    description_markdown: Mapped[str] = mapped_column(Text())
+    category: Mapped[str] = mapped_column(String(50))
+    location: Mapped[str] = mapped_column(String(200))
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    registration_deadline: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    capacity: Mapped[int] = mapped_column(Integer())
+    registered_count: Mapped[int] = mapped_column(Integer(), server_default=text("0"))
+    status: Mapped[str] = mapped_column(String(20), server_default=text("'pending_review'"))
+    risk_level: Mapped[str] = mapped_column(String(16), server_default=text("'low'"))
+    moderation_case_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    moderation_policy_version: Mapped[str] = mapped_column(String(50))
+    cancellation_reason: Mapped[str | None] = mapped_column(String(500))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer(), server_default=text("1"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EventRegistration(Base):
+    __tablename__ = "event_registrations"
+    __table_args__ = (
+        CheckConstraint("status IN ('registered', 'cancelled')", name="ck_event_registrations_status"),
+        CheckConstraint("(status = 'cancelled' AND cancelled_at IS NOT NULL) OR status = 'registered'", name="ck_event_registrations_cancelled"),
+        Index("ix_event_registrations_user", "user_id", "status", text("registered_at DESC")),
+        {"schema": COMMUNITY_SCHEMA},
+    )
+
+    event_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("community.campus_events.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), server_default=text("'registered'"))
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

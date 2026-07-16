@@ -384,6 +384,9 @@
 - [x] [#149 M3：实现互动与举报 ORM](https://github.com/Doggod727/CampusPilot/issues/149)（2026-07-16）
   - 映射 PostReaction 三字段复合主键、互动类型约束和用户时间索引；映射 ContentReport 业务唯一键、受控目标/原因/状态/详情约束及目标、审核案件索引。
   - 举报人和审核案件仍为逻辑 UUID，对象表示不泄露举报正文或举报人；不实现计数、案件复用、审计或 API。累计模型专项 `5 passed`、全量 pytest `594 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#150 M3：实现校园活动 ORM](https://github.com/Doggod727/CampusPilot/issues/150)（2026-07-16）
+  - 映射 CampusEvent 的时间、容量、审核、取消、发布和版本约束及公开/组织者部分索引；映射 EventRegistration 的 event+user 复合主键、状态/取消时间约束和用户时间索引。
+  - 活动对报名使用 CASCADE，自有用户和审核标识保持逻辑 UUID；不实现行锁、容量变更、状态机或 API。累计模型专项 `7 passed`、全量 pytest `596 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 

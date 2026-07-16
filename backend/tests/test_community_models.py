@@ -3,7 +3,15 @@ from uuid import UUID
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from app.modules.community.models import Comment, ContentReport, Post, PostReaction, Topic
+from app.modules.community.models import (
+    CampusEvent,
+    Comment,
+    ContentReport,
+    EventRegistration,
+    Post,
+    PostReaction,
+    Topic,
+)
 
 
 def _table_sql(model: type[object]) -> str:
@@ -95,3 +103,37 @@ def test_content_report_model_preserves_business_uniqueness_and_safe_repr() -> N
     report = ContentReport(reporter_user_id=secret_user, details="private report details")
     assert str(secret_user) not in repr(report)
     assert "private report details" not in repr(report)
+
+
+def test_campus_event_model_preserves_constraints_partial_indexes_and_safe_repr() -> None:
+    sql = _table_sql(CampusEvent)
+    indexes = _index_sql(CampusEvent)
+    for name in (
+        "ck_events_description", "ck_events_times", "ck_events_capacity",
+        "ck_events_status", "ck_events_risk", "ck_events_publish",
+        "ck_events_review_case", "ck_events_cancel_reason", "ck_events_version",
+    ):
+        assert name in sql
+    assert "FOREIGN KEY(organizer_user_id)" not in sql
+    assert "FOREIGN KEY(moderation_case_id)" not in sql
+    assert "ix_events_public_list" in indexes and "status = 'published'" in indexes
+    assert "ix_events_organizer" in indexes and "deleted_at IS NULL" in indexes
+
+    event = CampusEvent(
+        description_markdown="private event body",
+        cancellation_reason="private cancellation reason",
+    )
+    assert "private event body" not in repr(event)
+    assert "private cancellation reason" not in repr(event)
+
+
+def test_event_registration_model_has_composite_key_and_cancellation_contract() -> None:
+    table = EventRegistration.__table__
+    assert [column.name for column in table.primary_key.columns] == ["event_id", "user_id"]
+    sql = _table_sql(EventRegistration)
+    indexes = _index_sql(EventRegistration)
+    assert "ON DELETE CASCADE" in sql
+    assert "FOREIGN KEY(user_id)" not in sql
+    assert "ck_event_registrations_status" in sql
+    assert "ck_event_registrations_cancelled" in sql
+    assert "ix_event_registrations_user" in indexes and "registered_at DESC" in indexes
