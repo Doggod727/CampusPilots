@@ -332,6 +332,10 @@
   - 新增纯计算 `MaterialChecklistService`，仅接受 `campus_codes/student_types` 白名单条件，按同维度 OR、跨维度 AND 生成稳定的 `included/inclusion_reason`；未知键或畸形条件安全返回 `500 GUIDE_MATERIAL_CONDITION_INVALID`。
   - 注册 `getServiceGuideChecklist`，按契约仅要求有效登录并校验指南 UUID、校区和学生类型；成功响应不暴露原始条件，不可见或不适用指南统一返回安全的 `404 GUIDE_NOT_FOUND`。
   - 材料清单与路由定向测试 `8 passed`、全量 pytest `500 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL验证仍待环境可用后执行。
+- [x] [#136 M2：实现办事指南列表与详情 HTTP API](https://github.com/Doggod727/CampusPilot/issues/136)（2026-07-16）
+  - 注册 `listServiceGuides/getServiceGuide`，严格映射 OpenAPI 的分页、搜索、分类、部门、校区和学生类型参数，继续仅要求有效登录；指南类公共 operationId 累计 3 个且全局唯一。
+  - 列表返回精确的指南摘要与分页元数据；详情复用一次授权查询和一次材料纯计算，返回适用规则、可解释材料、步骤与有效联系人，不暴露原始 condition 或契约外字段。
+  - 指南 API 与既有查询联合定向测试 `26 passed`、全量 pytest `506 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 
