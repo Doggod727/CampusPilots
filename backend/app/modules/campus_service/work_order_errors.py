@@ -62,3 +62,12 @@ class WorkOrderNotCompleted(AppError):
             code="WORK_ORDER_NOT_COMPLETED",
             message="仅已完成工单可以评价",
         )
+
+
+class WorkOrderApprovalInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="TOOL_APPROVAL_INVALID",
+            message="工具确认信息无效",
+        )

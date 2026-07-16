@@ -513,6 +513,31 @@ class ElectricityRepository:
         )
         return tuple((await self._session.execute(statement)).scalars().all())
 
+    async def get_account_for_location(
+        self,
+        *,
+        user_id: UUID,
+        campus_code: str,
+        dormitory_area: str,
+        building: str,
+        room: str,
+    ) -> ElectricityAccount | None:
+        statement = (
+            select(ElectricityAccount)
+            .join(
+                ElectricityAccountMember,
+                ElectricityAccountMember.room_id == ElectricityAccount.room_id,
+            )
+            .where(
+                ElectricityAccountMember.user_id == user_id,
+                ElectricityAccount.campus_code == campus_code,
+                ElectricityAccount.dormitory_area == dormitory_area,
+                ElectricityAccount.building == building,
+                ElectricityAccount.room == room,
+            )
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
     async def get_topup_for_update(
         self, requested_by: UUID, idempotency_key: str
     ) -> ElectricityTopupRequest | None:

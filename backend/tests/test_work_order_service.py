@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.modules.campus_service.models import WorkOrder, WorkOrderEvent
+from app.modules.campus_service.models import ElectricityAccount
 from app.modules.campus_service.work_order_errors import CampusNotFound, WorkOrderNotFound
 from app.modules.campus_service.work_orders import (
     CreateWorkOrderCommand,
@@ -273,3 +274,24 @@ def test_event_query_returns_stable_timeline_after_visibility_check() -> None:
     result = asyncio.run(service.list_events(actor=_actor(), work_order_id=order.id))
 
     assert [item.sequence_no for item in result.items] == [1]
+
+
+def test_tool_room_create_reuses_caller_transaction_and_persisted_location() -> None:
+    service, session, _, _, _, _, _ = _service()
+    rooms = MagicMock()
+    rooms.get_account_for_user = AsyncMock(return_value=ElectricityAccount(
+        room_id=UUID(int=33), campus_code="main", dormitory_area="演示宿舍区",
+        building="A", room="101", balance=0, currency="CNY", source="mock",
+        is_simulated=True, source_updated_at=NOW,
+    ))
+    service._rooms = rooms
+    result = asyncio.run(service.create_from_room_in_transaction(
+        actor=_actor(), room_ids=(UUID(int=33),), room_id=UUID(int=33),
+        fault_category="plumbing", description="宿舍水龙头持续漏水，需要安排检修。",
+        preferred_start_at=NOW, preferred_end_at=datetime(2026, 7, 16, 18, tzinfo=UTC),
+        idempotency_key="tool-create-1", request_id="tool-request-1",
+        agent_run_id=UUID(int=44), approval_id=UUID(int=45), approval_verified=True,
+    ))
+    assert result.status_code == 201
+    session.begin.assert_not_called()
+    rooms.get_account_for_user.assert_awaited_once_with(UUID(int=33), USER_ID)

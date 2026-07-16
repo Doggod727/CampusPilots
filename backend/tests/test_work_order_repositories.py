@@ -8,6 +8,7 @@ from sqlalchemy.dialects import postgresql
 
 from app.modules.campus_service.models import WorkOrder, WorkOrderEvent
 from app.modules.campus_service.repositories import (
+    ElectricityRepository,
     WorkOrderEventRepository,
     WorkOrderRepository,
 )
@@ -241,3 +242,18 @@ def test_rating_owner_load_is_locked_and_rating_write_keeps_session_ownership() 
     assert "work_order_ratings.work_order_id" in _sql(session.execute.await_args_list[1].args[0])
     session.add.assert_called_once_with(rating)
     session.commit.assert_not_awaited()
+
+
+def test_room_lookup_for_work_order_location_is_user_scoped() -> None:
+    account = MagicMock()
+    session = _session(_ScalarResult(account))
+    repository = ElectricityRepository(session)
+    result = asyncio.run(repository.get_account_for_location(
+        user_id=UUID(int=7), campus_code="main", dormitory_area="梅园",
+        building="3号楼", room="301",
+    ))
+    assert result is account
+    sql = _sql(session.execute.await_args.args[0])
+    assert "electricity_account_members.user_id" in sql
+    assert "electricity_accounts.campus_code = 'main'" in sql
+    assert "electricity_accounts.dormitory_area = '梅园'" in sql

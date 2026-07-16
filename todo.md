@@ -364,6 +364,10 @@
   - 注册 `rateWorkOrder`，仅本人通过 owner-only `FOR UPDATE` 读取已完成工单；不可见、未完成和已有评价分别返回安全的 `WORK_ORDER_NOT_FOUND`、`WORK_ORDER_NOT_COMPLETED` 和 `WORK_ORDER_ALREADY_RATED`。
   - 单事务串联 M4 幂等、完成状态与唯一评价检查、评价写入、脱敏审计和完整 201 信封；数据库一单一评约束继续作为最终并发防线，审计只保存评分与是否包含评论，不保存评论正文。
   - 评价、仓储和路由定向测试 `39 passed`、全量 pytest `576 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；M2 的 15 个 OpenAPI operationId 已全部注册且全局唯一，真实 PostgreSQL 重复评价并发验证仍待环境可用后执行。
+- [x] [#144 M2：将指南与工单 Tool Mock 替换为真实 Adapter](https://github.com/Doggod727/CampusPilot/issues/144)（2026-07-16）
+  - 新增 `service.get_guide/work_order.create/work_order.get` 薄 Adapter，并在唯一运行时装配中替换对应 Mock；连同既有两个电费 Adapter，M5 的 5 个 M2 Tool 均调用真实 M2 应用服务，冻结的 Tool v1.0.0 Schema、版本和哈希保持不变。
+  - 工单 Tool 从本人数据库房间绑定解析实际位置，严格校验审批、幂等、故障类型、带时区时间区间、描述长度和附件；调用方事务入口避免内部 Tool 事务嵌套，工单查询事件仅返回固定状态摘要。
+  - 指南、工单、电费 Tool 与事务边界定向测试 `35 passed`、全量 pytest `584 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL 端到端联调仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 
