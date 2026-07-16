@@ -32,6 +32,7 @@ from app.modules.community.post_routes import router as community_post_router
 from app.modules.community.comment_routes import router as community_comment_router
 from app.modules.community.reaction_routes import router as community_reaction_router
 from app.modules.community.report_routes import router as community_report_router
+from app.modules.community.anonymous_identity_routes import router as community_anonymous_router
 
 
 def create_app() -> FastAPI:
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     application.include_router(community_comment_router)
     application.include_router(community_reaction_router)
     application.include_router(community_report_router)
+    application.include_router(community_anonymous_router)
     return application
 
 

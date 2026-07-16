@@ -60,3 +60,9 @@ class ContentReportTargetNotFound(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=404, code="CONTENT_REPORT_TARGET_NOT_FOUND",
                          message="举报目标不存在或不可见")
+
+
+class AnonymousIdentityNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, code="ANONYMOUS_IDENTITY_NOT_FOUND",
+                         message="匿名身份不存在或不可反查")

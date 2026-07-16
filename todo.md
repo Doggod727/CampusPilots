@@ -418,6 +418,9 @@
 - [x] [#160 M3：实现内容举报与审核案件复用](https://github.com/Doggod727/CampusPilot/issues/160)（2026-07-16）
   - 注册 createContentReport，受控解析 post/comment/event/lost_found 并在 SQL 层执行公开、本人或运营员可见性；目标行锁串行化业务重复举报和 pending M4 案件复用。
   - 新案件固定 review/high/community-report-v1 且不伪造规则命中；同用户重复返回首次事实，只有 Post 首次举报增加 report_count，响应和审计不返回 reporter 或 details。专项测试 `4 passed`、全量 pytest `655 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
+- [x] [#161 M3：实现匿名身份审计反查 API](https://github.com/Doggod727/CampusPilot/issues/161)（2026-07-16）
+  - 注册 revealAnonymousIdentity，仅专用 community:anonymous_identity:read 权限可反查未删除匿名 post/comment；历史身份端口只读取 UUID、用户名和显示名并支持软删除账号。
+  - 成功响应固定 no-store；业务失败在抛出统一 ANONYMOUS_IDENTITY_NOT_FOUND 前先提交失败审计，成功与失败审计均记录事由但不重复保存被反查用户 ID。专项测试 `4 passed`、全量 pytest `659 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级、136 个 OpenAPI operationId 唯一性和 Redocly lint 均通过；M3 累计注册 `18/38`。
 
 ## M5 项目重审与契约基线
 
