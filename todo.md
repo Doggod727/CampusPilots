@@ -402,6 +402,10 @@
 - [x] [#155 M3：实现帖子安全查询仓储与服务](https://github.com/Doggod727/CampusPilot/issues/155)（2026-07-16）
   - PostRepository 在 SQL 中区分公开 published 列表与本人全部未删除内容，支持话题、转义搜索和稳定正/倒序分页；详情将公开、作者本人和运营员可见性合并为单条安全查询。
   - PostQueryService 固定批次加载话题、本人互动和非匿名作者公开资料；匿名帖子完全跳过用户资料查询且永不暴露作者 UUID，审核案件仅作者本人或运营员可见。定向测试 `6 passed`、全量 pytest `622 passed`（11 条既有 httpx 弃用警告）、编译、Alembic 唯一 Head `0007_community_schema`、离线完整升降级和 OpenAPI lint 均通过；Redocly 保留 5 条既有非阻断警告。
+- [x] [#156 M3：实现帖子写入、M4 扫描与 HTTP API](https://github.com/Doggod727/CampusPilot/issues/156)（2026-07-16）
+  - 注册 list/create/get/update/deletePost 五个 operationId；查询与写入分别要求 community:read/community:write，作者外修改或删除还需 community:moderate，创建强制 M4 幂等并重放首次 201 信封。
+  - 标题与 Markdown 分别执行 M4 community 扫描，按最高风险将 allow/mask、review、block 收敛为 published、pending_review、rejected；需要审核时在同一事务创建案件，匿名限制、版本锁、逻辑删除和审计均 fail-closed，响应不泄露匿名作者或非授权审核案件。
+  - 帖子写入及路由专项 `13 passed`（连同查询累计 `19 passed`）、全量 pytest `635 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0007_community_schema`、离线完整升降级、136 个 OpenAPI operationId YAML 唯一性与 Redocly lint 均通过；M3 当前累计注册 `10/38`，Redocly 保留 5 条既有非阻断警告。
 
 ## M5 项目重审与契约基线
 

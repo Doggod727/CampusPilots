@@ -122,6 +122,20 @@ class PostRepository:
         )
         return (await self._session.execute(statement)).scalar_one_or_none()
 
+    async def get_for_update(self, post_id: UUID) -> Post | None:
+        statement = select(Post).where(
+            Post.id == post_id, Post.deleted_at.is_(None),
+        ).with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_active_topic(self, topic_id: UUID) -> Topic | None:
+        statement = select(Topic).where(
+            Topic.id == topic_id,
+            Topic.status == "active",
+            Topic.deleted_at.is_(None),
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
     async def topics_by_ids(self, ids: set[UUID]) -> dict[UUID, Topic]:
         if not ids:
             return {}
@@ -141,3 +155,6 @@ class PostRepository:
         for post_id, reaction_type in (await self._session.execute(statement)).all():
             result.setdefault(post_id, set()).add(reaction_type)
         return result
+
+    def add(self, post: Post) -> None:
+        self._session.add(post)

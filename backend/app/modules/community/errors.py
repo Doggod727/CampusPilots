@@ -29,3 +29,12 @@ class CommunityResourceVersionConflict(AppError):
 class PostNotFound(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=404, code="POST_NOT_FOUND", message="帖子不存在或不可见")
+
+
+class CommunityAnonymousNotAllowed(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=422,
+            code="COMMUNITY_ANONYMOUS_NOT_ALLOWED",
+            message="该话题不允许匿名发布",
+        )
