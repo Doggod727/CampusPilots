@@ -409,6 +409,9 @@
 - [x] [#157 M3：实现评论主流程与 HTTP API](https://github.com/Doggod727/CampusPilot/issues/157)（2026-07-16）
   - 注册 listPostComments/createComment/updateComment/deleteComment，完整实现 published 帖子与同帖父评论校验、匿名话题限制、M4 扫描、创建幂等、作者/运营员权限、版本锁和逻辑删除。
   - 评论公开列表稳定分页并批量解析非匿名作者；published 状态边界与帖子 comment_count 在同一事务原子更新，匿名响应及审计不泄露真实身份或正文。专项测试 `7 passed`、全量 pytest `642 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
+- [x] [#158 M3：注册社区审核决定回调](https://github.com/Doggod727/CampusPilot/issues/158)（2026-07-16）
+  - 为 post/comment/event/lost_found 注册请求上下文内的无状态 Handler，M4 将当前 Session 传入回调，使案件决定、目标状态和评论计数位于同一事务；测试仍可注入独立 Registry。
+  - 回调行锁目标并校验案件映射，approved/rejected/escalated、删除保护和重复调用均幂等安全；评论首次发布或撤下只调整一次计数，映射冲突返回稳定 409。专项累计 `11 passed`、全量 pytest `647 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 

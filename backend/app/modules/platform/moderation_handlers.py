@@ -2,21 +2,26 @@ from collections.abc import MutableMapping
 from typing import Protocol
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.errors import AppError
 from app.modules.platform.auth import AuthenticatedUser
 
 
 class ModerationTargetHandler(Protocol):
     async def approve(
-        self, *, case_id: UUID, target_id: UUID, reason: str, actor: AuthenticatedUser
+        self, *, session: AsyncSession, case_id: UUID, target_id: UUID,
+        reason: str, actor: AuthenticatedUser
     ) -> None: ...
 
     async def reject(
-        self, *, case_id: UUID, target_id: UUID, reason: str, actor: AuthenticatedUser
+        self, *, session: AsyncSession, case_id: UUID, target_id: UUID,
+        reason: str, actor: AuthenticatedUser
     ) -> None: ...
 
     async def escalate(
-        self, *, case_id: UUID, target_id: UUID, reason: str, actor: AuthenticatedUser
+        self, *, session: AsyncSession, case_id: UUID, target_id: UUID,
+        reason: str, actor: AuthenticatedUser
     ) -> None: ...
 
 
