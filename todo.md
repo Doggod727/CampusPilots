@@ -340,6 +340,10 @@
   - 新增调用方 Session 所有制的 `WorkOrderRepository/WorkOrderEventRepository`，提供工单追加、不可变事件追加和按序时间线读取，不提交、回滚或关闭连接；资源范围查询留给后续列表与详情任务。
   - 工单号固定为 `WO-YYYYMMDD-NNNN`，同事务先获取按日期划分的 PostgreSQL advisory lock，再读取严格格式的当天最大号并递增；达到 9999 后返回可重试的 `503 WORK_ORDER_NUMBER_EXHAUSTED`，未新增迁移。
   - 工单仓储定向测试 `5 passed`、全量 pytest `511 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL并发验证仍待环境可用后执行。
+- [x] [#138 M2：实现工单创建、幂等与初始事件 API](https://github.com/Doggod727/CampusPilot/issues/138)（2026-07-16）
+  - 注册 `createWorkOrder`，严格校验请求、时区时间和窗口，要求 `work_order:create` 与幂等键；禁用或不存在校区统一返回 `404 CAMPUS_NOT_FOUND`。
+  - 单事务串联 M4 幂等、启用校区校验、上海日期安全编号、submitted 工单、sequence=1 不可变事件和脱敏审计；相同请求重放首次 201 信封，不在事件或审计中保存宿舍与描述。
+  - 工单创建、路由与仓储定向测试 `12 passed`、全量 pytest `518 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL 并发幂等和编号验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 

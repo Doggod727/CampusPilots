@@ -11,7 +11,7 @@ from app.modules.campus_service.repositories import (
     WorkOrderEventRepository,
     WorkOrderRepository,
 )
-from app.modules.campus_service.work_orders import WorkOrderNumberExhausted
+from app.modules.campus_service.work_order_errors import WorkOrderNumberExhausted
 
 WORK_ORDER_ID = UUID("70000000-0000-4000-8000-000000000001")
 

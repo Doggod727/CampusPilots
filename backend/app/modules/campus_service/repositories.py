@@ -20,7 +20,7 @@ from app.modules.campus_service.models import (
     WorkOrder,
     WorkOrderEvent,
 )
-from app.modules.campus_service.work_orders import WorkOrderNumberExhausted
+from app.modules.campus_service.work_order_errors import WorkOrderNumberExhausted
 
 
 @dataclass(frozen=True)
