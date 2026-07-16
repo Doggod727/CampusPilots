@@ -33,6 +33,10 @@ def _repository(account: ElectricityAccount | None = None):
 def _account() -> ElectricityAccount:
     return ElectricityAccount(
         room_id=ROOM_ID,
+        campus_code="main",
+        dormitory_area="梅园",
+        building="3号楼",
+        room="301",
         balance=Decimal("88.50"),
         currency="CNY",
         source="mock",
@@ -48,6 +52,7 @@ def test_balance_requires_context_scope_and_persisted_membership() -> None:
         service.get_balance(user_id=USER_ID, room_ids=frozenset({ROOM_ID}), room_id=ROOM_ID)
     )
     assert balance.balance == Decimal("88.50")
+    assert balance.room_name == "梅园 · 3号楼 · 301"
     assert balance.currency == "CNY" and balance.source == "mock" and balance.is_simulated
 
     with pytest.raises(ElectricityForbidden) as outside_scope:
@@ -83,6 +88,7 @@ def test_topup_is_simulated_and_does_not_mutate_balance() -> None:
     assert result.amount == Decimal("20.00")
     assert result.currency == "CNY" and result.status == "simulated" and result.is_simulated
     assert result.notice == SIMULATION_NOTICE and not result.replayed
+    assert result.source == "mock" and result.created_at.tzinfo is not None
     assert request.request_hash and len(request.request_hash) == 64
     assert account.balance == Decimal("88.50")
 

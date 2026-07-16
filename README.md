@@ -93,9 +93,14 @@ Worker 接入，不能把排队成功解释为评估已完成。
 调用 Worker，API 进程和 `/health/live` 不会自动启动评估或加载模型。
 
 M5 P0 后端已覆盖 Agent/Tool 目录、运行、审批、SSE、数据集、训练任务骨架、模型注册和
-评估任务骨架。当前 M2 电费与 M4 治理为真实 Service Adapter；M1 知识和 M3 社区仍为明确
-Mock，必须在相应模块完成后替换。MCP、Reranker、真实 LoRA/QLoRA、并行 Agent、前端与
-Compose 属于后续增强，不计入本次 P0 验收。
+评估任务骨架。M2 的指南、工单和电费共 5 个 Tool 均使用真实 Service Adapter；M4 治理
+同样使用真实 Adapter。M1 知识和 M3 社区仍为明确 Mock，必须在相应模块完成后替换。
+M2 外部校园事项进度仍使用按用户隔离、可故障注入的显式 Mock Adapter。MCP、Reranker、
+真实 LoRA/QLoRA、并行 Agent、前端与 Compose 属于后续增强，不计入本次 P0 验收。
+
+M2 校园服务中心的 15 个 OpenAPI operationId 已全部实现。演示种子包含指南、联系人、
+电费房间以及 submitted/processing/completed 三类固定 `WO-DEMO-*` 工单；真实 PostgreSQL
+空库迁移、并发编号/幂等、重复种子和端到端联调仍需在对应环境可用后执行。
 
 运行当前后端测试：
 

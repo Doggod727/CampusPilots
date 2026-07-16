@@ -2,8 +2,8 @@
 
 ## 详细设计说明书 Part 2：M2 校园服务中心
 
-**文档版本：** V1.0（M5 Tool Adapter 补充版）  
-**编制日期：** 2026-07-15  
+**文档版本：** V1.1（实现完成版）
+**编制日期：** 2026-07-16
 **适用迭代：** 10 天 Scrum 演示版  
 **关联基线：**《需求分析说明书》V2.1、《概要设计说明书》V1.0、《详细设计 Part 1》V0.11、《详细设计 Part 5》V0.2  
 **接口契约：** `openapi.yaml` V0.5.0  
@@ -13,6 +13,7 @@
 |---|---|---|---|
 | V0.9 | 2026-07-14 | M2 指南、联系人、报修工单、状态机、评价和 Mock 适配器 | 待小组评审 |
 | V1.0 | 2026-07-15 | 增加 M5 事件 Tools、电费余额与模拟充值申请、确认/幂等适配 | 可进入编码 |
+| V1.1 | 2026-07-16 | 同步 15 个 HTTP 操作、AppConfig 范围、真实 Tool Adapter、演示工单与验收结果 | 实现完成 |
 
 > 本篇按用户指定顺序直接设计 M2，M1 暂未展开。公共认证、响应信封、错误、分页、幂等、乐观锁和审计规则继承 Part 1；字段和状态码以 `openapi.yaml` 为机器可读单一事实源。
 
@@ -96,13 +97,17 @@ frontend/src/modules/services/
 | 服务处理员 | 已登录可读 | 通常不创建 | `work_order:read` 且命中授权范围 | `work_order:transition` | 不允许代评 |
 | 平台管理员 | 已登录可读 | 非演示入口 | 按显式权限与范围 | 按显式权限 | 不允许代评 |
 
-处理员资源范围建议由认证上下文携带：
+处理员资源范围实现为 M4 `AppConfig` 的
+`campus_service.work_order_service_scopes` JSON；键为处理员用户 UUID，值为严格校验的
+校区和非空宿舍区域列表。配置缺失、畸形或无匹配时 fail-closed，不授予处理范围：
 
 ```json
 {
-  "service_scopes": [
-    {"campus_code": "main", "dormitory_areas": ["梅园", "竹园"]}
-  ]
+  "users": {
+    "<user_uuid>": [
+      {"campus_code": "main", "dormitory_areas": ["演示宿舍区"]}
+    ]
+  }
 }
 ```
 
@@ -472,26 +477,24 @@ WORK_ORDER_IDEMPOTENCY_HOURS=24
 ## 17.1 适配层目录与依赖
 
 ```text
+backend/app/modules/agent_platform/tool_gateway/
+  campus_service_adapters.py
+  electricity_adapters.py
 backend/app/modules/campus_service/
-  application/
-    electricity_service.py
-  tool_adapters/
-    service_guide_tools.py
-    work_order_tools.py
-    electricity_tools.py
-  infrastructure/
-    electricity_mock_adapter.py
+  guides.py
+  work_orders.py
+  electricity.py
 ```
 
-Tool Adapter 只把 M5 的强类型参数转换为 M2 Command/Query，调用现有 Application Service；不得调用 Router、Repository 或直接提交事务。REST 与 Tool 共用 `ServiceGuideService/WorkOrderService/ElectricityService`。
+Tool Adapter 只把 M5 的冻结强类型参数转换为 M2 Command/Query，调用现有 Application Service；不得调用 Router 或 Repository。REST 入口管理完整事务，内部 Tool 复用调用方已有事务入口，避免嵌套提交；两者共用 `ServiceGuideService/WorkOrderService/ElectricityService`。Tool v1.0.0 Schema、版本与哈希保持不变。
 
 ## 17.2 Tool 映射
 
 | Tool | M2 方法 | 权限/资源 | 关键行为 |
 |---|---|---|---|
-| `service.get_guide` | `ServiceGuideService.search` | `service:read` | 只返回有效指南；P0 可使用种子数据 |
-| `work_order.create` | `WorkOrderService.create` | `work_order:create` + 本人房间 | M5 已确认后执行；M2 再校验 approval、幂等和房间范围 |
-| `work_order.get` | `WorkOrderService.get_visible` | `work_order:read` + owner scope | 普通学生仅本人 |
+| `service.get_guide` | `ServiceGuideService.search` | 登录用户 + 适用范围 | 最多 10 条有效适用指南；列表 steps 留空，避免 N+1 |
+| `work_order.create` | `WorkOrderService.create_from_room_in_transaction` | `work_order:create` + 本人房间 | 从数据库房间绑定解析位置；严格确认、幂等、故障和时间映射 |
+| `work_order.get` | `WorkOrderService.get_tool_view` | `work_order:read` + owner scope | 一次加载工单和事件；事件只返回固定状态摘要 |
 | `electricity.get_balance` | `ElectricityService.get_balance` | `electricity:read_own` | 只读 Mock；返回 `is_simulated=true` |
 | `electricity.create_topup_request` | `ElectricityService.create_topup_request` | `electricity:topup_request:create` | 金额 1–500 元；确认、幂等；不处理真实支付 |
 
@@ -507,12 +510,11 @@ Tool Adapter 只把 M5 的强类型参数转换为 M2 Command/Query，调用现�
 
 | M2 异常 | Tool 错误 |
 |---|---|
-| 指南不存在 | `SERVICE_GUIDE_NOT_FOUND` |
 | 非本人房间/工单 | `TOOL_FORBIDDEN` |
 | 确认无效 | `TOOL_APPROVAL_INVALID` |
 | 幂等冲突 | `IDEMPOTENCY_CONFLICT` |
-| Mock 超时 | `TOOL_DEPENDENCY_UNAVAILABLE` |
-| 金额越界 | `TOOL_ARGUMENT_INVALID` |
+| 历史位置无法映射授权房间/依赖不可用 | `TOOL_DEPENDENCY_UNAVAILABLE` |
+| 故障类型、时间、附件、描述或金额非法 | `TOOL_ARGUMENT_INVALID` |
 
 # 18. 更新后的完成定义
 
@@ -521,3 +523,11 @@ Tool Adapter 只把 M5 的强类型参数转换为 M2 Command/Query，调用现�
 - 电费查询和模拟充值明确标识 Mock，不修改真实/Mock 余额。
 - 用户拒绝确认、确认过期、跨用户确认、重复幂等和 Mock 超时测试通过。
 - 原有 M2 API 和表继续可用；P1 功能降级不意味着删除代码。
+
+# 19. 实现与验收状态
+
+- M2 的 15 个公共 OpenAPI `operationId` 已全部注册并保持全局唯一；认证响应和主要错误信封已自动验收。
+- `service.get_guide`、`work_order.create`、`work_order.get` 与两个电费 Tool 均在唯一运行时装配中使用真实 M2 Service Adapter；外部校园事项进度仍明确使用 Actor-scoped Mock。
+- 演示种子以固定保留 ID 幂等维护 submitted、processing、completed 三类 `WO-DEMO-*` 工单、不可变事件和一次评价，不参与日常工单编号正则。
+- Python 全量测试、编译、Alembic 单 Head及离线升降级、OpenAPI 解析和 lint 属于自动关闭门槛。
+- 当前环境未提供真实 PostgreSQL、真实校园系统或真实支付，因此真实空库迁移、并发编号/幂等、重复种子和端到端 Tool 调用仍为明确待办，不宣称已完成。

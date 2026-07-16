@@ -20,6 +20,11 @@ from app.modules.agent_platform.orchestration.supervisor import SupervisorPlanne
 from app.modules.agent_platform.runtime_persistence import RuntimeCheckpointRepository, RuntimeEventRepository
 from app.modules.agent_platform.runtime_worker import GraphRuntimeCommandProcessor
 from app.modules.agent_platform.tool_gateway.electricity_adapters import ElectricityBalanceToolHandler, ElectricityTopupToolHandler
+from app.modules.agent_platform.tool_gateway.campus_service_adapters import (
+    ServiceGuideToolHandler,
+    WorkOrderCreateToolHandler,
+    WorkOrderGetToolHandler,
+)
 from app.modules.agent_platform.tool_gateway.executor import ToolExecutor
 from app.modules.agent_platform.tool_gateway.governance_adapters import (
     GovernanceAuthorizeToolHandler, GovernanceCheckContentHandler, GovernanceWriteAuditHandler,
@@ -28,13 +33,23 @@ from app.modules.agent_platform.tool_gateway.governance_adapters import (
 from app.modules.agent_platform.tool_gateway.mocks import build_mock_handlers
 from app.modules.agent_platform.traces import TraceRepository, TraceService
 from app.modules.campus_service.electricity import ElectricityService
-from app.modules.campus_service.repositories import ElectricityRepository
+from app.modules.campus_service.guides import ServiceGuideService
+from app.modules.campus_service.repositories import (
+    CampusReferenceRepository,
+    ElectricityRepository,
+    GuideRepository,
+    WorkOrderEventRepository,
+    WorkOrderRepository,
+)
+from app.modules.campus_service.work_order_access import WorkOrderScopeRepository
+from app.modules.campus_service.work_orders import WorkOrderService
+from app.modules.platform.idempotency import IdempotencyService
 from app.modules.platform.audit import AuditService, redact
 from app.modules.platform.moderation import ModerationService
 from app.modules.platform.moderation_scan import SensitiveWordScanner
 from app.modules.platform.repositories import (
-    AuditLogRepository, ModerationCaseRepository, RbacRepository,
-    SensitiveWordRepository, UserRepository,
+    AuditLogRepository, IdempotencyRecordRepository, ModerationCaseRepository,
+    RbacRepository, SensitiveWordRepository, UserRepository,
 )
 
 
@@ -94,9 +109,27 @@ class RuntimeCompositionFactory:
             ApprovalRepository(session), ttl_seconds=self.settings.approval_ttl_seconds
         )
         authorization = M4ToolAuthorizationAdapter()
-        electricity = ElectricityService(ElectricityRepository(session))
+        electricity_repository = ElectricityRepository(session)
+        electricity = ElectricityService(electricity_repository)
+        guides = ServiceGuideService(GuideRepository(session))
+        work_orders = WorkOrderService(
+            session=session,
+            campuses=CampusReferenceRepository(session),
+            work_orders=WorkOrderRepository(session),
+            events=WorkOrderEventRepository(session),
+            idempotency=IdempotencyService(
+                session=session,
+                repository=IdempotencyRecordRepository(session),
+            ),
+            audit=audit,
+            scopes=WorkOrderScopeRepository(session),
+            rooms=electricity_repository,
+        )
         handlers = build_mock_handlers()
         handlers.update({
+            "service.get_guide": ServiceGuideToolHandler(guides),
+            "work_order.create": WorkOrderCreateToolHandler(work_orders),
+            "work_order.get": WorkOrderGetToolHandler(work_orders),
             "electricity.get_balance": ElectricityBalanceToolHandler(electricity),
             "electricity.create_topup_request": ElectricityTopupToolHandler(electricity),
             "governance.check_content": GovernanceCheckContentHandler(moderation),
