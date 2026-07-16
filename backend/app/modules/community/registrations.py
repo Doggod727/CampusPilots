@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from math import ceil
@@ -74,10 +75,10 @@ class EventRegistrationService:
 
     async def register(
         self, *, actor: AuthenticatedUser, event_id: UUID, idempotency_key: str,
-        request_id: str,
+        request_id: str, manage_transaction: bool = True,
     ) -> RegistrationMutationResult:
         try:
-            async with self._session.begin():
+            async with _transaction(self._session, manage_transaction):
                 decision = await self._idempotency.begin(
                     user_id=actor.user_id, endpoint=f"POST /api/v1/events/{event_id}/registrations",
                     idempotency_key=idempotency_key, request_body={},
@@ -182,3 +183,12 @@ def registration_payload(item: RegistrationData) -> dict[str, object]:
 def registration_response_body(item: RegistrationData, *, request_id: str, timestamp: datetime) -> dict[str, object]:
     return {"code": "OK", "message": "success", "data": registration_payload(item),
             "request_id": request_id, "timestamp": timestamp.isoformat()}
+
+
+@asynccontextmanager
+async def _transaction(session: AsyncSession, manage: bool):
+    if manage:
+        async with session.begin():
+            yield
+    else:
+        yield

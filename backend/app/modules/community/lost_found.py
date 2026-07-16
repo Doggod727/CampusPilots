@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Callable
@@ -123,8 +124,9 @@ class LostFoundService:
         self, *, actor: AuthenticatedUser, item_type: str, title: str, category: str,
         description: str, occurred_at: datetime, location: str, contact_type: str,
         contact_value: str, idempotency_key: str, request_id: str, request_body: object,
+        manage_transaction: bool = True,
     ) -> LostFoundMutationResult:
-        async with self._session.begin():
+        async with _transaction(self._session, manage_transaction):
             decision = await self._idempotency.begin(user_id=actor.user_id,
                 endpoint="POST /api/v1/lost-found", idempotency_key=idempotency_key,
                 request_body=request_body)
@@ -262,3 +264,12 @@ def lost_found_payload(item: LostFoundItemData) -> dict[str, object]:
 def lost_found_response_body(item: LostFoundItemData, *, request_id: str, timestamp: datetime) -> dict[str, object]:
     return {"code": "OK", "message": "success", "data": lost_found_payload(item),
             "request_id": request_id, "timestamp": timestamp.isoformat()}
+
+
+@asynccontextmanager
+async def _transaction(session: AsyncSession, manage: bool):
+    if manage:
+        async with session.begin():
+            yield
+    else:
+        yield

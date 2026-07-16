@@ -445,6 +445,9 @@
 - [x] [#169 M3：完成认领决策、联系方式与双方完成 API](https://github.com/Doggod727/CampusPilot/issues/169)（2026-07-16）
   - 目标所有者决策、verified/completed 双方 no-store 联系方式交换、站内联系回退、按 UUID 排序锁定物品和双方确认完成均已实现；决策/完成幂等记录只存安全元数据，审计不保存联系方式或 evidence。
   - 认领专项 `3 passed`、全量 pytest `678 passed`（11 条既有警告）及全部门禁通过；M3 HTTP operationId 达到 `38/38`。真实 PostgreSQL 锁顺序和完整加密认领 E2E 待环境验证。
+- [x] [#170 M3：将四个 M5 社区 Tool 替换为真实 Adapter](https://github.com/Doggod727/CampusPilot/issues/170)（2026-07-16）
+  - `event.search/register` 与 `lost_found.publish/search_matches` 已在唯一 RuntimeCompositionFactory 中覆盖 Mock；冻结 v1 Schema/hash 不变，审批、幂等、事务所有权、campus 不可表示、站内联系方式、owner scope 和稳定错误映射均已实现。
+  - Tool/M2 回归专项 `7 passed`、全量 pytest `682 passed`（11 条既有警告）及全部门禁通过；缺失社区密钥不会阻断 Runtime 装配，只使敏感发布 Tool 返回依赖不可用。
 
 ## M5 项目重审与契约基线
 

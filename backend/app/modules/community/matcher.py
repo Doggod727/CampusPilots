@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -114,8 +115,8 @@ class LostFoundMatcherService:
             algorithm_version=self._algorithm_version, keep_ids=keep)
 
     async def list(self, *, actor: AuthenticatedUser, item_id: UUID,
-                   page: int, page_size: int) -> MatchPageData:
-        async with self._session.begin():
+                   page: int, page_size: int, manage_transaction: bool = True) -> MatchPageData:
+        async with _transaction(self._session, manage_transaction):
             source = await self._repository.get_for_update(item_id)
             if source is None or source.owner_user_id != actor.user_id:
                 raise LostFoundItemNotFound()
@@ -128,3 +129,12 @@ class LostFoundMatcherService:
             items = tuple(MatchData(row.id, row.source_item_id, data_by_id[row.candidate_item_id],
                 row.score, tuple(row.reasons), row.algorithm_version, row.created_at) for row in rows)
             return MatchPageData(items, page, page_size, total)
+
+
+@asynccontextmanager
+async def _transaction(session: AsyncSession, manage: bool):
+    if manage:
+        async with session.begin():
+            yield
+    else:
+        yield
