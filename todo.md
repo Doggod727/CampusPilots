@@ -312,6 +312,10 @@
   - 映射 `work_orders`、`work_order_events`、`work_order_ratings`，完整保留状态、故障类型、描述长度、时间窗口、终态说明、版本、评分、复合唯一约束和队列/处理人/时间线索引。
   - `created_by`、`assigned_to`、`actor_user_id`、`user_id` 保持逻辑 UUID 且无跨 Schema 外键；本任务不新增状态机、编号、幂等、Repository、Service、路由或 OpenAPI 变更。
   - M2 模型定向测试 `13 passed`、全量 pytest `464 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL 验证仍待环境可用后执行。
+- [x] [#131 M2：实现参考与指南演示种子](https://github.com/Doggod727/CampusPilot/issues/131)（2026-07-16）
+  - 将 SQL 004 的 2 个校区、3 个部门、3 个联系人、3 个指南分类、2 个指南、4 条适用规则、4 份材料和 5 个步骤纳入 `seed_demo` 单一事务，保留现有身份/RBAC和电费房间用户绑定。
+  - 字典按自然键 `code` upsert；联系人、指南、适用规则、材料和步骤通过部门/分类/指南自然键解析实际父 ID，固定子记录 ID 与业务唯一键保证重复运行不新增重复参考数据。
+  - 种子与模型定向测试 `21 passed`、全量 pytest `466 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL重复种子验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 
