@@ -6,7 +6,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.community.models import (
-    CampusEvent, Comment, ContentReport, LostFoundItem, Post, PostReaction, Topic,
+    CampusEvent, Comment, ContentReport, EventRegistration, LostFoundItem, Post,
+    PostReaction, Topic,
 )
 from app.modules.platform.models import ModerationCase
 
@@ -162,6 +163,84 @@ class PostRepository:
 
     def add(self, post: Post) -> None:
         self._session.add(post)
+
+
+@dataclass(frozen=True)
+class EventPage:
+    items: tuple[CampusEvent, ...]
+    total: int
+
+
+class EventRepository:
+    """Campus-event reads; the caller owns the session lifecycle."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list(
+        self, *, user_id: UUID, mine: bool, category: str | None,
+        starts_from: object | None, starts_to: object | None, available_only: bool,
+        page: int, page_size: int, now: object, q: str | None = None,
+    ) -> EventPage:
+        predicates = [CampusEvent.deleted_at.is_(None)]
+        if mine:
+            predicates.append(CampusEvent.organizer_user_id == user_id)
+        else:
+            predicates.extend((CampusEvent.status == "published", CampusEvent.ends_at > now))
+        if category:
+            predicates.append(CampusEvent.category == category)
+        if starts_from is not None:
+            predicates.append(CampusEvent.starts_at >= starts_from)
+        if starts_to is not None:
+            predicates.append(CampusEvent.starts_at <= starts_to)
+        if available_only:
+            predicates.extend((
+                CampusEvent.status == "published",
+                CampusEvent.registration_deadline >= now,
+                CampusEvent.starts_at > now,
+                CampusEvent.registered_count < CampusEvent.capacity,
+            ))
+        normalized = q.strip() if q else ""
+        if normalized:
+            escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            predicates.append(or_(
+                CampusEvent.title.ilike(pattern, escape="\\"),
+                CampusEvent.description_markdown.ilike(pattern, escape="\\"),
+            ))
+        statement = (
+            select(CampusEvent).where(*predicates)
+            .order_by(CampusEvent.starts_at, CampusEvent.id)
+            .offset((page - 1) * page_size).limit(page_size)
+        )
+        count = select(func.count()).select_from(CampusEvent).where(*predicates)
+        items = tuple((await self._session.execute(statement)).scalars().all())
+        total = int((await self._session.execute(count)).scalar_one())
+        return EventPage(items, total)
+
+    async def get_visible(
+        self, *, event_id: UUID, user_id: UUID, moderator: bool, now: object,
+    ) -> CampusEvent | None:
+        visibility = or_(
+            (CampusEvent.status == "published") & (CampusEvent.ends_at > now),
+            CampusEvent.organizer_user_id == user_id,
+        )
+        if moderator:
+            visibility = or_(visibility, CampusEvent.status != "deleted")
+        statement = select(CampusEvent).where(
+            CampusEvent.id == event_id, CampusEvent.deleted_at.is_(None), visibility,
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def registration_states(
+        self, *, event_ids: set[UUID], user_id: UUID,
+    ) -> dict[UUID, str]:
+        if not event_ids:
+            return {}
+        statement = select(EventRegistration.event_id, EventRegistration.status).where(
+            EventRegistration.event_id.in_(event_ids), EventRegistration.user_id == user_id,
+        )
+        return dict((await self._session.execute(statement)).all())
 
 
 @dataclass(frozen=True)

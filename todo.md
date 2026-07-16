@@ -421,6 +421,9 @@
 - [x] [#161 M3：实现匿名身份审计反查 API](https://github.com/Doggod727/CampusPilot/issues/161)（2026-07-16）
   - 注册 revealAnonymousIdentity，仅专用 community:anonymous_identity:read 权限可反查未删除匿名 post/comment；历史身份端口只读取 UUID、用户名和显示名并支持软删除账号。
   - 成功响应固定 no-store；业务失败在抛出统一 ANONYMOUS_IDENTITY_NOT_FOUND 前先提交失败审计，成功与失败审计均记录事由但不重复保存被反查用户 ID。专项测试 `4 passed`、全量 pytest `659 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级、136 个 OpenAPI operationId 唯一性和 Redocly lint 均通过；M3 累计注册 `18/38`。
+- [x] [#162 M3：实现活动查询仓储与服务](https://github.com/Doggod727/CampusPilot/issues/162)（2026-07-16）
+  - SQL 层实现公开/本人可见性、分类/时间/可报名筛选、稳定 `starts_at/id` 分页及内部文本搜索；详情统一安全 404，并批量加载组织者公开资料与本人报名状态。
+  - 专项 `2 passed`、全量 pytest `661 passed`（11 条既有警告）、编译、Alembic 单 Head及离线升降级、OpenAPI 解析和 Redocly lint 均通过；lint 保留 5 条既有非阻断警告。
 
 ## M5 项目重审与契约基线
 

@@ -66,3 +66,8 @@ class AnonymousIdentityNotFound(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=404, code="ANONYMOUS_IDENTITY_NOT_FOUND",
                          message="匿名身份不存在或不可反查")
+
+
+class EventNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, code="EVENT_NOT_FOUND", message="活动不存在或不可见")
