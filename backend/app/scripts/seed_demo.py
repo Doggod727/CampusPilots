@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database import Database
+from app.core.config import get_settings
 from app.modules.campus_service.models import (
     Campus,
     Department,
@@ -25,7 +26,10 @@ from app.modules.campus_service.models import (
     WorkOrderEvent,
     WorkOrderRating,
 )
-from app.modules.community.models import Topic
+from app.modules.community.encryption import CommunityCipher
+from app.modules.community.models import (
+    CampusEvent, EventRegistration, LostFoundClaim, LostFoundItem, LostFoundMatch, Topic,
+)
 from app.modules.platform.models import (
     AppConfig,
     Permission,
@@ -330,6 +334,16 @@ DEMO_WORK_ORDER_EVENT_IDS = tuple(
     UUID(f"72000000-0000-4000-8000-{number:012d}") for number in range(1, 9)
 )
 DEMO_WORK_ORDER_RATING_ID = UUID("73000000-0000-4000-8000-000000000001")
+DEMO_EVENT_IDS = (
+    UUID("75000000-0000-4000-8000-000000000001"),
+    UUID("75000000-0000-4000-8000-000000000002"),
+)
+DEMO_LOST_FOUND_IDS = (
+    UUID("76000000-0000-4000-8000-000000000001"),
+    UUID("76000000-0000-4000-8000-000000000002"),
+)
+DEMO_LOST_FOUND_MATCH_ID = UUID("77000000-0000-4000-8000-000000000001")
+DEMO_LOST_FOUND_CLAIM_ID = UUID("78000000-0000-4000-8000-000000000001")
 
 CAMPUS_SEEDS = (
     CampusSeed("main", "主校区", "示例市大学路 1 号", 10),
@@ -1178,10 +1192,100 @@ def _demo_topic_upsert_statement(seed: tuple[UUID, str, str, str, bool, int]):
             "deleted_at": None,
         },
     )
+
+
+def _demo_event_upsert_statements():
+    values = (
+        (DEMO_EVENT_IDS[0], "校园志愿服务日", "参与校园公共空间整理与志愿服务。", "volunteer", "主校区广场", 40),
+        (DEMO_EVENT_IDS[1], "社团开放体验", "面向全校同学的社团展示与体验活动。", "club", "大学生活动中心", 80),
+    )
+    statements = []
+    for index, (event_id, title, description, category, location, capacity) in enumerate(values):
+        starts = datetime(2026, 8, 20 + index, 1, tzinfo=timezone.utc)
+        statement = insert(CampusEvent).values(id=event_id,
+            organizer_user_id=_demo_user_id("community01"), title=title,
+            description_markdown=description, category=category, location=location,
+            starts_at=starts, ends_at=starts + timedelta(hours=3),
+            registration_deadline=starts - timedelta(days=1), capacity=capacity,
+            registered_count=1 if index == 0 else 0, status="published", risk_level="low",
+            moderation_case_id=None, moderation_policy_version="seed-v1",
+            cancellation_reason=None, published_at=datetime(2026, 7, 16, tzinfo=timezone.utc),
+            version=1, created_at=datetime(2026, 7, 16, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 7, 16, tzinfo=timezone.utc), deleted_at=None)
+        statements.append(statement.on_conflict_do_update(index_elements=[CampusEvent.id],
+            set_={column: getattr(statement.excluded, column) for column in (
+                "organizer_user_id", "title", "description_markdown", "category", "location",
+                "starts_at", "ends_at", "registration_deadline", "capacity", "registered_count",
+                "status", "risk_level", "moderation_case_id", "moderation_policy_version",
+                "cancellation_reason", "published_at", "version", "updated_at", "deleted_at") }))
+    return tuple(statements)
+
+
+def _demo_registration_upsert_statement():
+    statement = insert(EventRegistration).values(event_id=DEMO_EVENT_IDS[0],
+        user_id=_demo_user_id("student01"), status="registered",
+        registered_at=datetime(2026, 7, 16, 2, tzinfo=timezone.utc),
+        cancelled_at=None, updated_at=datetime(2026, 7, 16, 2, tzinfo=timezone.utc))
+    return statement.on_conflict_do_update(
+        index_elements=[EventRegistration.event_id, EventRegistration.user_id],
+        set_={"status": statement.excluded.status, "registered_at": statement.excluded.registered_at,
+              "cancelled_at": None, "updated_at": statement.excluded.updated_at})
+
+
+def _demo_sensitive_lost_found_statements(key):
+    cipher = CommunityCipher(key)
+    occurred = datetime(2026, 7, 15, 6, tzinfo=timezone.utc)
+    item_values = (
+        (DEMO_LOST_FOUND_IDS[0], "student01", "lost", "黑色学生卡套", "claiming", "站内联系：student01"),
+        (DEMO_LOST_FOUND_IDS[1], "student02", "found", "拾到黑色卡套", "published", "站内联系：student02"),
+    )
+    statements = []
+    for item_id, username, item_type, title, status, contact in item_values:
+        statement = insert(LostFoundItem).values(id=item_id, owner_user_id=_demo_user_id(username),
+            item_type=item_type, title=title, category="card",
+            description="黑色卡套，内有校园卡相关物品。", occurred_at=occurred,
+            location="主校区图书馆一楼", contact_type="other",
+            contact_ciphertext=cipher.encrypt(contact), contact_hint=f"***{username[-4:]}",
+            status=status, risk_level="low", moderation_case_id=None,
+            moderation_policy_version="seed-v1", published_at=occurred,
+            completed_at=None, version=1, created_at=occurred, updated_at=occurred,
+            deleted_at=None)
+        statements.append(statement.on_conflict_do_update(index_elements=[LostFoundItem.id],
+            set_={column: getattr(statement.excluded, column) for column in (
+                "owner_user_id", "item_type", "title", "category", "description", "occurred_at",
+                "location", "contact_type", "contact_ciphertext", "contact_hint", "status",
+                "risk_level", "moderation_case_id", "moderation_policy_version", "published_at",
+                "completed_at", "version", "updated_at", "deleted_at") }))
+    match = insert(LostFoundMatch).values(id=DEMO_LOST_FOUND_MATCH_ID,
+        source_item_id=DEMO_LOST_FOUND_IDS[0], candidate_item_id=DEMO_LOST_FOUND_IDS[1],
+        score=0.95, reasons=[
+            {"factor": "category", "score": 1.0, "explanation": "类别一致度"},
+            {"factor": "location", "score": 1.0, "explanation": "地点相似度"},
+            {"factor": "time", "score": 1.0, "explanation": "发生时间接近度"},
+            {"factor": "keyword", "score": 0.75, "explanation": "描述关键词相似度"}],
+        algorithm_version="rule-v1", created_at=occurred)
+    statements.append(match.on_conflict_do_update(index_elements=[LostFoundMatch.id],
+        set_={"source_item_id": match.excluded.source_item_id,
+              "candidate_item_id": match.excluded.candidate_item_id, "score": match.excluded.score,
+              "reasons": match.excluded.reasons, "algorithm_version": match.excluded.algorithm_version}))
+    claim = insert(LostFoundClaim).values(id=DEMO_LOST_FOUND_CLAIM_ID,
+        target_item_id=DEMO_LOST_FOUND_IDS[0], claimant_item_id=DEMO_LOST_FOUND_IDS[1],
+        claimant_user_id=_demo_user_id("student02"),
+        evidence_ciphertext=cipher.encrypt("卡套内有本人姓名缩写和校园卡。"), status="pending",
+        decision_reason=None, decided_by=None, decided_at=None,
+        claimant_confirmed_at=None, owner_confirmed_at=None, completed_at=None,
+        version=1, created_at=occurred, updated_at=occurred)
+    statements.append(claim.on_conflict_do_update(index_elements=[LostFoundClaim.id],
+        set_={column: getattr(claim.excluded, column) for column in (
+            "target_item_id", "claimant_item_id", "claimant_user_id", "evidence_ciphertext",
+            "status", "decision_reason", "decided_by", "decided_at", "claimant_confirmed_at",
+            "owner_confirmed_at", "completed_at", "version", "updated_at") }))
+    return tuple(statements)
 async def seed_demo(
     session: AsyncSession,
     password: str,
     password_hasher: PasswordHasher | None = None,
+    community_encryption_key=None,
 ) -> tuple[str, ...]:
     """Seed the M4 identity and RBAC demo baseline in one transaction."""
 
@@ -1237,15 +1341,23 @@ async def seed_demo(
         await session.execute(_demo_work_order_rating_upsert_statement())
         for seed in DEMO_TOPIC_SEEDS:
             await session.execute(_demo_topic_upsert_statement(seed))
+        for statement in _demo_event_upsert_statements():
+            await session.execute(statement)
+        await session.execute(_demo_registration_upsert_statement())
+        if community_encryption_key is not None:
+            for statement in _demo_sensitive_lost_found_statements(community_encryption_key):
+                await session.execute(statement)
 
     return usernames
 
 
 async def _seed_from_settings(password: str) -> tuple[str, ...]:
-    database = Database.from_settings()
+    settings = get_settings()
+    database = Database.from_settings(settings)
     try:
         async with database.session() as session:
-            return await seed_demo(session, password)
+            return await seed_demo(session, password,
+                community_encryption_key=settings.community_data_encryption_key)
     finally:
         await database.dispose()
 

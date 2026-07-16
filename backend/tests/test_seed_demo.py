@@ -116,7 +116,7 @@ def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
     assert usernames == tuple(account.username for account in seed_demo.DEMO_ACCOUNTS)
     assert hasher.passwords == ["local-password"] * len(seed_demo.DEMO_ACCOUNTS)
     session.begin.assert_called_once_with()
-    assert session.execute.await_count == 64
+    assert session.execute.await_count == 67
 
 
 def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:

@@ -448,6 +448,10 @@
 - [x] [#170 M3：将四个 M5 社区 Tool 替换为真实 Adapter](https://github.com/Doggod727/CampusPilot/issues/170)（2026-07-16）
   - `event.search/register` 与 `lost_found.publish/search_matches` 已在唯一 RuntimeCompositionFactory 中覆盖 Mock；冻结 v1 Schema/hash 不变，审批、幂等、事务所有权、campus 不可表示、站内联系方式、owner scope 和稳定错误映射均已实现。
   - Tool/M2 回归专项 `7 passed`、全量 pytest `682 passed`（11 条既有警告）及全部门禁通过；缺失社区密钥不会阻断 Runtime 装配，只使敏感发布 Tool 返回依赖不可用。
+- [x] [#171 M3：演示数据、文档与最终验收](https://github.com/Doggod727/CampusPilot/issues/171)（2026-07-16）
+  - seed_demo 同一事务加入固定活动/报名；密钥存在时加入固定失物/候选/认领，缺失时明确跳过敏感演示而不影响既有种子。README、M3 详细设计和自动验收已同步。
+  - 最终全量 pytest `684 passed`（11 条既有警告）、compileall、Alembic 唯一 Head `0007_community_schema` 与离线完整升降级、OpenAPI `136/136` operationId 全局唯一及 Redocly lint 均通过；保留 5 条既有非阻断警告。
+  - M3 已完成 `38/38` HTTP operationId，M5 四个 M3 Tool 全部为真实 Service Adapter。真实 PostgreSQL 最后名额并发、锁超时、重复种子和完整加密认领 E2E 继续作为明确环境待办。
 
 ## M5 项目重审与契约基线
 
