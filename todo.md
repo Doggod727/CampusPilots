@@ -373,6 +373,12 @@
   - OpenAPI 为两个电费接口补齐自然 401，不修改 operationId 或冻结的 M5 Tool v1.0.0 契约/哈希；M2 详细设计、README 与契约同步 15/15 HTTP 操作、AppConfig 范围、Tool 事务边界和显式 Mock 外部校园系统。
   - 最终专项验收 `23 passed`、全量 pytest `588 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线完整升降级、OpenAPI YAML 解析与 Redocly lint 全部通过；真实 PostgreSQL 空库迁移、并发、重复种子和端到端验证仍待环境可用后执行。
 
+## M3 校园社区与互助开发
+
+- [x] [#146 M3：建立 Community Alembic Schema](https://github.com/Doggod727/CampusPilot/issues/146)（2026-07-16）
+  - 新增 `0007_community_schema`，按 SQL 007 建立 community Schema、更新时间函数、10 张表、完整约束/索引、8 个触发器和字段安全注释；用户及审核案件继续使用逻辑 UUID，不建立跨 Schema 外键。
+  - downgrade 按依赖逆序删除 M3 自有表、函数和 Schema，保留共享扩展；迁移专项 `9 passed`、全量 pytest `589 passed`（11 条既有 httpx 弃用警告）、编译、Alembic 单 Head及离线完整升降级、OpenAPI lint 均通过，真实 PostgreSQL 空库验证仍待环境可用后执行。
+
 ## M5 项目重审与契约基线
 
 - [x] [#62 M5：校正 M4 兼容契约与状态码](https://github.com/Doggod727/CampusPilot/issues/62)（2026-07-15）
