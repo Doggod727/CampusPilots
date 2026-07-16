@@ -2,7 +2,7 @@ import asyncio
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import delete, literal, select, text, true
@@ -21,6 +21,9 @@ from app.modules.campus_service.models import (
     GuideMaterial,
     GuideStep,
     ServiceGuide,
+    WorkOrder,
+    WorkOrderEvent,
+    WorkOrderRating,
 )
 from app.modules.platform.models import (
     AppConfig,
@@ -302,6 +305,15 @@ CONFIGS = (
 )
 
 DEMO_ELECTRICITY_ROOM_ID = "21000000-0000-4000-8000-000000000001"
+DEMO_WORK_ORDER_IDS = (
+    UUID("71000000-0000-4000-8000-000000000001"),
+    UUID("71000000-0000-4000-8000-000000000002"),
+    UUID("71000000-0000-4000-8000-000000000003"),
+)
+DEMO_WORK_ORDER_EVENT_IDS = tuple(
+    UUID(f"72000000-0000-4000-8000-{number:012d}") for number in range(1, 9)
+)
+DEMO_WORK_ORDER_RATING_ID = UUID("73000000-0000-4000-8000-000000000001")
 
 CAMPUS_SEEDS = (
     CampusSeed("main", "主校区", "示例市大学路 1 号", 10),
@@ -992,6 +1004,137 @@ def _electricity_members_insert_statement():
     )
 
 
+def _demo_user_id(username: str):
+    return select(User.id).where(User.username == username).scalar_subquery()
+
+
+def _demo_department_id(code: str):
+    return select(Department.id).where(Department.code == code).scalar_subquery()
+
+
+def _demo_work_order_upsert_statements():
+    base_time = datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc)
+    rows = (
+        {
+            "id": DEMO_WORK_ORDER_IDS[0], "order_no": "WO-DEMO-SUBMITTED",
+            "created_by": _demo_user_id("student01"), "status": "submitted",
+            "assigned_to": None, "assigned_department_id": None, "version": 1,
+            "accepted_at": None, "processing_at": None, "completed_at": None,
+            "completion_note": None,
+        },
+        {
+            "id": DEMO_WORK_ORDER_IDS[1], "order_no": "WO-DEMO-PROCESSING",
+            "created_by": _demo_user_id("student02"), "status": "processing",
+            "assigned_to": _demo_user_id("service01"),
+            "assigned_department_id": _demo_department_id("logistics"), "version": 3,
+            "accepted_at": base_time + timedelta(hours=1),
+            "processing_at": base_time + timedelta(hours=2), "completed_at": None,
+            "completion_note": None,
+        },
+        {
+            "id": DEMO_WORK_ORDER_IDS[2], "order_no": "WO-DEMO-COMPLETED",
+            "created_by": _demo_user_id("student01"), "status": "completed",
+            "assigned_to": _demo_user_id("service01"),
+            "assigned_department_id": _demo_department_id("logistics"), "version": 4,
+            "accepted_at": base_time + timedelta(hours=1),
+            "processing_at": base_time + timedelta(hours=2),
+            "completed_at": base_time + timedelta(hours=4),
+            "completion_note": "演示工单已完成。",
+        },
+    )
+    statements = []
+    for index, row in enumerate(rows):
+        submitted_at = base_time + timedelta(days=index)
+        statement = insert(WorkOrder).values(
+            **row,
+            campus_code="main",
+            dormitory_area="演示宿舍区",
+            building="A",
+            room="101",
+            fault_category=("network" if index == 1 else "electric"),
+            description="用于校园服务中心验收的固定演示报修工单。",
+            preferred_start_at=submitted_at + timedelta(days=1),
+            preferred_end_at=submitted_at + timedelta(days=1, hours=2),
+            rejection_reason=None,
+            cancelled_at=None,
+            rejected_at=None,
+            submitted_at=submitted_at,
+            created_at=submitted_at,
+            updated_at=row["completed_at"] or row["processing_at"] or submitted_at,
+        )
+        statements.append(statement.on_conflict_do_update(
+            index_elements=[WorkOrder.id],
+            set_={column: getattr(statement.excluded, column) for column in (
+                "order_no", "created_by", "campus_code", "dormitory_area", "building",
+                "room", "fault_category", "description", "preferred_start_at",
+                "preferred_end_at", "status", "assigned_to", "assigned_department_id",
+                "rejection_reason", "completion_note", "version", "submitted_at",
+                "accepted_at", "processing_at", "completed_at", "cancelled_at",
+                "rejected_at", "created_at", "updated_at",
+            )},
+        ))
+    return tuple(statements)
+
+
+def _demo_work_order_event_upsert_statements():
+    base_time = datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc)
+    paths = (
+        (DEMO_WORK_ORDER_IDS[0], "student01", ("submitted",)),
+        (DEMO_WORK_ORDER_IDS[1], "student02", ("submitted", "accepted", "processing")),
+        (DEMO_WORK_ORDER_IDS[2], "student01", ("submitted", "accepted", "processing", "completed")),
+    )
+    statements = []
+    event_index = 0
+    for order_id, owner, statuses in paths:
+        previous = None
+        for sequence_no, status in enumerate(statuses, 1):
+            actor = owner if status == "submitted" else "service01"
+            statement = insert(WorkOrderEvent).values(
+                id=DEMO_WORK_ORDER_EVENT_IDS[event_index],
+                work_order_id=order_id,
+                sequence_no=sequence_no,
+                event_type=status,
+                from_status=previous,
+                to_status=status,
+                actor_user_id=_demo_user_id(actor),
+                actor_role="student" if status == "submitted" else "service_staff",
+                reason=None,
+                snapshot={"work_order_id": str(order_id), "status": status, "version": sequence_no},
+                created_at=base_time + timedelta(days=event_index),
+            )
+            statements.append(statement.on_conflict_do_update(
+                index_elements=[WorkOrderEvent.id],
+                set_={column: getattr(statement.excluded, column) for column in (
+                    "work_order_id", "sequence_no", "event_type", "from_status", "to_status",
+                    "actor_user_id", "actor_role", "reason", "snapshot", "created_at",
+                )},
+            ))
+            event_index += 1
+            previous = status
+    return tuple(statements)
+
+
+def _demo_work_order_rating_upsert_statement():
+    statement = insert(WorkOrderRating).values(
+        id=DEMO_WORK_ORDER_RATING_ID,
+        work_order_id=DEMO_WORK_ORDER_IDS[2],
+        user_id=_demo_user_id("student01"),
+        score=5,
+        comment="演示评价：处理及时。",
+        created_at=datetime(2026, 7, 4, 1, 0, tzinfo=timezone.utc),
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[WorkOrderRating.id],
+        set_={
+            "work_order_id": statement.excluded.work_order_id,
+            "user_id": statement.excluded.user_id,
+            "score": statement.excluded.score,
+            "comment": statement.excluded.comment,
+            "created_at": statement.excluded.created_at,
+        },
+    )
+
+
 async def seed_demo(
     session: AsyncSession,
     password: str,
@@ -1044,6 +1187,11 @@ async def seed_demo(
             await session.execute(_guide_step_upsert_statement(seed))
         await session.execute(_electricity_account_upsert_statement())
         await session.execute(_electricity_members_insert_statement())
+        for statement in _demo_work_order_upsert_statements():
+            await session.execute(statement)
+        for statement in _demo_work_order_event_upsert_statements():
+            await session.execute(statement)
+        await session.execute(_demo_work_order_rating_upsert_statement())
 
     return usernames
 

@@ -368,6 +368,10 @@
   - 新增 `service.get_guide/work_order.create/work_order.get` 薄 Adapter，并在唯一运行时装配中替换对应 Mock；连同既有两个电费 Adapter，M5 的 5 个 M2 Tool 均调用真实 M2 应用服务，冻结的 Tool v1.0.0 Schema、版本和哈希保持不变。
   - 工单 Tool 从本人数据库房间绑定解析实际位置，严格校验审批、幂等、故障类型、带时区时间区间、描述长度和附件；调用方事务入口避免内部 Tool 事务嵌套，工单查询事件仅返回固定状态摘要。
   - 指南、工单、电费 Tool 与事务边界定向测试 `35 passed`、全量 pytest `584 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL 端到端联调仍待环境可用后执行。
+- [x] [#145 M2：补充最终演示数据并完成验收](https://github.com/Doggod727/CampusPilot/issues/145)（2026-07-16）
+  - `seed_demo` 在原单事务中以固定保留 ID 幂等维护 student01 submitted、student02 processing、student01 completed 三类 `WO-DEMO-*` 工单、8 条不可变事件和一次评价；用户、处理员与部门均通过自然键解析，不影响普通业务编号和用户创建数据。
+  - OpenAPI 为两个电费接口补齐自然 401，不修改 operationId 或冻结的 M5 Tool v1.0.0 契约/哈希；M2 详细设计、README 与契约同步 15/15 HTTP 操作、AppConfig 范围、Tool 事务边界和显式 Mock 外部校园系统。
+  - 最终专项验收 `23 passed`、全量 pytest `588 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线完整升降级、OpenAPI YAML 解析与 Redocly lint 全部通过；真实 PostgreSQL 空库迁移、并发、重复种子和端到端验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 

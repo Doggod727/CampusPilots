@@ -94,6 +94,8 @@ def test_campus_service_seed_constants_match_sql_004_baseline() -> None:
     assert {seed.code for seed in seed_demo.SERVICE_GUIDE_SEEDS} == {
         "enrollment_certificate", "student_card_replacement"
     }
+    assert len(seed_demo.DEMO_WORK_ORDER_IDS) == 3
+    assert len(seed_demo.DEMO_WORK_ORDER_EVENT_IDS) == 8
 
 
 def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
@@ -105,7 +107,7 @@ def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
     assert usernames == tuple(account.username for account in seed_demo.DEMO_ACCOUNTS)
     assert hasher.passwords == ["local-password"] * len(seed_demo.DEMO_ACCOUNTS)
     session.begin.assert_called_once_with()
-    assert session.execute.await_count == 49
+    assert session.execute.await_count == 61
 
 
 def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
@@ -178,6 +180,30 @@ def test_seed_electricity_statements_are_idempotent_and_bind_real_demo_users() -
     assert "platform.users" in members_sql
     assert "student01" in members_sql and "student02" in members_sql
     assert "electricity_account_members" in members_sql
+
+
+def test_demo_work_orders_are_fixed_idempotent_and_resolve_natural_keys() -> None:
+    order_statements = seed_demo._demo_work_order_upsert_statements()
+    event_statements = seed_demo._demo_work_order_event_upsert_statements()
+    rating_statement = seed_demo._demo_work_order_rating_upsert_statement()
+
+    order_sql = [_compiled_postgresql(statement) for statement in order_statements]
+    event_sql = [str(statement.compile(dialect=postgresql.dialect())) for statement in event_statements]
+    rating_sql = _compiled_postgresql(rating_statement)
+
+    assert len(order_sql) == 3
+    assert len(event_sql) == 8
+    assert all("ON CONFLICT (id) DO UPDATE" in sql for sql in order_sql + event_sql)
+    assert {"WO-DEMO-SUBMITTED", "WO-DEMO-PROCESSING", "WO-DEMO-COMPLETED"} == {
+        statement.compile(dialect=postgresql.dialect()).params["order_no"]
+        for statement in order_statements
+    }
+    assert all("platform.users" in sql for sql in order_sql)
+    assert "campus_service.departments" in order_sql[1]
+    assert "service01" in order_sql[1] and "student02" in order_sql[1]
+    assert "ON CONFLICT (id) DO UPDATE" in rating_sql
+    assert "student01" in rating_sql
+    assert "WO-2026" not in " ".join(order_sql)
 
 
 def test_campus_service_seed_statements_are_idempotent_and_resolve_parent_codes() -> None:
