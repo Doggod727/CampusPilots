@@ -12,9 +12,10 @@ from app.modules.community.encryption import CommunityCipher
 from app.modules.community.lost_found import LostFoundQueryService, LostFoundService
 from app.modules.community.lost_found_schemas import (
     LostFoundCreateRequest, LostFoundItemResponse, LostFoundItemType,
-    LostFoundPageResponse, LostFoundUpdateRequest, lost_found_model,
-    lost_found_page_model,
+    LostFoundMatchPageResponse, LostFoundPageResponse, LostFoundUpdateRequest,
+    lost_found_model, lost_found_page_model, match_page_model,
 )
+from app.modules.community.matcher import LostFoundMatcherService
 from app.modules.community.profiles import PlatformPublicUserProfileAdapter
 from app.modules.community.repositories import LostFoundRepository
 from app.modules.platform.audit import AuditService
@@ -49,13 +50,28 @@ async def get_lost_found_service() -> AsyncIterator[LostFoundService]:
             repository = LostFoundRepository(session)
             queries = LostFoundQueryService(repository, PlatformPublicUserProfileAdapter(session))
             audit = AuditService(AuditLogRepository(session))
+            matcher = LostFoundMatcherService(session=session, repository=repository, queries=queries,
+                algorithm_version=settings.community_match_algorithm_version)
             yield LostFoundService(session=session, repository=repository, queries=queries,
                 cipher=CommunityCipher(settings.community_data_encryption_key),
                 moderation=ModerationService(session=session,
                     scanner=SensitiveWordScanner(SensitiveWordRepository(session)),
                     repository=ModerationCaseRepository(session), audit_service=audit),
                 idempotency=IdempotencyService(session=session,
-                    repository=IdempotencyRecordRepository(session)), audit=audit)
+                    repository=IdempotencyRecordRepository(session)), audit=audit, matcher=matcher)
+    finally:
+        await database.dispose()
+
+
+async def get_matcher_service() -> AsyncIterator[LostFoundMatcherService]:
+    settings = get_settings()
+    database = Database.from_settings(settings)
+    try:
+        async with database.session() as session:
+            repository = LostFoundRepository(session)
+            yield LostFoundMatcherService(session=session, repository=repository,
+                queries=LostFoundQueryService(repository, PlatformPublicUserProfileAdapter(session)),
+                algorithm_version=settings.community_match_algorithm_version)
     finally:
         await database.dispose()
 
@@ -129,3 +145,17 @@ async def delete_lost_found(
 ) -> Response:
     await service.delete(actor=actor, item_id=item_id, request_id=request.state.request_id)
     return Response(status_code=204)
+
+
+@router.get("/{item_id}/matches", operation_id="listLostFoundMatches",
+            response_model=LostFoundMatchPageResponse)
+async def list_lost_found_matches(
+    item_id: UUID, request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("community:write"))],
+    service: Annotated[LostFoundMatcherService, Depends(get_matcher_service)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> LostFoundMatchPageResponse:
+    data = await service.list(actor=actor, item_id=item_id, page=page, page_size=page_size)
+    return SuccessResponse(data=match_page_model(data), request_id=request.state.request_id,
+                           timestamp=datetime.now(UTC))

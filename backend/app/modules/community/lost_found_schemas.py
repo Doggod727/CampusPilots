@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.modules.community.lost_found import LostFoundItemData, LostFoundItemPageData
+from app.modules.community.matcher import MatchData, MatchPageData
 from app.modules.community.post_schemas import PublicAuthorModel
 from app.modules.community.topic_schemas import PageMetaData
 from app.shared.responses import SuccessResponse
@@ -94,11 +95,48 @@ LostFoundItemResponse = SuccessResponse[LostFoundItemModel]
 LostFoundPageResponse = SuccessResponse[LostFoundPageDataModel]
 
 
+class LostFoundMatchReasonModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    factor: str
+    score: float = Field(ge=0, le=1)
+    explanation: str
+
+
+class LostFoundMatchModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    source_item_id: UUID
+    candidate: LostFoundItemModel
+    score: float = Field(ge=0, le=1)
+    reasons: list[LostFoundMatchReasonModel] = Field(min_length=4, max_length=4)
+    algorithm_version: str
+    created_at: datetime
+
+
+class LostFoundMatchPageDataModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[LostFoundMatchModel]
+    pagination: PageMetaData
+
+
+LostFoundMatchPageResponse = SuccessResponse[LostFoundMatchPageDataModel]
+
+
 def lost_found_model(item: LostFoundItemData) -> LostFoundItemModel:
     return LostFoundItemModel.model_validate(item, from_attributes=True)
 
 
 def lost_found_page_model(page: LostFoundItemPageData) -> LostFoundPageDataModel:
     return LostFoundPageDataModel(items=[lost_found_model(item) for item in page.items],
+        pagination=PageMetaData(page=page.page, page_size=page.page_size, total=page.total,
+            total_pages=ceil(page.total / page.page_size) if page.total else 0))
+
+
+def match_model(item: MatchData) -> LostFoundMatchModel:
+    return LostFoundMatchModel.model_validate(item, from_attributes=True)
+
+
+def match_page_model(page: MatchPageData) -> LostFoundMatchPageDataModel:
+    return LostFoundMatchPageDataModel(items=[match_model(item) for item in page.items],
         pagination=PageMetaData(page=page.page, page_size=page.page_size, total=page.total,
             total_pages=ceil(page.total / page.page_size) if page.total else 0))

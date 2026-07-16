@@ -121,3 +121,8 @@ class LostFoundStateInvalid(AppError):
 class LostFoundClaimInvalid(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=409, code="LOST_FOUND_CLAIM_INVALID", message="存在进行中的认领，无法执行此操作")
+
+
+class CommunityMatchConfigInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=500, code="COMMUNITY_MATCH_CONFIG_INVALID", message="失物匹配配置无效")

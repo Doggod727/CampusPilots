@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -6,10 +8,11 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.community.models import (
-    CampusEvent, Comment, ContentReport, EventRegistration, LostFoundClaim, LostFoundItem, Post,
+    CampusEvent, Comment, ContentReport, EventRegistration, LostFoundClaim, LostFoundItem,
+    LostFoundMatch, Post,
     PostReaction, Topic,
 )
-from app.modules.platform.models import ModerationCase
+from app.modules.platform.models import AppConfig, ModerationCase
 
 
 @dataclass(frozen=True)
@@ -348,6 +351,70 @@ class LostFoundRepository:
             LostFoundClaim.status.in_(("pending", "verified")),
         ).limit(1)
         return (await self._session.execute(statement)).scalar_one_or_none() is not None
+
+    async def match_config(self) -> dict[str, object]:
+        keys = (
+            "community.match.category_weight", "community.match.location_weight",
+            "community.match.time_weight", "community.match.keyword_weight",
+            "community.match.threshold", "community.match.time_window_days",
+        )
+        statement = select(AppConfig.key, AppConfig.value).where(AppConfig.key.in_(keys))
+        return dict((await self._session.execute(statement)).all())
+
+    async def match_candidates(
+        self, source: LostFoundItem, *, window_start: object, limit: int = 200,
+    ) -> tuple[LostFoundItem, ...]:
+        statement = select(LostFoundItem).where(
+            LostFoundItem.id != source.id,
+            LostFoundItem.owner_user_id != source.owner_user_id,
+            LostFoundItem.item_type != source.item_type,
+            LostFoundItem.status.in_(("published", "claiming")),
+            LostFoundItem.deleted_at.is_(None),
+            LostFoundItem.occurred_at >= window_start,
+        ).order_by(LostFoundItem.occurred_at.desc(), LostFoundItem.id).limit(limit)
+        return tuple((await self._session.execute(statement)).scalars().all())
+
+    async def upsert_match(
+        self, *, source_id: UUID, candidate_id: UUID, score: object,
+        reasons: list[object], algorithm_version: str,
+    ) -> LostFoundMatch:
+        statement = insert(LostFoundMatch).values(source_item_id=source_id,
+            candidate_item_id=candidate_id, score=score, reasons=reasons,
+            algorithm_version=algorithm_version).on_conflict_do_update(
+                index_elements=(LostFoundMatch.source_item_id, LostFoundMatch.candidate_item_id,
+                                LostFoundMatch.algorithm_version),
+                set_={"score": score, "reasons": reasons},
+            ).returning(LostFoundMatch)
+        return (await self._session.execute(statement)).scalar_one()
+
+    async def delete_stale_matches(
+        self, *, source_id: UUID, algorithm_version: str, keep_ids: set[UUID],
+    ) -> None:
+        statement = delete(LostFoundMatch).where(
+            LostFoundMatch.source_item_id == source_id,
+            LostFoundMatch.algorithm_version == algorithm_version,
+        )
+        if keep_ids:
+            statement = statement.where(LostFoundMatch.candidate_item_id.not_in(keep_ids))
+        await self._session.execute(statement)
+
+    async def list_matches(
+        self, *, source_id: UUID, page: int, page_size: int,
+    ) -> tuple[tuple[LostFoundMatch, ...], int]:
+        predicate = (LostFoundMatch.source_item_id == source_id,)
+        statement = select(LostFoundMatch).where(*predicate).order_by(
+            LostFoundMatch.score.desc(), LostFoundMatch.created_at.desc(), LostFoundMatch.id,
+        ).offset((page - 1) * page_size).limit(page_size)
+        count = select(func.count()).select_from(LostFoundMatch).where(*predicate)
+        rows = tuple((await self._session.execute(statement)).scalars().all())
+        return rows, int((await self._session.execute(count)).scalar_one())
+
+    async def items_by_ids(self, ids: set[UUID]) -> dict[UUID, LostFoundItem]:
+        if not ids:
+            return {}
+        statement = select(LostFoundItem).where(LostFoundItem.id.in_(ids))
+        rows = (await self._session.execute(statement)).scalars().all()
+        return {row.id: row for row in rows}
 
 
 @dataclass(frozen=True)

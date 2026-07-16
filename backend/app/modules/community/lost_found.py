@@ -110,11 +110,13 @@ class LostFoundService:
         self, *, session: AsyncSession, repository: LostFoundRepository,
         queries: LostFoundQueryService, cipher: CommunityCipher,
         moderation: ModerationService, idempotency: IdempotencyService,
-        audit: AuditService, now: Callable[[], datetime] | None = None,
+        audit: AuditService, matcher: object | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self._session, self._repository, self._queries = session, repository, queries
         self._cipher, self._moderation = cipher, moderation
         self._idempotency, self._audit = idempotency, audit
+        self._matcher = matcher
         self._now = now or (lambda: datetime.now(UTC))
 
     async def create(
@@ -143,6 +145,7 @@ class LostFoundService:
             await self._scan(item, actor=actor, request_id=request_id, now=now)
             self._repository.add(item)
             await self._session.flush()
+            await self._recompute_safely(item, actor=actor, request_id=request_id)
             data = (await self._queries._hydrate(actor, (item,)))[0]
             body = lost_found_response_body(data, request_id=request_id, timestamp=now)
             self._audit.record_success(action="community.lost_found.create", resource_type="lost_found",
@@ -180,6 +183,7 @@ class LostFoundService:
             item.version += 1
             item.updated_at = now
             await self._session.flush()
+            await self._recompute_safely(item, actor=actor, request_id=request_id)
             self._audit.record_success(action="community.lost_found.update", resource_type="lost_found",
                 resource_id=str(item.id), request_id=request_id, actor_user_id=actor.user_id,
                 actor_username=actor.username,
@@ -224,6 +228,20 @@ class LostFoundService:
     def _time(self) -> datetime:
         value = self._now()
         return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+    async def _recompute_safely(
+        self, item: LostFoundItem, *, actor: AuthenticatedUser, request_id: str,
+    ) -> None:
+        if self._matcher is None or item.status not in {"published", "claiming"}:
+            return
+        try:
+            async with self._session.begin_nested():
+                await getattr(self._matcher, "recompute")(item)
+        except Exception:
+            self._audit.record_success(action="community.lost_found.match_pending",
+                resource_type="lost_found", resource_id=str(item.id), request_id=request_id,
+                actor_user_id=actor.user_id, actor_username=actor.username,
+                after_data={"id": str(item.id), "recompute_required": True})
 
 
 def lost_found_payload(item: LostFoundItemData) -> dict[str, object]:
