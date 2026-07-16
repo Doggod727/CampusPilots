@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.community.models import Post, Topic
+from app.modules.community.models import Post, PostReaction, Topic
 
 
 @dataclass(frozen=True)
@@ -67,3 +67,77 @@ class TopicRepository:
 
     def add(self, topic: Topic) -> None:
         self._session.add(topic)
+
+
+@dataclass(frozen=True)
+class PostPage:
+    items: tuple[Post, ...]
+    total: int
+
+
+class PostRepository:
+    """Post reads with visibility enforced in SQL."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list(
+        self, *, user_id: UUID, mine: bool, topic_id: UUID | None,
+        q: str | None, sort: str, page: int, page_size: int,
+    ) -> PostPage:
+        predicates = [Post.deleted_at.is_(None)]
+        if mine:
+            predicates.append(Post.author_user_id == user_id)
+        else:
+            predicates.append(Post.status == "published")
+        if topic_id is not None:
+            predicates.append(Post.topic_id == topic_id)
+        normalized = q.strip() if q else ""
+        if normalized:
+            escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            predicates.append(or_(
+                Post.title.ilike(pattern, escape="\\"),
+                Post.content_markdown.ilike(pattern, escape="\\"),
+            ))
+        ordering = func.coalesce(Post.published_at, Post.created_at)
+        order = ordering.desc() if sort == "-published_at" else ordering.asc()
+        statement = (
+            select(Post).where(*predicates).order_by(order, Post.id)
+            .offset((page - 1) * page_size).limit(page_size)
+        )
+        count_statement = select(func.count()).select_from(Post).where(*predicates)
+        items = tuple((await self._session.execute(statement)).scalars().all())
+        total = int((await self._session.execute(count_statement)).scalar_one())
+        return PostPage(items, total)
+
+    async def get_visible(
+        self, *, post_id: UUID, user_id: UUID, moderator: bool,
+    ) -> Post | None:
+        visibility = or_(Post.status == "published", Post.author_user_id == user_id)
+        if moderator:
+            visibility = or_(visibility, Post.status != "deleted")
+        statement = select(Post).where(
+            Post.id == post_id, Post.deleted_at.is_(None), visibility,
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def topics_by_ids(self, ids: set[UUID]) -> dict[UUID, Topic]:
+        if not ids:
+            return {}
+        statement = select(Topic).where(Topic.id.in_(ids), Topic.deleted_at.is_(None))
+        items = (await self._session.execute(statement)).scalars().all()
+        return {item.id: item for item in items}
+
+    async def interaction_states(
+        self, *, post_ids: set[UUID], user_id: UUID,
+    ) -> dict[UUID, set[str]]:
+        if not post_ids:
+            return {}
+        statement = select(PostReaction.post_id, PostReaction.reaction_type).where(
+            PostReaction.post_id.in_(post_ids), PostReaction.user_id == user_id,
+        )
+        result: dict[UUID, set[str]] = {}
+        for post_id, reaction_type in (await self._session.execute(statement)).all():
+            result.setdefault(post_id, set()).add(reaction_type)
+        return result

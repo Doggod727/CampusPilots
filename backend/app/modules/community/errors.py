@@ -24,3 +24,8 @@ class TopicHasPosts(AppError):
 class CommunityResourceVersionConflict(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=409, code="RESOURCE_VERSION_CONFLICT", message="资源版本冲突")
+
+
+class PostNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, code="POST_NOT_FOUND", message="帖子不存在或不可见")

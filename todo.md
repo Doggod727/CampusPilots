@@ -399,6 +399,9 @@
 - [x] [#154 M3：实现话题 HTTP API](https://github.com/Doggod727/CampusPilot/issues/154)（2026-07-16）
   - 注册 list/create/get/update/deleteTopic 五个 operationId，使用严格 Topic/分页模型、统一 Request-Id 和 204 删除响应；查询要求 community:read，写入要求 community:moderate，创建强制幂等键。
   - UUID、分页、状态、code、字段长度、空值和 version 均按契约校验；认证、权限、严格响应和 operationId 定向测试累计 `13 passed`，全量 pytest `616 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
+- [x] [#155 M3：实现帖子安全查询仓储与服务](https://github.com/Doggod727/CampusPilot/issues/155)（2026-07-16）
+  - PostRepository 在 SQL 中区分公开 published 列表与本人全部未删除内容，支持话题、转义搜索和稳定正/倒序分页；详情将公开、作者本人和运营员可见性合并为单条安全查询。
+  - PostQueryService 固定批次加载话题、本人互动和非匿名作者公开资料；匿名帖子完全跳过用户资料查询且永不暴露作者 UUID，审核案件仅作者本人或运营员可见。定向测试 `6 passed`、全量 pytest `622 passed`（11 条既有 httpx 弃用警告）、编译、Alembic 唯一 Head `0007_community_schema`、离线完整升降级和 OpenAPI lint 均通过；Redocly 保留 5 条既有非阻断警告。
 
 ## M5 项目重审与契约基线
 
