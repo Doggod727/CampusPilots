@@ -328,6 +328,10 @@
   - 新增 `GuideRepository/ServiceGuideService` 内部查询契约，列表统一过滤 published、有效期、启用分类/部门和至少一条适用规则，支持分页、标题/摘要、分类、部门、校区和学生类型过滤及稳定排序。
   - 详情按请求学生类型优先于 `all` 规则，固定 4 次查询加载主记录、原始材料、步骤和该校区有效联系人；不存在、未发布、过期、停用或不适用统一返回安全的 `404 GUIDE_NOT_FOUND`，不注册指南 HTTP 路由。
   - 指南查询与基础仓储定向测试 `19 passed`、全量 pytest `492 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL验证仍待环境可用后执行。
+- [x] [#135 M2：实现材料清单服务与 checklist API](https://github.com/Doggod727/CampusPilot/issues/135)（2026-07-16）
+  - 新增纯计算 `MaterialChecklistService`，仅接受 `campus_codes/student_types` 白名单条件，按同维度 OR、跨维度 AND 生成稳定的 `included/inclusion_reason`；未知键或畸形条件安全返回 `500 GUIDE_MATERIAL_CONDITION_INVALID`。
+  - 注册 `getServiceGuideChecklist`，按契约仅要求有效登录并校验指南 UUID、校区和学生类型；成功响应不暴露原始条件，不可见或不适用指南统一返回安全的 `404 GUIDE_NOT_FOUND`。
+  - 材料清单与路由定向测试 `8 passed`、全量 pytest `500 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级、OpenAPI 解析与 lint 通过；真实 PostgreSQL验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 
