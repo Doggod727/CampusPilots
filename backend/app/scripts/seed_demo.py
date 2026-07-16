@@ -25,6 +25,7 @@ from app.modules.campus_service.models import (
     WorkOrderEvent,
     WorkOrderRating,
 )
+from app.modules.community.models import Topic
 from app.modules.platform.models import (
     AppConfig,
     Permission,
@@ -302,6 +303,21 @@ CONFIGS = (
     ("modelops.router_confidence", "modelops", 0.80, "number", "本地路由模型直接采用阈值"),
     ("modelops.reranker_enabled", "modelops", False, "boolean", "是否启用本地 RAG Reranker"),
     ("mcp.enabled", "agent", False, "boolean", "是否启用 P1 MCP Server"),
+    ("community.post_max_chars", "community", 5000, "integer", "帖子正文最大字符数"),
+    ("community.comment_max_chars", "community", 1000, "integer", "评论正文最大字符数"),
+    ("community.event_max_capacity", "community", 10000, "integer", "活动容量硬上限"),
+    ("community.match.category_weight", "community", 0.35, "number", "失物匹配类别权重"),
+    ("community.match.location_weight", "community", 0.25, "number", "失物匹配地点权重"),
+    ("community.match.time_weight", "community", 0.20, "number", "失物匹配时间权重"),
+    ("community.match.keyword_weight", "community", 0.20, "number", "失物匹配关键词权重"),
+    ("community.match.threshold", "community", 0.55, "number", "失物候选最低匹配分"),
+    ("community.match.time_window_days", "community", 30, "integer", "候选时间窗口天数"),
+)
+
+DEMO_TOPIC_SEEDS = (
+    (UUID("74000000-0000-4000-8000-000000000001"), "campus-life", "校园生活", "校园生活交流", False, 10),
+    (UUID("74000000-0000-4000-8000-000000000002"), "mutual-help", "互助问答", "同学互助与经验分享", False, 20),
+    (UUID("74000000-0000-4000-8000-000000000003"), "tree-hole", "匿名树洞", "允许匿名发布的安全交流空间", True, 30),
 )
 
 DEMO_ELECTRICITY_ROOM_ID = "21000000-0000-4000-8000-000000000001"
@@ -1135,6 +1151,33 @@ def _demo_work_order_rating_upsert_statement():
     )
 
 
+def _demo_topic_upsert_statement(seed: tuple[UUID, str, str, str, bool, int]):
+    topic_id, code, name, description, allow_anonymous, sort_order = seed
+    statement = insert(Topic).values(
+        id=topic_id,
+        code=code,
+        name=name,
+        description=description,
+        allow_anonymous=allow_anonymous,
+        sort_order=sort_order,
+        status="active",
+        created_by=select(User.id).where(User.username == "community01").scalar_subquery(),
+        version=1,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[Topic.id],
+        set_={
+            "code": statement.excluded.code,
+            "name": statement.excluded.name,
+            "description": statement.excluded.description,
+            "allow_anonymous": statement.excluded.allow_anonymous,
+            "sort_order": statement.excluded.sort_order,
+            "status": statement.excluded.status,
+            "created_by": statement.excluded.created_by,
+            "version": statement.excluded.version,
+            "deleted_at": None,
+        },
+    )
 async def seed_demo(
     session: AsyncSession,
     password: str,
@@ -1192,6 +1235,8 @@ async def seed_demo(
         for statement in _demo_work_order_event_upsert_statements():
             await session.execute(statement)
         await session.execute(_demo_work_order_rating_upsert_statement())
+        for seed in DEMO_TOPIC_SEEDS:
+            await session.execute(_demo_topic_upsert_statement(seed))
 
     return usernames
 

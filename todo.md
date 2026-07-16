@@ -390,6 +390,9 @@
 - [x] [#151 M3：实现失物招领 ORM](https://github.com/Doggod727/CampusPilot/issues/151)（2026-07-16）
   - 映射 LostFoundItem/Match/Claim，联系方式与证据使用 BYTEA，匹配原因使用 JSONB，分数使用 numeric(6,5)；保留发布/完成、候选唯一、分数和认领状态约束。
   - M3 自有外键按 CASCADE/RESTRICT/SET NULL，活动认领使用部分唯一索引；对象表示不泄露密文、提示或决策正文。本批累计模型专项 `10 passed`、全量 pytest `599 passed`、编译、Alembic 单 Head及离线完整升降级、OpenAPI lint 均通过，真实 PostgreSQL 验证仍待环境可用后执行。
+- [x] [#152 M3：建立社区配置、演示话题与认证加密基线](https://github.com/Doggod727/CampusPilot/issues/152)（2026-07-16）
+  - 将 SQL 008 的 9 项社区配置和三个固定话题纳入既有单事务种子；创建者通过 community01 自然键解析，只有 tree-hole 允许匿名，重复执行按固定 ID 幂等更新。
+  - 新增可选社区加密/匹配设置和 Fernet 认证加密 Codec；密钥缺失不影响导入与非敏感 API，错误密钥、篡改和非法明文均返回不含敏感值的稳定错误。定向测试 `27 passed`、全量 pytest `603 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 

@@ -60,7 +60,7 @@ def test_seed_constants_include_the_m5_platform_compatibility_baseline() -> None
     assert "community:anonymous_identity:read" not in seed_demo.ROLE_PERMISSION_CODES[
         "community_operator"
     ]
-    assert len(seed_demo.CONFIGS) == 9
+    assert len(seed_demo.CONFIGS) == 18
     assert {config[0] for config in seed_demo.CONFIGS} == {
         "auth.max_failed_logins",
         "auth.lock_minutes",
@@ -71,6 +71,15 @@ def test_seed_constants_include_the_m5_platform_compatibility_baseline() -> None
         "modelops.router_confidence",
         "modelops.reranker_enabled",
         "mcp.enabled",
+        "community.post_max_chars",
+        "community.comment_max_chars",
+        "community.event_max_capacity",
+        "community.match.category_weight",
+        "community.match.location_weight",
+        "community.match.time_weight",
+        "community.match.keyword_weight",
+        "community.match.threshold",
+        "community.match.time_window_days",
     }
     assert seed_demo.ROLE_PERMISSION_CODES["agent_runtime"] == (
         "agent:run", "moderation:execute", "audit:write"
@@ -107,7 +116,7 @@ def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
     assert usernames == tuple(account.username for account in seed_demo.DEMO_ACCOUNTS)
     assert hasher.passwords == ["local-password"] * len(seed_demo.DEMO_ACCOUNTS)
     session.begin.assert_called_once_with()
-    assert session.execute.await_count == 61
+    assert session.execute.await_count == 64
 
 
 def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
@@ -204,6 +213,25 @@ def test_demo_work_orders_are_fixed_idempotent_and_resolve_natural_keys() -> Non
     assert "ON CONFLICT (id) DO UPDATE" in rating_sql
     assert "student01" in rating_sql
     assert "WO-2026" not in " ".join(order_sql)
+
+
+def test_demo_topics_are_idempotent_and_resolve_community_operator() -> None:
+    statements = [
+        seed_demo._demo_topic_upsert_statement(seed)
+        for seed in seed_demo.DEMO_TOPIC_SEEDS
+    ]
+    compiled = [statement.compile(dialect=postgresql.dialect()) for statement in statements]
+    sql = [str(item) for item in compiled]
+
+    assert len(statements) == 3
+    assert {seed[1] for seed in seed_demo.DEMO_TOPIC_SEEDS} == {
+        "campus-life", "mutual-help", "tree-hole"
+    }
+    assert [seed[4] for seed in seed_demo.DEMO_TOPIC_SEEDS] == [False, False, True]
+    assert all("ON CONFLICT (id) DO UPDATE" in item for item in sql)
+    assert all("platform.users" in item for item in sql)
+    assert all("community01" in item.params.values() for item in compiled)
+    assert all("deleted_at =" in item for item in sql)
 
 
 def test_campus_service_seed_statements_are_idempotent_and_resolve_parent_codes() -> None:

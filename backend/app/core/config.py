@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     deepseek_base_url: AnyHttpUrl = AnyHttpUrl("https://api.deepseek.com")
     deepseek_model: str = "deepseek-v4-pro"
     use_mock_campus_adapters: bool = True
+    community_data_encryption_key: SecretStr | None = None
+    community_match_algorithm_version: str = "rule-v1"
+    community_contact_audit_enabled: bool = True
 
     local_router_model_path: Path = Path("/models/router")
     local_router_confidence: float = Field(default=0.80, ge=0, le=1)
