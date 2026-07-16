@@ -378,6 +378,9 @@
 - [x] [#146 M3：建立 Community Alembic Schema](https://github.com/Doggod727/CampusPilot/issues/146)（2026-07-16）
   - 新增 `0007_community_schema`，按 SQL 007 建立 community Schema、更新时间函数、10 张表、完整约束/索引、8 个触发器和字段安全注释；用户及审核案件继续使用逻辑 UUID，不建立跨 Schema 外键。
   - downgrade 按依赖逆序删除 M3 自有表、函数和 Schema，保留共享扩展；迁移专项 `9 passed`、全量 pytest `589 passed`（11 条既有 httpx 弃用警告）、编译、Alembic 单 Head及离线完整升降级、OpenAPI lint 均通过，真实 PostgreSQL 空库验证仍待环境可用后执行。
+- [x] [#148 M3：实现话题、帖子和评论 ORM](https://github.com/Doggod727/CampusPilot/issues/148)（2026-07-16）
+  - 新增扁平 `community` 模型模块，映射 Topic/Post/Comment，完整保留逻辑删除、版本、审核状态、风险、发布和计数约束，以及公开列表、作者和审核案件部分索引。
+  - 作者和审核案件保持逻辑 UUID，M3 自有外键严格使用 RESTRICT/CASCADE/SET NULL；不增加 relationship、仓储、服务或路由。模型专项 `3 passed`、全量 pytest `592 passed`、编译、Alembic 离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 
