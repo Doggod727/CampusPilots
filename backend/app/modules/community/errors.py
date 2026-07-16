@@ -86,3 +86,23 @@ class EventStateInvalid(AppError):
 class EventCapacityInvalid(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=409, code="EVENT_CAPACITY_INVALID", message="活动容量不能低于已报名人数")
+
+
+class EventRegistrationBusy(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="EVENT_REGISTRATION_BUSY", message="报名繁忙，请稍后重试")
+
+
+class EventRegistrationClosed(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="EVENT_REGISTRATION_CLOSED", message="活动报名已关闭")
+
+
+class EventCapacityFull(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=409, code="EVENT_CAPACITY_FULL", message="活动名额已满")
+
+
+class EventRegistrationNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, code="EVENT_REGISTRATION_NOT_FOUND", message="报名记录不存在")

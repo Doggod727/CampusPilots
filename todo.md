@@ -427,6 +427,9 @@
 - [x] [#163 M3：实现活动 CRUD 与 5 个 HTTP API](https://github.com/Doggod727/CampusPilot/issues/163)（2026-07-16）
   - 注册活动列表、创建、详情、修改和取消；严格请求/响应模型、M4 标题与正文扫描、组织者/运营员授权、版本/时间/容量/终态校验、创建与取消幂等及脱敏审计均在应用服务内完成。
   - 活动专项 `5 passed`、全量 pytest `664 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级、OpenAPI 和 Redocly lint 均通过；M3 累计注册 `23/38`。
+- [x] [#164 M3：实现并发安全活动报名 API](https://github.com/Doggod727/CampusPilot/issues/164)（2026-07-16）
+  - 注册名单、报名与本人取消三个接口；事务内设置 PostgreSQL 1 秒局部锁超时并锁定活动/报名，只有真实状态变化才更新人数，容量、截止时间、开始时间与名单授权均 fail-closed。
+  - 活动累计专项 `7 passed`、全量 pytest `666 passed`（11 条既有警告）及全部静态/迁移/契约门禁通过；M3 累计注册 `26/38`。真实 PostgreSQL 最后名额并发与锁超时仍待环境验证。
 
 ## M5 项目重审与契约基线
 

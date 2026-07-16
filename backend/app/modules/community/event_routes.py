@@ -10,11 +10,13 @@ from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.community.event_schemas import (
     EventCancelRequest, EventCreateRequest, EventPageResponse, EventResponse,
-    EventUpdateRequest, event_model, event_page_model,
+    EventRegistrationPageResponse, EventRegistrationResponse, EventUpdateRequest,
+    event_model, event_page_model, registration_model, registration_page_model,
 )
 from app.modules.community.events import EventQueryService, EventService
 from app.modules.community.profiles import PlatformPublicUserProfileAdapter
 from app.modules.community.repositories import EventRepository
+from app.modules.community.registrations import EventRegistrationService
 from app.modules.platform.audit import AuditService
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
@@ -54,6 +56,21 @@ async def get_event_service() -> AsyncIterator[EventService]:
                 ),
                 idempotency=IdempotencyService(session=session, repository=IdempotencyRecordRepository(session)),
                 audit=audit,
+            )
+    finally:
+        await database.dispose()
+
+
+async def get_registration_service() -> AsyncIterator[EventRegistrationService]:
+    database = Database.from_settings(get_settings())
+    try:
+        async with database.session() as session:
+            yield EventRegistrationService(
+                session=session, repository=EventRepository(session),
+                profiles=PlatformPublicUserProfileAdapter(session),
+                idempotency=IdempotencyService(session=session,
+                    repository=IdempotencyRecordRepository(session)),
+                audit=AuditService(AuditLogRepository(session)),
             )
     finally:
         await database.dispose()
@@ -126,3 +143,43 @@ async def cancel_event(
         reason=payload.reason, idempotency_key=idempotency_key, request_id=request.state.request_id,
         request_body=body)
     return JSONResponse(status_code=result.status_code, content=result.body)
+
+
+@router.get("/{event_id}/registrations", operation_id="listEventRegistrations",
+            response_model=EventRegistrationPageResponse)
+async def list_event_registrations(
+    event_id: UUID, request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("community:write"))],
+    service: Annotated[EventRegistrationService, Depends(get_registration_service)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> EventRegistrationPageResponse:
+    data = await service.list(actor=actor, event_id=event_id, page=page, page_size=page_size)
+    return SuccessResponse(data=registration_page_model(data), request_id=request.state.request_id,
+                           timestamp=datetime.now(UTC))
+
+
+@router.post("/{event_id}/registrations", operation_id="registerCampusEvent",
+             response_model=EventRegistrationResponse)
+async def register_event(
+    event_id: UUID, request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("community:write"))],
+    service: Annotated[EventRegistrationService, Depends(get_registration_service)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
+) -> JSONResponse:
+    result = await service.register(actor=actor, event_id=event_id,
+                                    idempotency_key=idempotency_key,
+                                    request_id=request.state.request_id)
+    return JSONResponse(status_code=result.status_code, content=result.body)
+
+
+@router.delete("/{event_id}/registrations/me", operation_id="cancelMyEventRegistration",
+               response_model=EventRegistrationResponse)
+async def cancel_my_event_registration(
+    event_id: UUID, request: Request,
+    actor: Annotated[AuthenticatedUser, Depends(require_permissions("community:write"))],
+    service: Annotated[EventRegistrationService, Depends(get_registration_service)],
+) -> EventRegistrationResponse:
+    data = await service.cancel(actor=actor, event_id=event_id, request_id=request.state.request_id)
+    return SuccessResponse(data=registration_model(data), request_id=request.state.request_id,
+                           timestamp=datetime.now(UTC))

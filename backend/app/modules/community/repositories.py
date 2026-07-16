@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, text as sql_text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -250,6 +250,32 @@ class EventRepository:
 
     def add(self, event: CampusEvent) -> None:
         self._session.add(event)
+
+    async def set_registration_lock_timeout(self) -> None:
+        await self._session.execute(sql_text("SET LOCAL lock_timeout = '1s'"))
+
+    async def get_registration_for_update(
+        self, *, event_id: UUID, user_id: UUID,
+    ) -> EventRegistration | None:
+        statement = select(EventRegistration).where(
+            EventRegistration.event_id == event_id,
+            EventRegistration.user_id == user_id,
+        ).with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def list_registrations(
+        self, *, event_id: UUID, page: int, page_size: int,
+    ) -> tuple[tuple[EventRegistration, ...], int]:
+        predicate = (EventRegistration.event_id == event_id,)
+        statement = select(EventRegistration).where(*predicate).order_by(
+            EventRegistration.registered_at, EventRegistration.user_id,
+        ).offset((page - 1) * page_size).limit(page_size)
+        count = select(func.count()).select_from(EventRegistration).where(*predicate)
+        items = tuple((await self._session.execute(statement)).scalars().all())
+        return items, int((await self._session.execute(count)).scalar_one())
+
+    def add_registration(self, registration: EventRegistration) -> None:
+        self._session.add(registration)
 
 
 @dataclass(frozen=True)

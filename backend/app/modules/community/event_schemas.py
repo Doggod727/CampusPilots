@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.modules.community.events import EventData, EventPageData
+from app.modules.community.registrations import RegistrationData, RegistrationPageData
 from app.modules.community.post_schemas import PublicAuthorModel
 from app.modules.community.topic_schemas import PageMetaData
 from app.shared.responses import SuccessResponse
@@ -95,6 +96,26 @@ EventResponse = SuccessResponse[EventDataModel]
 EventPageResponse = SuccessResponse[EventPageDataModel]
 
 
+class EventRegistrationDataModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: UUID
+    participant: PublicAuthorModel
+    status: RegistrationStatus
+    registered_at: datetime
+    cancelled_at: datetime | None = None
+    event_registered_count: int = Field(ge=0)
+
+
+class EventRegistrationPageDataModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[EventRegistrationDataModel]
+    pagination: PageMetaData
+
+
+EventRegistrationResponse = SuccessResponse[EventRegistrationDataModel]
+EventRegistrationPageResponse = SuccessResponse[EventRegistrationPageDataModel]
+
+
 def event_model(item: EventData) -> EventDataModel:
     return EventDataModel.model_validate(item, from_attributes=True)
 
@@ -102,6 +123,18 @@ def event_model(item: EventData) -> EventDataModel:
 def event_page_model(page: EventPageData) -> EventPageDataModel:
     return EventPageDataModel(
         items=[event_model(item) for item in page.items],
+        pagination=PageMetaData(page=page.page, page_size=page.page_size, total=page.total,
+                                total_pages=ceil(page.total / page.page_size) if page.total else 0),
+    )
+
+
+def registration_model(item: RegistrationData) -> EventRegistrationDataModel:
+    return EventRegistrationDataModel.model_validate(item, from_attributes=True)
+
+
+def registration_page_model(page: RegistrationPageData) -> EventRegistrationPageDataModel:
+    return EventRegistrationPageDataModel(
+        items=[registration_model(item) for item in page.items],
         pagination=PageMetaData(page=page.page, page_size=page.page_size, total=page.total,
                                 total_pages=ceil(page.total / page.page_size) if page.total else 0),
     )
