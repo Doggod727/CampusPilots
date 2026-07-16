@@ -54,3 +54,9 @@ class CommunityContentPendingReview(AppError):
     def __init__(self) -> None:
         super().__init__(status_code=409, code="COMMUNITY_CONTENT_PENDING_REVIEW",
                          message="内容正在审核，暂不可互动")
+
+
+class ContentReportTargetNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, code="CONTENT_REPORT_TARGET_NOT_FOUND",
+                         message="举报目标不存在或不可见")

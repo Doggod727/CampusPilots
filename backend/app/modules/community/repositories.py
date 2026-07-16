@@ -5,7 +5,10 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.community.models import Comment, Post, PostReaction, Topic
+from app.modules.community.models import (
+    CampusEvent, Comment, ContentReport, LostFoundItem, Post, PostReaction, Topic,
+)
+from app.modules.platform.models import ModerationCase
 
 
 @dataclass(frozen=True)
@@ -253,3 +256,60 @@ class ReactionRepository:
         )
         row = (await self._session.execute(statement)).one()
         return int(row[0]), int(row[1])
+
+
+@dataclass(frozen=True)
+class ReportTarget:
+    item: Post | Comment | CampusEvent | LostFoundItem
+    target_type: str
+
+
+class ReportRepository:
+    _MODELS = {
+        "post": (Post, Post.author_user_id, ("published",)),
+        "comment": (Comment, Comment.author_user_id, ("published",)),
+        "event": (CampusEvent, CampusEvent.organizer_user_id, ("published",)),
+        "lost_found": (LostFoundItem, LostFoundItem.owner_user_id, ("published", "claiming")),
+    }
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_target_for_update(
+        self, *, target_type: str, target_id: UUID, user_id: UUID, moderator: bool,
+    ) -> ReportTarget | None:
+        model, owner_column, public_statuses = self._MODELS[target_type]
+        visibility = model.status.in_(public_statuses)
+        if not moderator:
+            visibility = or_(visibility, owner_column == user_id)
+        statement = select(model).where(
+            model.id == target_id, model.deleted_at.is_(None), visibility,
+        ).with_for_update()
+        item = (await self._session.execute(statement)).scalar_one_or_none()
+        return ReportTarget(item, target_type) if item is not None else None
+
+    async def get_existing(
+        self, *, reporter_user_id: UUID, target_type: str, target_id: UUID,
+    ) -> ContentReport | None:
+        statement = select(ContentReport).where(
+            ContentReport.reporter_user_id == reporter_user_id,
+            ContentReport.target_type == target_type, ContentReport.target_id == target_id,
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_pending_case(self, *, target_type: str, target_id: UUID) -> ModerationCase | None:
+        statement = select(ModerationCase).where(
+            ModerationCase.target_module == "community",
+            ModerationCase.target_type == target_type,
+            ModerationCase.target_id == target_id,
+            ModerationCase.status == "pending",
+        ).order_by(ModerationCase.created_at, ModerationCase.id).limit(1).with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def increment_post_report_count(self, post_id: UUID) -> None:
+        await self._session.execute(
+            update(Post).where(Post.id == post_id).values(report_count=Post.report_count + 1)
+        )
+
+    def add(self, report: ContentReport) -> None:
+        self._session.add(report)

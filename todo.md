@@ -415,6 +415,9 @@
 - [x] [#159 M3：实现帖子点赞收藏与计数 API](https://github.com/Doggod727/CampusPilot/issues/159)（2026-07-16）
   - 注册 putPostReaction/deletePostReaction；事实表使用 PostgreSQL ON CONFLICT/DELETE RETURNING，只有真实增删才原子调整 like/favorite 计数，重复请求返回服务端当前状态。
   - 事务内锁定帖子并限制 published 可见性；本人待审核 PUT 返回 COMMUNITY_CONTENT_PENDING_REVIEW，其他非公开互动安全 404。专项测试 `4 passed`、全量 pytest `651 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
+- [x] [#160 M3：实现内容举报与审核案件复用](https://github.com/Doggod727/CampusPilot/issues/160)（2026-07-16）
+  - 注册 createContentReport，受控解析 post/comment/event/lost_found 并在 SQL 层执行公开、本人或运营员可见性；目标行锁串行化业务重复举报和 pending M4 案件复用。
+  - 新案件固定 review/high/community-report-v1 且不伪造规则命中；同用户重复返回首次事实，只有 Post 首次举报增加 report_count，响应和审计不返回 reporter 或 details。专项测试 `4 passed`、全量 pytest `655 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 
