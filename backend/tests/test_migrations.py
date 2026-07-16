@@ -88,6 +88,18 @@ AGENT_RUNTIME_TABLES = (
     "agent_runtime_checkpoints",
     "agent_run_events",
 )
+COMMUNITY_TABLES = (
+    "topics",
+    "posts",
+    "comments",
+    "post_reactions",
+    "content_reports",
+    "campus_events",
+    "event_registrations",
+    "lost_found_items",
+    "lost_found_matches",
+    "lost_found_claims",
+)
 
 
 def migration_environment() -> dict[str, str]:
@@ -119,7 +131,7 @@ def run_alembic(*arguments: str) -> str:
 def test_migration_has_single_head() -> None:
     output = run_alembic("heads")
 
-    assert "0007_ai_knowledge_schema (head)" in output
+    assert "0007_community_schema (head)" in output
 
 
 def test_offline_upgrade_contains_complete_platform_schema() -> None:
@@ -254,3 +266,34 @@ def test_electricity_downgrade_precedes_base_campus_service_objects() -> None:
     assert positions[-1] < output.index("DROP TABLE campus_service.work_order_ratings")
     assert "DROP FUNCTION campus_service.set_updated_at()" in output
     assert "DROP EXTENSION" not in output
+
+
+def test_community_revision_is_complete_and_downgrades_safely() -> None:
+    upgrade = run_alembic("upgrade", "head", "--sql")
+    downgrade = run_alembic(
+        "downgrade", "0007_community_schema:0006_agent_runtime_delivery", "--sql"
+    )
+
+    assert "CREATE SCHEMA IF NOT EXISTS community" in upgrade
+    for table in COMMUNITY_TABLES:
+        assert f"CREATE TABLE IF NOT EXISTS community.{table}" in upgrade
+    for trigger in (
+        "trg_topics_updated_at", "trg_posts_updated_at", "trg_comments_updated_at",
+        "trg_content_reports_updated_at", "trg_events_updated_at",
+        "trg_event_registrations_updated_at", "trg_lost_found_items_updated_at",
+        "trg_lost_found_claims_updated_at",
+    ):
+        assert f"CREATE TRIGGER {trigger}" in upgrade
+    community_upgrade = upgrade[upgrade.index("CREATE SCHEMA IF NOT EXISTS community"):]
+    assert "REFERENCES platform." not in community_upgrade
+
+    positions = [
+        downgrade.index(f"DROP TABLE community.{table}")
+        for table in reversed(COMMUNITY_TABLES)
+    ]
+    assert positions == sorted(positions)
+    assert positions[-1] < downgrade.index("DROP FUNCTION community.set_updated_at()")
+    assert downgrade.index("DROP FUNCTION community.set_updated_at()") < downgrade.index(
+        "DROP SCHEMA community"
+    )
+    assert "DROP EXTENSION" not in downgrade

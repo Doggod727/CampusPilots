@@ -20,6 +20,15 @@ from app.modules.agent_platform.orchestration.supervisor import SupervisorPlanne
 from app.modules.agent_platform.runtime_persistence import RuntimeCheckpointRepository, RuntimeEventRepository
 from app.modules.agent_platform.runtime_worker import GraphRuntimeCommandProcessor
 from app.modules.agent_platform.tool_gateway.electricity_adapters import ElectricityBalanceToolHandler, ElectricityTopupToolHandler
+from app.modules.agent_platform.tool_gateway.campus_service_adapters import (
+    ServiceGuideToolHandler,
+    WorkOrderCreateToolHandler,
+    WorkOrderGetToolHandler,
+)
+from app.modules.agent_platform.tool_gateway.community_adapters import (
+    EventRegisterToolHandler, EventSearchToolHandler, LostFoundMatchesToolHandler,
+    LostFoundPublishToolHandler,
+)
 from app.modules.agent_platform.tool_gateway.executor import ToolExecutor
 from app.modules.agent_platform.tool_gateway.governance_adapters import (
     GovernanceAuthorizeToolHandler, GovernanceCheckContentHandler, GovernanceWriteAuditHandler,
@@ -28,17 +37,30 @@ from app.modules.agent_platform.tool_gateway.governance_adapters import (
 from app.modules.agent_platform.tool_gateway.mocks import build_mock_handlers
 from app.modules.agent_platform.traces import TraceRepository, TraceService
 from app.modules.campus_service.electricity import ElectricityService
-from app.modules.campus_service.repositories import ElectricityRepository
-from app.modules.ai_knowledge.knowledge import KnowledgeRepository, KnowledgeService
-from app.modules.ai_knowledge.retrieval import RetrievalService
-from app.modules.ai_knowledge.tool_adapters import KnowledgeAnswerToolHandler, KnowledgeSearchToolHandler
-from app.modules.ai_knowledge.vectors import BgeSmallZhEmbeddingProvider, ChromaVectorStore
+from app.modules.campus_service.guides import ServiceGuideService
+from app.modules.campus_service.repositories import (
+    CampusReferenceRepository,
+    ElectricityRepository,
+    GuideRepository,
+    WorkOrderEventRepository,
+    WorkOrderRepository,
+)
+from app.modules.campus_service.work_order_access import WorkOrderScopeRepository
+from app.modules.campus_service.work_orders import WorkOrderService
+from app.modules.community.encryption import CommunityCipher, CommunityEncryptionUnavailable
+from app.modules.community.events import EventQueryService
+from app.modules.community.lost_found import LostFoundQueryService, LostFoundService
+from app.modules.community.matcher import LostFoundMatcherService
+from app.modules.community.profiles import PlatformPublicUserProfileAdapter
+from app.modules.community.registrations import EventRegistrationService
+from app.modules.community.repositories import EventRepository, LostFoundRepository
+from app.modules.platform.idempotency import IdempotencyService
 from app.modules.platform.audit import AuditService, redact
 from app.modules.platform.moderation import ModerationService
 from app.modules.platform.moderation_scan import SensitiveWordScanner
 from app.modules.platform.repositories import (
-    AuditLogRepository, ModerationCaseRepository, RbacRepository,
-    SensitiveWordRepository, UserRepository,
+    AuditLogRepository, IdempotencyRecordRepository, ModerationCaseRepository,
+    RbacRepository, SensitiveWordRepository, UserRepository,
 )
 
 
@@ -98,28 +120,55 @@ class RuntimeCompositionFactory:
             ApprovalRepository(session), ttl_seconds=self.settings.approval_ttl_seconds
         )
         authorization = M4ToolAuthorizationAdapter()
-        electricity = ElectricityService(ElectricityRepository(session))
-        import chromadb
-        knowledge = KnowledgeService(session, KnowledgeRepository(session))
-        retrieval = RetrievalService(
-            session,
-            knowledge,
-            BgeSmallZhEmbeddingProvider(str(self.settings.knowledge_embedding_model_path)),
-            ChromaVectorStore(chromadb.PersistentClient(path=str(self.settings.knowledge_chroma_path))),
-            self.settings.knowledge_score_threshold,
+        electricity_repository = ElectricityRepository(session)
+        electricity = ElectricityService(electricity_repository)
+        guides = ServiceGuideService(GuideRepository(session))
+        work_orders = WorkOrderService(
+            session=session,
+            campuses=CampusReferenceRepository(session),
+            work_orders=WorkOrderRepository(session),
+            events=WorkOrderEventRepository(session),
+            idempotency=IdempotencyService(
+                session=session,
+                repository=IdempotencyRecordRepository(session),
+            ),
+            audit=audit,
+            scopes=WorkOrderScopeRepository(session),
+            rooms=electricity_repository,
         )
-        gateway = DeepSeekGateway(
-            api_key=self.settings.deepseek_api_key.get_secret_value(),
-            base_url=str(self.settings.deepseek_base_url),
-            model=self.settings.deepseek_model,
-            timeout_seconds=self.settings.agent_run_timeout_seconds,
+        profiles = PlatformPublicUserProfileAdapter(session)
+        event_repository = EventRepository(session)
+        event_queries = EventQueryService(event_repository, profiles)
+        event_registrations = EventRegistrationService(
+            session=session, repository=event_repository, profiles=profiles,
+            idempotency=IdempotencyService(session=session,
+                repository=IdempotencyRecordRepository(session)), audit=audit,
         )
+        lost_repository = LostFoundRepository(session)
+        lost_queries = LostFoundQueryService(lost_repository, profiles)
+        matcher = LostFoundMatcherService(session=session, repository=lost_repository,
+            queries=lost_queries,
+            algorithm_version=self.settings.community_match_algorithm_version)
+        try:
+            community_cipher = CommunityCipher(self.settings.community_data_encryption_key)
+        except CommunityEncryptionUnavailable:
+            community_cipher = _UnavailableCommunityCipher()
+        lost_found = LostFoundService(session=session, repository=lost_repository,
+            queries=lost_queries, cipher=community_cipher,  # type: ignore[arg-type]
+            moderation=moderation,
+            idempotency=IdempotencyService(session=session,
+                repository=IdempotencyRecordRepository(session)), audit=audit, matcher=matcher)
         handlers = build_mock_handlers()
         handlers.update({
-            "knowledge.search": KnowledgeSearchToolHandler(retrieval),
-            "knowledge.answer": KnowledgeAnswerToolHandler(retrieval, gateway),
+            "service.get_guide": ServiceGuideToolHandler(guides),
+            "work_order.create": WorkOrderCreateToolHandler(work_orders),
+            "work_order.get": WorkOrderGetToolHandler(work_orders),
             "electricity.get_balance": ElectricityBalanceToolHandler(electricity),
             "electricity.create_topup_request": ElectricityTopupToolHandler(electricity),
+            "event.search": EventSearchToolHandler(event_queries),
+            "event.register": EventRegisterToolHandler(event_registrations),
+            "lost_found.publish": LostFoundPublishToolHandler(lost_found),
+            "lost_found.search_matches": LostFoundMatchesToolHandler(matcher),
             "governance.check_content": GovernanceCheckContentHandler(moderation),
             "governance.authorize_tool": GovernanceAuthorizeToolHandler(
                 registry=tools,
@@ -196,3 +245,11 @@ class _LazyCompositionCommandProcessor:
                 runtime, RuntimeStartContextLoader(self._session)
             )
         await self._processor.process(command)
+
+
+class _UnavailableCommunityCipher:
+    def encrypt(self, _plaintext: str) -> bytes:
+        raise CommunityEncryptionUnavailable()
+
+    def decrypt(self, _ciphertext: bytes) -> str:
+        raise CommunityEncryptionUnavailable()

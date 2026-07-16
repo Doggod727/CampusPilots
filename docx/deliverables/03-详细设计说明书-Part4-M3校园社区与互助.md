@@ -618,3 +618,19 @@ Tool Adapter 只调用 M3 Application Service。M5 的 approval 不能替代 M3 
 - 报名确认、拒绝、过期、重复请求和并发最后名额测试通过。
 - 失物发布不在 Tool/Agent 轨迹保存联系方式；候选查询不泄露隐私。
 - M5 未启用时，原 M3 REST API 与审核流程仍独立可用。
+# 实现完成说明（2026-07-16）
+
+M3 后端已实现 OpenAPI 定义的 38 个 operationId。活动报名在同一事务中设置 PostgreSQL
+局部 1 秒锁超时并锁定活动与报名行；失物认领完成按 UUID 排序锁定相关物品，避免锁顺序
+不一致。真实 PostgreSQL 的竞争场景仍需在环境可用后补充集成验证。
+
+联系方式与认领 evidence 使用 `COMMUNITY_DATA_ENCRYPTION_KEY` 驱动的 Fernet 认证加密。
+密钥缺失不会影响模块导入、健康检查、公开内容和活动能力，只会使敏感写入/解密安全不可用。
+普通列表与详情仅返回 contact hint；验证通过后的联系方式响应固定 `Cache-Control: no-store`
+并写脱敏审计。Matcher 使用 NFKC、固定中文双字/拉丁 token 和 AppConfig 中的四因子权重，
+结果量化为 5 位小数；内容写入中的重算放在 savepoint，失败不会回滚已发布内容。
+
+M5 的 `event.search`、`event.register`、`lost_found.publish` 和
+`lost_found.search_matches` 已在唯一 RuntimeCompositionFactory 中替换为真实应用服务 Adapter，
+Tool v1.0.0 Schema 与哈希保持不变。写 Tool 继续强制审批与幂等，数据库无法表达的活动
+campus 筛选明确返回参数错误，不伪造筛选结果。

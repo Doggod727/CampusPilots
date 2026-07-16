@@ -64,7 +64,7 @@ def _executor(service):
 def test_balance_adapter_maps_trusted_user_scope_and_frozen_output() -> None:
     service = MagicMock()
     service.get_balance = AsyncMock(return_value=ElectricityBalance(
-        room_id=ROOM_ID, balance=Decimal("42.50"), currency="CNY",
+        room_id=ROOM_ID, room_name="梅园 · 3号楼 · 301", balance=Decimal("42.50"), currency="CNY",
         source="mock", is_simulated=True, updated_at=NOW,
     ))
     executor, _ = _executor(service)
@@ -90,7 +90,7 @@ def test_topup_adapter_passes_verified_approval_and_idempotency_to_m2() -> None:
     service.create_topup_request = AsyncMock(return_value=ElectricityTopupResult(
         request_id=TOPUP_ID, room_id=ROOM_ID, amount=Decimal("20.00"),
         currency="CNY", status="simulated", is_simulated=True,
-        notice="internal wording", request_hash="c" * 64,
+        source="mock", notice="internal wording", created_at=NOW, request_hash="c" * 64,
     ))
     executor, verifier = _executor(service)
     arguments = {"room_id": ROOM_ID, "amount": Decimal("20.00")}

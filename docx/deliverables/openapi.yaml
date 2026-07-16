@@ -2634,6 +2634,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ElectricityBalanceResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
 
@@ -2657,6 +2658,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ElectricityTopupResponse"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "409": {$ref: "#/components/responses/Conflict"}
         "422": {$ref: "#/components/responses/ValidationError"}

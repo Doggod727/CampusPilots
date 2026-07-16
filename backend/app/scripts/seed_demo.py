@@ -2,16 +2,33 @@ import asyncio
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from uuid import UUID
 
-from sqlalchemy import delete, select, text, true
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import delete, literal, select, text, true
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database import Database
+from app.core.config import get_settings
 from app.modules.campus_service.models import (
     Campus,
+    Department,
+    DepartmentContact,
     ElectricityAccount,
     ElectricityAccountMember,
+    GuideApplicability,
+    GuideCategory,
+    GuideMaterial,
+    GuideStep,
+    ServiceGuide,
+    WorkOrder,
+    WorkOrderEvent,
+    WorkOrderRating,
+)
+from app.modules.community.encryption import CommunityCipher
+from app.modules.community.models import (
+    CampusEvent, EventRegistration, LostFoundClaim, LostFoundItem, LostFoundMatch, Topic,
 )
 from app.modules.platform.models import (
     AppConfig,
@@ -46,6 +63,88 @@ class DemoAccount:
     email: str
     department: str
     role_code: str
+
+
+@dataclass(frozen=True)
+class CampusSeed:
+    code: str
+    name: str
+    address: str
+    sort_order: int
+
+
+@dataclass(frozen=True)
+class DepartmentSeed:
+    id: UUID
+    code: str
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class ContactSeed:
+    id: UUID
+    department_code: str
+    campus_code: str
+    contact_name: str | None
+    office_name: str
+    phone: str | None
+    email: str | None
+    location: str
+    office_hours: str
+
+
+@dataclass(frozen=True)
+class GuideCategorySeed:
+    id: UUID
+    code: str
+    name: str
+    sort_order: int
+
+
+@dataclass(frozen=True)
+class ServiceGuideSeed:
+    id: UUID
+    code: str
+    category_code: str
+    department_code: str
+    title: str
+    summary: str
+    location: str
+    service_hours: str
+    source_url: str
+    valid_until: date
+
+
+@dataclass(frozen=True)
+class GuideApplicabilitySeed:
+    guide_code: str
+    campus_code: str
+    student_type: str
+    notes: str
+
+
+@dataclass(frozen=True)
+class GuideMaterialSeed:
+    id: UUID
+    guide_code: str
+    name: str
+    description: str
+    required: bool
+    copies: int
+    condition: dict[str, list[str]]
+    sort_order: int
+
+
+@dataclass(frozen=True)
+class GuideStepSeed:
+    id: UUID
+    guide_code: str
+    step_no: int
+    title: str
+    description: str
+    location: str | None
+    estimated_minutes: int
 
 
 PERMISSIONS = (
@@ -208,9 +307,261 @@ CONFIGS = (
     ("modelops.router_confidence", "modelops", 0.80, "number", "本地路由模型直接采用阈值"),
     ("modelops.reranker_enabled", "modelops", False, "boolean", "是否启用本地 RAG Reranker"),
     ("mcp.enabled", "agent", False, "boolean", "是否启用 P1 MCP Server"),
+    ("community.post_max_chars", "community", 5000, "integer", "帖子正文最大字符数"),
+    ("community.comment_max_chars", "community", 1000, "integer", "评论正文最大字符数"),
+    ("community.event_max_capacity", "community", 10000, "integer", "活动容量硬上限"),
+    ("community.match.category_weight", "community", 0.35, "number", "失物匹配类别权重"),
+    ("community.match.location_weight", "community", 0.25, "number", "失物匹配地点权重"),
+    ("community.match.time_weight", "community", 0.20, "number", "失物匹配时间权重"),
+    ("community.match.keyword_weight", "community", 0.20, "number", "失物匹配关键词权重"),
+    ("community.match.threshold", "community", 0.55, "number", "失物候选最低匹配分"),
+    ("community.match.time_window_days", "community", 30, "integer", "候选时间窗口天数"),
+)
+
+DEMO_TOPIC_SEEDS = (
+    (UUID("74000000-0000-4000-8000-000000000001"), "campus-life", "校园生活", "校园生活交流", False, 10),
+    (UUID("74000000-0000-4000-8000-000000000002"), "mutual-help", "互助问答", "同学互助与经验分享", False, 20),
+    (UUID("74000000-0000-4000-8000-000000000003"), "tree-hole", "匿名树洞", "允许匿名发布的安全交流空间", True, 30),
 )
 
 DEMO_ELECTRICITY_ROOM_ID = "21000000-0000-4000-8000-000000000001"
+DEMO_WORK_ORDER_IDS = (
+    UUID("71000000-0000-4000-8000-000000000001"),
+    UUID("71000000-0000-4000-8000-000000000002"),
+    UUID("71000000-0000-4000-8000-000000000003"),
+)
+DEMO_WORK_ORDER_EVENT_IDS = tuple(
+    UUID(f"72000000-0000-4000-8000-{number:012d}") for number in range(1, 9)
+)
+DEMO_WORK_ORDER_RATING_ID = UUID("73000000-0000-4000-8000-000000000001")
+DEMO_EVENT_IDS = (
+    UUID("75000000-0000-4000-8000-000000000001"),
+    UUID("75000000-0000-4000-8000-000000000002"),
+)
+DEMO_LOST_FOUND_IDS = (
+    UUID("76000000-0000-4000-8000-000000000001"),
+    UUID("76000000-0000-4000-8000-000000000002"),
+)
+DEMO_LOST_FOUND_MATCH_ID = UUID("77000000-0000-4000-8000-000000000001")
+DEMO_LOST_FOUND_CLAIM_ID = UUID("78000000-0000-4000-8000-000000000001")
+
+CAMPUS_SEEDS = (
+    CampusSeed("main", "主校区", "示例市大学路 1 号", 10),
+    CampusSeed("east", "东校区", "示例市学府路 8 号", 20),
+)
+
+WORK_ORDER_SCOPES_CONFIG_KEY = "campus_service.work_order_service_scopes"
+
+DEPARTMENT_SEEDS = (
+    DepartmentSeed(
+        UUID("10000000-0000-4000-8000-000000000001"),
+        "student_affairs",
+        "学生事务中心",
+        "学生证明、奖助与综合事务",
+    ),
+    DepartmentSeed(
+        UUID("10000000-0000-4000-8000-000000000002"),
+        "logistics",
+        "后勤保障中心",
+        "宿舍、维修与校园生活保障",
+    ),
+    DepartmentSeed(
+        UUID("10000000-0000-4000-8000-000000000003"),
+        "academic_affairs",
+        "教务处",
+        "学籍、课程与教学事务",
+    ),
+)
+
+CONTACT_SEEDS = (
+    ContactSeed(
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "student_affairs",
+        "main",
+        "王老师",
+        "学生事务综合窗口",
+        "010-55550001",
+        "student@example.edu.cn",
+        "行政楼一层 101",
+        "工作日 09:00-12:00，14:00-17:00",
+    ),
+    ContactSeed(
+        UUID("20000000-0000-4000-8000-000000000002"),
+        "logistics",
+        "main",
+        None,
+        "后勤报修值班室",
+        "010-55550002",
+        None,
+        "后勤楼 105",
+        "每日 08:00-20:00",
+    ),
+    ContactSeed(
+        UUID("20000000-0000-4000-8000-000000000003"),
+        "academic_affairs",
+        "east",
+        "李老师",
+        "教务服务窗口",
+        "010-55550003",
+        "academic@example.edu.cn",
+        "东校区综合楼 203",
+        "工作日 09:00-16:30",
+    ),
+)
+
+GUIDE_CATEGORY_SEEDS = (
+    GuideCategorySeed(
+        UUID("30000000-0000-4000-8000-000000000001"),
+        "student_certificate",
+        "证明办理",
+        10,
+    ),
+    GuideCategorySeed(
+        UUID("30000000-0000-4000-8000-000000000002"),
+        "academic_record",
+        "学籍教务",
+        20,
+    ),
+    GuideCategorySeed(
+        UUID("30000000-0000-4000-8000-000000000003"),
+        "campus_life",
+        "校园生活",
+        30,
+    ),
+)
+
+SERVICE_GUIDE_SEEDS = (
+    ServiceGuideSeed(
+        UUID("40000000-0000-4000-8000-000000000001"),
+        "enrollment_certificate",
+        "student_certificate",
+        "student_affairs",
+        "在读证明办理",
+        "面向在校学生开具中文或英文在读证明。",
+        "行政楼一层 101",
+        "工作日 09:00-12:00，14:00-17:00",
+        "https://example.edu.cn/guides/enrollment-certificate",
+        date(2026, 12, 31),
+    ),
+    ServiceGuideSeed(
+        UUID("40000000-0000-4000-8000-000000000002"),
+        "student_card_replacement",
+        "campus_life",
+        "student_affairs",
+        "学生证补办",
+        "学生证遗失或损坏后的挂失与补办流程。",
+        "行政楼一层 101",
+        "工作日 09:00-16:30",
+        "https://example.edu.cn/guides/student-card",
+        date(2026, 12, 31),
+    ),
+)
+
+GUIDE_APPLICABILITY_SEEDS = (
+    GuideApplicabilitySeed(
+        "enrollment_certificate", "main", "undergraduate", "主校区本科生"
+    ),
+    GuideApplicabilitySeed(
+        "enrollment_certificate", "main", "postgraduate", "主校区研究生"
+    ),
+    GuideApplicabilitySeed(
+        "enrollment_certificate", "east", "undergraduate", "东校区本科生可线上申请"
+    ),
+    GuideApplicabilitySeed(
+        "student_card_replacement", "main", "all", "主校区在校生"
+    ),
+)
+
+GUIDE_MATERIAL_SEEDS = (
+    GuideMaterialSeed(
+        UUID("50000000-0000-4000-8000-000000000001"),
+        "enrollment_certificate",
+        "本人有效学生证或校园卡",
+        "用于线下核验身份。",
+        True,
+        1,
+        {},
+        10,
+    ),
+    GuideMaterialSeed(
+        UUID("50000000-0000-4000-8000-000000000002"),
+        "enrollment_certificate",
+        "英文姓名确认页",
+        "仅申请英文证明时需要。",
+        False,
+        1,
+        {"student_types": ["international"]},
+        20,
+    ),
+    GuideMaterialSeed(
+        UUID("50000000-0000-4000-8000-000000000003"),
+        "student_card_replacement",
+        "证件照",
+        "一寸近期证件照。",
+        True,
+        1,
+        {},
+        10,
+    ),
+    GuideMaterialSeed(
+        UUID("50000000-0000-4000-8000-000000000004"),
+        "student_card_replacement",
+        "损坏的原学生证",
+        "仅学生证损坏时提交。",
+        False,
+        1,
+        {},
+        20,
+    ),
+)
+
+GUIDE_STEP_SEEDS = (
+    GuideStepSeed(
+        UUID("60000000-0000-4000-8000-000000000001"),
+        "enrollment_certificate",
+        1,
+        "准备材料",
+        "确认申请语言与份数，准备身份凭证。",
+        None,
+        5,
+    ),
+    GuideStepSeed(
+        UUID("60000000-0000-4000-8000-000000000002"),
+        "enrollment_certificate",
+        2,
+        "提交申请",
+        "前往学生事务综合窗口提交申请。",
+        "行政楼一层 101",
+        10,
+    ),
+    GuideStepSeed(
+        UUID("60000000-0000-4000-8000-000000000003"),
+        "enrollment_certificate",
+        3,
+        "领取证明",
+        "按受理回执约定时间领取。",
+        "行政楼一层 101",
+        5,
+    ),
+    GuideStepSeed(
+        UUID("60000000-0000-4000-8000-000000000004"),
+        "student_card_replacement",
+        1,
+        "挂失",
+        "先在学生事务窗口办理学生证挂失。",
+        "行政楼一层 101",
+        10,
+    ),
+    GuideStepSeed(
+        UUID("60000000-0000-4000-8000-000000000005"),
+        "student_card_replacement",
+        2,
+        "提交补办材料",
+        "提交证件照并核验本人身份。",
+        "行政楼一层 101",
+        10,
+    ),
+)
 
 
 def require_demo_seed_password(environ: Mapping[str, str] | None = None) -> str:
@@ -369,7 +720,16 @@ def _clear_user_roles_statement(usernames: tuple[str, ...]):
 
 def _campus_upsert_statement():
     statement = insert(Campus).values(
-        code="main", name="主校区", address="演示校区", enabled=True, sort_order=0
+        [
+            {
+                "code": seed.code,
+                "name": seed.name,
+                "address": seed.address,
+                "enabled": True,
+                "sort_order": seed.sort_order,
+            }
+            for seed in CAMPUS_SEEDS
+        ]
     )
     return statement.on_conflict_do_update(
         index_elements=[Campus.code],
@@ -378,6 +738,251 @@ def _campus_upsert_statement():
             "address": statement.excluded.address,
             "enabled": statement.excluded.enabled,
             "sort_order": statement.excluded.sort_order,
+        },
+    )
+
+
+def _work_order_scope_config_upsert_statement(service_user_id: UUID):
+    statement = insert(AppConfig).values(
+        key=WORK_ORDER_SCOPES_CONFIG_KEY,
+        namespace="campus_service",
+        value={
+            "users": {
+                str(service_user_id): [
+                    {
+                        "campus_code": "main",
+                        "dormitory_areas": ["演示宿舍区", "梅园", "竹园"],
+                    }
+                ]
+            }
+        },
+        value_type="json",
+        description="工单处理员授权校区与宿舍区域",
+        editable=True,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[AppConfig.key],
+        set_={
+            "namespace": statement.excluded.namespace,
+            "value": statement.excluded.value,
+            "value_type": statement.excluded.value_type,
+            "description": statement.excluded.description,
+            "editable": statement.excluded.editable,
+        },
+    )
+
+
+def _department_upsert_statement():
+    statement = insert(Department).values(
+        [
+            {
+                "id": seed.id,
+                "code": seed.code,
+                "name": seed.name,
+                "description": seed.description,
+                "enabled": True,
+            }
+            for seed in DEPARTMENT_SEEDS
+        ]
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[Department.code],
+        set_={
+            "name": statement.excluded.name,
+            "description": statement.excluded.description,
+            "enabled": True,
+        },
+    )
+
+
+def _contact_upsert_statement(seed: ContactSeed):
+    source = select(
+        literal(seed.id),
+        Department.id,
+        literal(seed.campus_code),
+        literal(seed.contact_name),
+        literal(seed.office_name),
+        literal(seed.phone),
+        literal(seed.email),
+        literal(seed.location),
+        literal(seed.office_hours),
+        literal(date(2026, 1, 1)),
+        literal(None),
+        literal(True),
+    ).where(Department.code == seed.department_code)
+    statement = insert(DepartmentContact).from_select(
+        [
+            "id", "department_id", "campus_code", "contact_name", "office_name",
+            "phone", "email", "location", "office_hours", "valid_from", "valid_until",
+            "enabled",
+        ],
+        source,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[DepartmentContact.id],
+        set_={
+            "department_id": statement.excluded.department_id,
+            "campus_code": statement.excluded.campus_code,
+            "contact_name": statement.excluded.contact_name,
+            "office_name": statement.excluded.office_name,
+            "phone": statement.excluded.phone,
+            "email": statement.excluded.email,
+            "location": statement.excluded.location,
+            "office_hours": statement.excluded.office_hours,
+            "valid_from": statement.excluded.valid_from,
+            "valid_until": statement.excluded.valid_until,
+            "enabled": statement.excluded.enabled,
+        },
+    )
+
+
+def _guide_category_upsert_statement():
+    statement = insert(GuideCategory).values(
+        [
+            {
+                "id": seed.id,
+                "code": seed.code,
+                "name": seed.name,
+                "sort_order": seed.sort_order,
+                "enabled": True,
+            }
+            for seed in GUIDE_CATEGORY_SEEDS
+        ]
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[GuideCategory.code],
+        set_={
+            "name": statement.excluded.name,
+            "sort_order": statement.excluded.sort_order,
+            "enabled": True,
+        },
+    )
+
+
+def _service_guide_upsert_statement(seed: ServiceGuideSeed):
+    source = (
+        select(
+            literal(seed.id),
+            literal(seed.code),
+            GuideCategory.id,
+            Department.id,
+            literal(seed.title),
+            literal(seed.summary),
+            literal(seed.location),
+            literal(seed.service_hours),
+            literal(seed.source_url),
+            literal("published"),
+            literal(datetime(2026, 1, 10, tzinfo=timezone.utc)),
+            literal(seed.valid_until),
+            literal(1),
+        )
+        .select_from(GuideCategory)
+        .join(Department, true())
+        .where(
+            GuideCategory.code == seed.category_code,
+            Department.code == seed.department_code,
+        )
+    )
+    statement = insert(ServiceGuide).from_select(
+        [
+            "id", "code", "category_id", "department_id", "title", "summary", "location",
+            "service_hours", "source_url", "status", "published_at", "valid_until", "version",
+        ],
+        source,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[ServiceGuide.code],
+        set_={
+            "category_id": statement.excluded.category_id,
+            "department_id": statement.excluded.department_id,
+            "title": statement.excluded.title,
+            "summary": statement.excluded.summary,
+            "location": statement.excluded.location,
+            "service_hours": statement.excluded.service_hours,
+            "source_url": statement.excluded.source_url,
+            "status": statement.excluded.status,
+            "published_at": statement.excluded.published_at,
+            "valid_until": statement.excluded.valid_until,
+        },
+    )
+
+
+def _guide_applicability_upsert_statement(seed: GuideApplicabilitySeed):
+    source = select(
+        ServiceGuide.id,
+        literal(seed.campus_code),
+        literal(seed.student_type),
+        literal(seed.notes),
+    ).where(ServiceGuide.code == seed.guide_code)
+    statement = insert(GuideApplicability).from_select(
+        ["guide_id", "campus_code", "student_type", "notes"], source
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[
+            GuideApplicability.guide_id,
+            GuideApplicability.campus_code,
+            GuideApplicability.student_type,
+        ],
+        set_={"notes": statement.excluded.notes},
+    )
+
+
+def _guide_material_upsert_statement(seed: GuideMaterialSeed):
+    source = select(
+        literal(seed.id),
+        ServiceGuide.id,
+        literal(seed.name),
+        literal(seed.description),
+        literal(seed.required),
+        literal(seed.copies),
+        literal(seed.condition, type_=JSONB()),
+        literal(seed.sort_order),
+    ).where(ServiceGuide.code == seed.guide_code)
+    statement = insert(GuideMaterial).from_select(
+        [
+            "id", "guide_id", "name", "description", "required", "copies", "condition",
+            "sort_order",
+        ],
+        source,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[GuideMaterial.id],
+        set_={
+            "guide_id": statement.excluded.guide_id,
+            "name": statement.excluded.name,
+            "description": statement.excluded.description,
+            "required": statement.excluded.required,
+            "copies": statement.excluded.copies,
+            "condition": statement.excluded.condition,
+            "sort_order": statement.excluded.sort_order,
+        },
+    )
+
+
+def _guide_step_upsert_statement(seed: GuideStepSeed):
+    source = select(
+        literal(seed.id),
+        ServiceGuide.id,
+        literal(seed.step_no),
+        literal(seed.title),
+        literal(seed.description),
+        literal(seed.location),
+        literal(seed.estimated_minutes),
+    ).where(ServiceGuide.code == seed.guide_code)
+    statement = insert(GuideStep).from_select(
+        [
+            "id", "guide_id", "step_no", "title", "description", "location",
+            "estimated_minutes",
+        ],
+        source,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[GuideStep.guide_id, GuideStep.step_no],
+        set_={
+            "title": statement.excluded.title,
+            "description": statement.excluded.description,
+            "location": statement.excluded.location,
+            "estimated_minutes": statement.excluded.estimated_minutes,
         },
     )
 
@@ -429,10 +1034,258 @@ def _electricity_members_insert_statement():
     )
 
 
+def _demo_user_id(username: str):
+    return select(User.id).where(User.username == username).scalar_subquery()
+
+
+def _demo_department_id(code: str):
+    return select(Department.id).where(Department.code == code).scalar_subquery()
+
+
+def _demo_work_order_upsert_statements():
+    base_time = datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc)
+    rows = (
+        {
+            "id": DEMO_WORK_ORDER_IDS[0], "order_no": "WO-DEMO-SUBMITTED",
+            "created_by": _demo_user_id("student01"), "status": "submitted",
+            "assigned_to": None, "assigned_department_id": None, "version": 1,
+            "accepted_at": None, "processing_at": None, "completed_at": None,
+            "completion_note": None,
+        },
+        {
+            "id": DEMO_WORK_ORDER_IDS[1], "order_no": "WO-DEMO-PROCESSING",
+            "created_by": _demo_user_id("student02"), "status": "processing",
+            "assigned_to": _demo_user_id("service01"),
+            "assigned_department_id": _demo_department_id("logistics"), "version": 3,
+            "accepted_at": base_time + timedelta(hours=1),
+            "processing_at": base_time + timedelta(hours=2), "completed_at": None,
+            "completion_note": None,
+        },
+        {
+            "id": DEMO_WORK_ORDER_IDS[2], "order_no": "WO-DEMO-COMPLETED",
+            "created_by": _demo_user_id("student01"), "status": "completed",
+            "assigned_to": _demo_user_id("service01"),
+            "assigned_department_id": _demo_department_id("logistics"), "version": 4,
+            "accepted_at": base_time + timedelta(hours=1),
+            "processing_at": base_time + timedelta(hours=2),
+            "completed_at": base_time + timedelta(hours=4),
+            "completion_note": "演示工单已完成。",
+        },
+    )
+    statements = []
+    for index, row in enumerate(rows):
+        submitted_at = base_time + timedelta(days=index)
+        statement = insert(WorkOrder).values(
+            **row,
+            campus_code="main",
+            dormitory_area="演示宿舍区",
+            building="A",
+            room="101",
+            fault_category=("network" if index == 1 else "electric"),
+            description="用于校园服务中心验收的固定演示报修工单。",
+            preferred_start_at=submitted_at + timedelta(days=1),
+            preferred_end_at=submitted_at + timedelta(days=1, hours=2),
+            rejection_reason=None,
+            cancelled_at=None,
+            rejected_at=None,
+            submitted_at=submitted_at,
+            created_at=submitted_at,
+            updated_at=row["completed_at"] or row["processing_at"] or submitted_at,
+        )
+        statements.append(statement.on_conflict_do_update(
+            index_elements=[WorkOrder.id],
+            set_={column: getattr(statement.excluded, column) for column in (
+                "order_no", "created_by", "campus_code", "dormitory_area", "building",
+                "room", "fault_category", "description", "preferred_start_at",
+                "preferred_end_at", "status", "assigned_to", "assigned_department_id",
+                "rejection_reason", "completion_note", "version", "submitted_at",
+                "accepted_at", "processing_at", "completed_at", "cancelled_at",
+                "rejected_at", "created_at", "updated_at",
+            )},
+        ))
+    return tuple(statements)
+
+
+def _demo_work_order_event_upsert_statements():
+    base_time = datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc)
+    paths = (
+        (DEMO_WORK_ORDER_IDS[0], "student01", ("submitted",)),
+        (DEMO_WORK_ORDER_IDS[1], "student02", ("submitted", "accepted", "processing")),
+        (DEMO_WORK_ORDER_IDS[2], "student01", ("submitted", "accepted", "processing", "completed")),
+    )
+    statements = []
+    event_index = 0
+    for order_id, owner, statuses in paths:
+        previous = None
+        for sequence_no, status in enumerate(statuses, 1):
+            actor = owner if status == "submitted" else "service01"
+            statement = insert(WorkOrderEvent).values(
+                id=DEMO_WORK_ORDER_EVENT_IDS[event_index],
+                work_order_id=order_id,
+                sequence_no=sequence_no,
+                event_type=status,
+                from_status=previous,
+                to_status=status,
+                actor_user_id=_demo_user_id(actor),
+                actor_role="student" if status == "submitted" else "service_staff",
+                reason=None,
+                snapshot={"work_order_id": str(order_id), "status": status, "version": sequence_no},
+                created_at=base_time + timedelta(days=event_index),
+            )
+            statements.append(statement.on_conflict_do_update(
+                index_elements=[WorkOrderEvent.id],
+                set_={column: getattr(statement.excluded, column) for column in (
+                    "work_order_id", "sequence_no", "event_type", "from_status", "to_status",
+                    "actor_user_id", "actor_role", "reason", "snapshot", "created_at",
+                )},
+            ))
+            event_index += 1
+            previous = status
+    return tuple(statements)
+
+
+def _demo_work_order_rating_upsert_statement():
+    statement = insert(WorkOrderRating).values(
+        id=DEMO_WORK_ORDER_RATING_ID,
+        work_order_id=DEMO_WORK_ORDER_IDS[2],
+        user_id=_demo_user_id("student01"),
+        score=5,
+        comment="演示评价：处理及时。",
+        created_at=datetime(2026, 7, 4, 1, 0, tzinfo=timezone.utc),
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[WorkOrderRating.id],
+        set_={
+            "work_order_id": statement.excluded.work_order_id,
+            "user_id": statement.excluded.user_id,
+            "score": statement.excluded.score,
+            "comment": statement.excluded.comment,
+            "created_at": statement.excluded.created_at,
+        },
+    )
+
+
+def _demo_topic_upsert_statement(seed: tuple[UUID, str, str, str, bool, int]):
+    topic_id, code, name, description, allow_anonymous, sort_order = seed
+    statement = insert(Topic).values(
+        id=topic_id,
+        code=code,
+        name=name,
+        description=description,
+        allow_anonymous=allow_anonymous,
+        sort_order=sort_order,
+        status="active",
+        created_by=select(User.id).where(User.username == "community01").scalar_subquery(),
+        version=1,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[Topic.id],
+        set_={
+            "code": statement.excluded.code,
+            "name": statement.excluded.name,
+            "description": statement.excluded.description,
+            "allow_anonymous": statement.excluded.allow_anonymous,
+            "sort_order": statement.excluded.sort_order,
+            "status": statement.excluded.status,
+            "created_by": statement.excluded.created_by,
+            "version": statement.excluded.version,
+            "deleted_at": None,
+        },
+    )
+
+
+def _demo_event_upsert_statements():
+    values = (
+        (DEMO_EVENT_IDS[0], "校园志愿服务日", "参与校园公共空间整理与志愿服务。", "volunteer", "主校区广场", 40),
+        (DEMO_EVENT_IDS[1], "社团开放体验", "面向全校同学的社团展示与体验活动。", "club", "大学生活动中心", 80),
+    )
+    statements = []
+    for index, (event_id, title, description, category, location, capacity) in enumerate(values):
+        starts = datetime(2026, 8, 20 + index, 1, tzinfo=timezone.utc)
+        statement = insert(CampusEvent).values(id=event_id,
+            organizer_user_id=_demo_user_id("community01"), title=title,
+            description_markdown=description, category=category, location=location,
+            starts_at=starts, ends_at=starts + timedelta(hours=3),
+            registration_deadline=starts - timedelta(days=1), capacity=capacity,
+            registered_count=1 if index == 0 else 0, status="published", risk_level="low",
+            moderation_case_id=None, moderation_policy_version="seed-v1",
+            cancellation_reason=None, published_at=datetime(2026, 7, 16, tzinfo=timezone.utc),
+            version=1, created_at=datetime(2026, 7, 16, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 7, 16, tzinfo=timezone.utc), deleted_at=None)
+        statements.append(statement.on_conflict_do_update(index_elements=[CampusEvent.id],
+            set_={column: getattr(statement.excluded, column) for column in (
+                "organizer_user_id", "title", "description_markdown", "category", "location",
+                "starts_at", "ends_at", "registration_deadline", "capacity", "registered_count",
+                "status", "risk_level", "moderation_case_id", "moderation_policy_version",
+                "cancellation_reason", "published_at", "version", "updated_at", "deleted_at") }))
+    return tuple(statements)
+
+
+def _demo_registration_upsert_statement():
+    statement = insert(EventRegistration).values(event_id=DEMO_EVENT_IDS[0],
+        user_id=_demo_user_id("student01"), status="registered",
+        registered_at=datetime(2026, 7, 16, 2, tzinfo=timezone.utc),
+        cancelled_at=None, updated_at=datetime(2026, 7, 16, 2, tzinfo=timezone.utc))
+    return statement.on_conflict_do_update(
+        index_elements=[EventRegistration.event_id, EventRegistration.user_id],
+        set_={"status": statement.excluded.status, "registered_at": statement.excluded.registered_at,
+              "cancelled_at": None, "updated_at": statement.excluded.updated_at})
+
+
+def _demo_sensitive_lost_found_statements(key):
+    cipher = CommunityCipher(key)
+    occurred = datetime(2026, 7, 15, 6, tzinfo=timezone.utc)
+    item_values = (
+        (DEMO_LOST_FOUND_IDS[0], "student01", "lost", "黑色学生卡套", "claiming", "站内联系：student01"),
+        (DEMO_LOST_FOUND_IDS[1], "student02", "found", "拾到黑色卡套", "published", "站内联系：student02"),
+    )
+    statements = []
+    for item_id, username, item_type, title, status, contact in item_values:
+        statement = insert(LostFoundItem).values(id=item_id, owner_user_id=_demo_user_id(username),
+            item_type=item_type, title=title, category="card",
+            description="黑色卡套，内有校园卡相关物品。", occurred_at=occurred,
+            location="主校区图书馆一楼", contact_type="other",
+            contact_ciphertext=cipher.encrypt(contact), contact_hint=f"***{username[-4:]}",
+            status=status, risk_level="low", moderation_case_id=None,
+            moderation_policy_version="seed-v1", published_at=occurred,
+            completed_at=None, version=1, created_at=occurred, updated_at=occurred,
+            deleted_at=None)
+        statements.append(statement.on_conflict_do_update(index_elements=[LostFoundItem.id],
+            set_={column: getattr(statement.excluded, column) for column in (
+                "owner_user_id", "item_type", "title", "category", "description", "occurred_at",
+                "location", "contact_type", "contact_ciphertext", "contact_hint", "status",
+                "risk_level", "moderation_case_id", "moderation_policy_version", "published_at",
+                "completed_at", "version", "updated_at", "deleted_at") }))
+    match = insert(LostFoundMatch).values(id=DEMO_LOST_FOUND_MATCH_ID,
+        source_item_id=DEMO_LOST_FOUND_IDS[0], candidate_item_id=DEMO_LOST_FOUND_IDS[1],
+        score=0.95, reasons=[
+            {"factor": "category", "score": 1.0, "explanation": "类别一致度"},
+            {"factor": "location", "score": 1.0, "explanation": "地点相似度"},
+            {"factor": "time", "score": 1.0, "explanation": "发生时间接近度"},
+            {"factor": "keyword", "score": 0.75, "explanation": "描述关键词相似度"}],
+        algorithm_version="rule-v1", created_at=occurred)
+    statements.append(match.on_conflict_do_update(index_elements=[LostFoundMatch.id],
+        set_={"source_item_id": match.excluded.source_item_id,
+              "candidate_item_id": match.excluded.candidate_item_id, "score": match.excluded.score,
+              "reasons": match.excluded.reasons, "algorithm_version": match.excluded.algorithm_version}))
+    claim = insert(LostFoundClaim).values(id=DEMO_LOST_FOUND_CLAIM_ID,
+        target_item_id=DEMO_LOST_FOUND_IDS[0], claimant_item_id=DEMO_LOST_FOUND_IDS[1],
+        claimant_user_id=_demo_user_id("student02"),
+        evidence_ciphertext=cipher.encrypt("卡套内有本人姓名缩写和校园卡。"), status="pending",
+        decision_reason=None, decided_by=None, decided_at=None,
+        claimant_confirmed_at=None, owner_confirmed_at=None, completed_at=None,
+        version=1, created_at=occurred, updated_at=occurred)
+    statements.append(claim.on_conflict_do_update(index_elements=[LostFoundClaim.id],
+        set_={column: getattr(claim.excluded, column) for column in (
+            "target_item_id", "claimant_item_id", "claimant_user_id", "evidence_ciphertext",
+            "status", "decision_reason", "decided_by", "decided_at", "claimant_confirmed_at",
+            "owner_confirmed_at", "completed_at", "version", "updated_at") }))
+    return tuple(statements)
 async def seed_demo(
     session: AsyncSession,
     password: str,
     password_hasher: PasswordHasher | None = None,
+    community_encryption_key=None,
 ) -> tuple[str, ...]:
     """Seed the M4 identity and RBAC demo baseline in one transaction."""
 
@@ -457,21 +1310,54 @@ async def seed_demo(
             await session.execute(
                 _user_upsert_statement(account, password_hashes[account.username])
             )
+        service_user_id = (
+            await session.execute(select(User.id).where(User.username == "service01"))
+        ).scalar_one()
+        await session.execute(
+            _work_order_scope_config_upsert_statement(service_user_id)
+        )
         await session.execute(_clear_user_roles_statement(usernames))
         for account in DEMO_ACCOUNTS:
             await session.execute(_user_role_insert_statement(account))
         await session.execute(_campus_upsert_statement())
+        await session.execute(_department_upsert_statement())
+        for seed in CONTACT_SEEDS:
+            await session.execute(_contact_upsert_statement(seed))
+        await session.execute(_guide_category_upsert_statement())
+        for seed in SERVICE_GUIDE_SEEDS:
+            await session.execute(_service_guide_upsert_statement(seed))
+        for seed in GUIDE_APPLICABILITY_SEEDS:
+            await session.execute(_guide_applicability_upsert_statement(seed))
+        for seed in GUIDE_MATERIAL_SEEDS:
+            await session.execute(_guide_material_upsert_statement(seed))
+        for seed in GUIDE_STEP_SEEDS:
+            await session.execute(_guide_step_upsert_statement(seed))
         await session.execute(_electricity_account_upsert_statement())
         await session.execute(_electricity_members_insert_statement())
+        for statement in _demo_work_order_upsert_statements():
+            await session.execute(statement)
+        for statement in _demo_work_order_event_upsert_statements():
+            await session.execute(statement)
+        await session.execute(_demo_work_order_rating_upsert_statement())
+        for seed in DEMO_TOPIC_SEEDS:
+            await session.execute(_demo_topic_upsert_statement(seed))
+        for statement in _demo_event_upsert_statements():
+            await session.execute(statement)
+        await session.execute(_demo_registration_upsert_statement())
+        if community_encryption_key is not None:
+            for statement in _demo_sensitive_lost_found_statements(community_encryption_key):
+                await session.execute(statement)
 
     return usernames
 
 
 async def _seed_from_settings(password: str) -> tuple[str, ...]:
-    database = Database.from_settings()
+    settings = get_settings()
+    database = Database.from_settings(settings)
     try:
         async with database.session() as session:
-            return await seed_demo(session, password)
+            return await seed_demo(session, password,
+                community_encryption_key=settings.community_data_encryption_key)
     finally:
         await database.dispose()
 

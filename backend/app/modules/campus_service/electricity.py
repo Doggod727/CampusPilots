@@ -1,7 +1,8 @@
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID, uuid4
 
@@ -37,6 +38,7 @@ class ElectricityApprovalInvalid(AppError):
 @dataclass(frozen=True)
 class ElectricityBalance:
     room_id: UUID
+    room_name: str
     balance: Decimal
     currency: str
     source: str
@@ -51,8 +53,10 @@ class ElectricityTopupResult:
     amount: Decimal
     currency: str
     status: str
+    source: str
     is_simulated: bool
     notice: str
+    created_at: datetime
     replayed: bool = False
     request_hash: str = field(default="", repr=False)
 
@@ -60,8 +64,14 @@ class ElectricityTopupResult:
 class ElectricityService:
     """M2 mock electricity application service, independent from M5 runtime types."""
 
-    def __init__(self, repository: ElectricityRepository) -> None:
+    def __init__(
+        self,
+        repository: ElectricityRepository,
+        *,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
         self._repository = repository
+        self._now = now or (lambda: datetime.now(UTC))
 
     async def get_balance(
         self,
@@ -73,6 +83,7 @@ class ElectricityService:
         account = await self._authorized_account(user_id, room_ids, room_id)
         return ElectricityBalance(
             room_id=account.room_id,
+            room_name=self._room_name(account),
             balance=account.balance,
             currency=account.currency.strip(),
             source=account.source,
@@ -118,6 +129,7 @@ class ElectricityService:
             idempotency_key=idempotency_key,
             request_hash=request_hash,
             notice=SIMULATION_NOTICE,
+            created_at=self._utc_now(),
         )
         self._repository.add_topup(request)
         return self._result(request, replayed=False)
@@ -166,6 +178,19 @@ class ElectricityService:
         return hashlib.sha256(encoded).hexdigest()
 
     @staticmethod
+    def _room_name(account: ElectricityAccount) -> str:
+        value = " · ".join(
+            (account.dormitory_area, account.building, account.room)
+        )
+        return value if len(value) <= 100 else f"{value[:99]}…"
+
+    def _utc_now(self) -> datetime:
+        value = self._now()
+        if value.tzinfo is None:
+            raise ValueError("Electricity clock must be timezone-aware.")
+        return value.astimezone(UTC)
+
+    @staticmethod
     def _result(request: ElectricityTopupRequest, *, replayed: bool) -> ElectricityTopupResult:
         return ElectricityTopupResult(
             request_id=request.id,
@@ -173,8 +198,10 @@ class ElectricityService:
             amount=request.amount,
             currency=request.currency.strip(),
             status=request.status,
+            source="mock",
             is_simulated=request.is_simulated,
             notice=request.notice,
+            created_at=request.created_at,
             replayed=replayed,
             request_hash=request.request_hash,
         )
