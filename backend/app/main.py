@@ -22,6 +22,7 @@ from app.modules.agent_platform.training import router as training_router
 from app.modules.agent_platform.model_registry import router as model_router
 from app.modules.agent_platform.evaluation_routes import router as evaluation_router
 from app.modules.agent_platform.internal_tools import router as internal_tool_router
+from app.modules.campus_service.department_routes import router as department_router
 
 
 def create_app() -> FastAPI:
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     application.include_router(model_router)
     application.include_router(evaluation_router)
     application.include_router(internal_tool_router)
+    application.include_router(department_router)
     return application
 
 

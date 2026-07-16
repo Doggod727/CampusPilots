@@ -320,6 +320,10 @@
   - 增加启用校区、指南分类、部门和有效联系人只读仓储与 DTO 服务；部门支持转义后的 code/name/description 模糊搜索，并以 SQL `EXISTS` 按校区和有效联系人筛选。
   - 联系人统一在 SQL 层应用启用状态和包含边界的有效期条件，日期提供器可注入；固定字典、部门和联系人排序，所有仓储保持调用方 Session 所有权且不产生 N+1。
   - 定向测试 `10 passed`、全量 pytest `473 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL验证仍待环境可用后执行。
+- [x] [#133 M2：实现部门与联系人 HTTP API](https://github.com/Doggod727/CampusPilot/issues/133)（2026-07-16）
+  - 注册 `listDepartments/getDepartment/listDepartmentContacts` 三个 OpenAPI operationId，使用严格响应模型、统一成功/错误信封和 Request-Id，并按契约仅要求有效登录而不增加 `service:read` 403。
+  - 支持部门搜索/校区、详情校区和联系人部门/校区过滤；参数长度与 UUID 由 FastAPI/Pydantic 返回统一 422，禁用或不存在部门返回安全的 `404 DEPARTMENT_NOT_FOUND`。
+  - 路由与基础查询定向测试 `14 passed`、全量 pytest `480 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0006_agent_runtime_delivery`、离线升降级和 OpenAPI lint 通过；Redocly 保留 5 条既有非阻断警告，真实 PostgreSQL验证仍待环境可用后执行。
 
 ## M5 项目重审与契约基线
 
