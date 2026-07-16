@@ -29,6 +29,7 @@ from app.modules.campus_service.electricity_routes import router as electricity_
 from app.modules.campus_service.service_progress_routes import router as service_progress_router
 from app.modules.community.topic_routes import router as community_topic_router
 from app.modules.community.post_routes import router as community_post_router
+from app.modules.community.comment_routes import router as community_comment_router
 
 
 def create_app() -> FastAPI:
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     application.include_router(service_progress_router)
     application.include_router(community_topic_router)
     application.include_router(community_post_router)
+    application.include_router(community_comment_router)
     return application
 
 

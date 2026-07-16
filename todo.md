@@ -406,6 +406,9 @@
   - 注册 list/create/get/update/deletePost 五个 operationId；查询与写入分别要求 community:read/community:write，作者外修改或删除还需 community:moderate，创建强制 M4 幂等并重放首次 201 信封。
   - 标题与 Markdown 分别执行 M4 community 扫描，按最高风险将 allow/mask、review、block 收敛为 published、pending_review、rejected；需要审核时在同一事务创建案件，匿名限制、版本锁、逻辑删除和审计均 fail-closed，响应不泄露匿名作者或非授权审核案件。
   - 帖子写入及路由专项 `13 passed`（连同查询累计 `19 passed`）、全量 pytest `635 passed`（11 条既有 httpx 弃用警告）、Python 编译、Alembic 唯一 Head `0007_community_schema`、离线完整升降级、136 个 OpenAPI operationId YAML 唯一性与 Redocly lint 均通过；M3 当前累计注册 `10/38`，Redocly 保留 5 条既有非阻断警告。
+- [x] [#157 M3：实现评论主流程与 HTTP API](https://github.com/Doggod727/CampusPilot/issues/157)（2026-07-16）
+  - 注册 listPostComments/createComment/updateComment/deleteComment，完整实现 published 帖子与同帖父评论校验、匿名话题限制、M4 扫描、创建幂等、作者/运营员权限、版本锁和逻辑删除。
+  - 评论公开列表稳定分页并批量解析非匿名作者；published 状态边界与帖子 comment_count 在同一事务原子更新，匿名响应及审计不泄露真实身份或正文。专项测试 `7 passed`、全量 pytest `642 passed`（11 条既有警告）、编译、Alembic 单 Head/离线升降级和 OpenAPI lint 均通过。
 
 ## M5 项目重审与契约基线
 

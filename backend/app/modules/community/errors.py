@@ -38,3 +38,13 @@ class CommunityAnonymousNotAllowed(AppError):
             code="COMMUNITY_ANONYMOUS_NOT_ALLOWED",
             message="该话题不允许匿名发布",
         )
+
+
+class CommentNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=404, code="COMMENT_NOT_FOUND", message="评论不存在或不可见")
+
+
+class CommentParentInvalid(AppError):
+    def __init__(self) -> None:
+        super().__init__(status_code=422, code="COMMENT_PARENT_INVALID", message="父评论无效")

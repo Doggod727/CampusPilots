@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.community.models import Post, PostReaction, Topic
+from app.modules.community.models import Comment, Post, PostReaction, Topic
 
 
 @dataclass(frozen=True)
@@ -158,3 +158,62 @@ class PostRepository:
 
     def add(self, post: Post) -> None:
         self._session.add(post)
+
+
+@dataclass(frozen=True)
+class CommentPage:
+    items: tuple[Comment, ...]
+    total: int
+
+
+class CommentRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_published_post(self, post_id: UUID, *, for_update: bool = False) -> Post | None:
+        statement = select(Post).where(
+            Post.id == post_id, Post.status == "published", Post.deleted_at.is_(None),
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_topic(self, topic_id: UUID) -> Topic | None:
+        statement = select(Topic).where(Topic.id == topic_id, Topic.deleted_at.is_(None))
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def list(self, *, post_id: UUID, page: int, page_size: int) -> CommentPage:
+        predicates = (
+            Comment.post_id == post_id, Comment.status == "published",
+            Comment.deleted_at.is_(None),
+        )
+        statement = (
+            select(Comment).where(*predicates).order_by(Comment.created_at, Comment.id)
+            .offset((page - 1) * page_size).limit(page_size)
+        )
+        count = select(func.count()).select_from(Comment).where(*predicates)
+        items = tuple((await self._session.execute(statement)).scalars().all())
+        total = int((await self._session.execute(count)).scalar_one())
+        return CommentPage(items, total)
+
+    async def get_published_parent(self, *, comment_id: UUID, post_id: UUID) -> Comment | None:
+        statement = select(Comment).where(
+            Comment.id == comment_id, Comment.post_id == post_id,
+            Comment.status == "published", Comment.deleted_at.is_(None),
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_for_update(self, comment_id: UUID) -> Comment | None:
+        statement = select(Comment).where(
+            Comment.id == comment_id, Comment.deleted_at.is_(None),
+        ).with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def adjust_post_comment_count(self, post_id: UUID, delta: int) -> None:
+        value = Post.comment_count + delta if delta > 0 else func.greatest(Post.comment_count + delta, 0)
+        await self._session.execute(
+            update(Post).where(Post.id == post_id).values(comment_count=value)
+        )
+
+    def add(self, comment: Comment) -> None:
+        self._session.add(comment)
