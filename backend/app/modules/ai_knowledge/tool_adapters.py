@@ -24,9 +24,11 @@ class KnowledgeSearchToolHandler:
 
     async def __call__(self, invocation, payload):
         data = KnowledgeSearchInput.model_validate(payload)
-        if not data.knowledge_base_ids:
+        user = _knowledge_user(invocation)
+        knowledge_base_ids = list(data.knowledge_base_ids) if data.knowledge_base_ids else await self.retrieval.authorized_knowledge_bases(user)
+        if not knowledge_base_ids:
             return KnowledgeSearchOutput(items=(), retrieval_version="m1-rag-v1", fallback_reason="KNOWLEDGE_SCOPE_REQUIRED")
-        result = await self.retrieval.search(_knowledge_user(invocation), data.query, list(data.knowledge_base_ids), data.top_k)
+        result = await self.retrieval.search(user, data.query, knowledge_base_ids, data.top_k)
         items = tuple(KnowledgeSearchItem(chunk_id=item.chunk_id, document_id=item.document_id, title=item.document_title, snippet=item.content[:1000], score=item.score, source_location=item.source_location, page_number=item.page_number) for item in result.citations)
         return KnowledgeSearchOutput(items=items, retrieval_version="m1-rag-v1", fallback_reason=None if items else "NO_RELIABLE_CONTEXT")
 
@@ -36,9 +38,11 @@ class KnowledgeAnswerToolHandler:
 
     async def __call__(self, invocation, payload):
         data = KnowledgeAnswerInput.model_validate(payload)
-        if not data.knowledge_base_ids:
+        user = _knowledge_user(invocation)
+        knowledge_base_ids = list(data.knowledge_base_ids) if data.knowledge_base_ids else await self.retrieval.authorized_knowledge_bases(user)
+        if not knowledge_base_ids:
             return KnowledgeAnswerOutput(answer="未提供可用的知识库范围。", citations=(), message_id=uuid4(), usage={"prompt_tokens": 0, "completion_tokens": 0}, finish_reason="fallback")
-        result = await self.retrieval.search(_knowledge_user(invocation), data.question, list(data.knowledge_base_ids))
+        result = await self.retrieval.search(user, data.question, knowledge_base_ids)
         if not result.citations:
             return KnowledgeAnswerOutput(answer="未在已授权且已发布的校园知识中找到可靠答案。", citations=(), message_id=uuid4(), usage={"prompt_tokens": 0, "completion_tokens": 0}, finish_reason="fallback")
         sources = [{"title": item.document_title, "content": item.content[:1200]} for item in result.citations]

@@ -167,7 +167,8 @@ class RuntimeWorker:
                     retry_at = self._now() + timedelta(seconds=min(60, 2 ** max(command.attempt_count, 1)))
                     status = await repository.fail_or_retry(command.id, now=self._now(), retry_at=retry_at, error_code=code)
                     if status == "failed" and self._failures is not None:
-                        await self._failures.mark_failed(session, command.run_id, code)
+                        # 与 fail_or_retry 一致，Run 终态同样保留首次失败的根因错误码
+                        await self._failures.mark_failed(session, command.run_id, command.error_code or code)
                 else:
                     await repository.complete(command.id, self._now())
 

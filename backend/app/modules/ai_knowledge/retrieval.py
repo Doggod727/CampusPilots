@@ -34,6 +34,18 @@ class RetrievalService:
         self.vectors = vector_store
         self.threshold = threshold
 
+    async def authorized_knowledge_bases(self, user, limit: int = 20) -> list[UUID]:
+        """Compute the knowledge bases visible to the user (tool scope when ids are omitted)."""
+
+        rows, _ = await self.knowledge.r.list_allowed(
+            user.user_id,
+            getattr(user, "department", None),
+            "knowledge:read_all" in user.permissions,
+            1,
+            limit,
+        )
+        return [row.id for row in rows]
+
     async def search(self, user, query: str, knowledge_base_ids: list[UUID], top_k: int = 6) -> RetrievalResult:
         authorized: list[UUID] = []
         for knowledge_base_id in dict.fromkeys(knowledge_base_ids):

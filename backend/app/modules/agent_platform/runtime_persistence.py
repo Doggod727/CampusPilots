@@ -42,7 +42,9 @@ class RuntimeCommandRepository:
         command=(await self._session.execute(select(AgentRuntimeCommand).where(AgentRuntimeCommand.id==command_id,AgentRuntimeCommand.status=="processing").with_for_update())).scalar_one_or_none()
         if command is None: return None
         terminal=command.attempt_count>=command.max_attempts
-        command.status="failed" if terminal else "pending"; command.completed_at=now if terminal else None; command.available_at=retry_at; command.claimed_by=None; command.claimed_at=None; command.error_code=error_code; command.updated_at=now
+        # 保留首次失败的真实错误码：重试时的次生错误（如状态冲突）不得掩盖根因。
+        first_error_code=command.error_code or error_code
+        command.status="failed" if terminal else "pending"; command.completed_at=now if terminal else None; command.available_at=retry_at; command.claimed_by=None; command.claimed_at=None; command.error_code=first_error_code; command.updated_at=now
         return command.status
 
 
