@@ -24,6 +24,8 @@ def test_runtime_composition_uses_real_m1_handlers_and_specialists():
 
     assert '"knowledge.search": KnowledgeSearchToolHandler' in tool_source
     assert '"knowledge.answer": KnowledgeAnswerToolHandler' in tool_source
-    assert '"knowledge_agent": deepseek' in runtime_source
-    assert '"community_agent": deepseek' in runtime_source
+    assert "DeepSeekSpecialistProvider(" in runtime_source
+    assert "_tool_descriptors" in runtime_source
+    assert '"knowledge_agent"' in runtime_source
+    assert '"community_agent"' in runtime_source
     assert "DeterministicMockSpecialist" not in runtime_source

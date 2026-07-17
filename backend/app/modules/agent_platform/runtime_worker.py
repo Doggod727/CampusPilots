@@ -158,7 +158,10 @@ class RuntimeWorker:
                 if command is None:
                     return
                 try:
-                    await self._processor_factory(session).process(command)
+                    # SAVEPOINT 语义：处理失败只回滚业务写入，命令记账（重试/失败）仍可提交；
+                    # 避免部分提交的残留状态导致重试立即冲突（真实 PG 下发现的缺陷）。
+                    async with session.begin_nested():
+                        await self._processor_factory(session).process(command)
                 except Exception as exc:
                     code = getattr(exc, "code", "AGENT_RUNTIME_FAILED")
                     retry_at = self._now() + timedelta(seconds=min(60, 2 ** max(command.attempt_count, 1)))
