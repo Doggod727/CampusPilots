@@ -28,6 +28,7 @@ async def main() -> None:
         worker_id=resolve_worker_id(),
         claim_timeout=timedelta(seconds=settings.agent_runtime_claim_timeout_seconds),
         poll_interval=settings.agent_runtime_poll_seconds,
+        batch_size=settings.agent_runtime_batch_size,
         failures=TraceRuntimeFailureHandler(),
         wakeup=RedisRuntimeWakeup(redis),
     )

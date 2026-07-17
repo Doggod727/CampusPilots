@@ -11,8 +11,9 @@ from redis.asyncio import Redis
 
 from app.modules.agent_platform.domain.contracts import UserContext
 from app.modules.agent_platform.models import AgentRuntimeCommand
+from app.modules.agent_platform.checkpointing import RuntimeTerminalCoordinator
 from app.modules.agent_platform.orchestration.runtime import BoundedGraphRuntime, RuntimeDispatcherPort
-from app.modules.agent_platform.runtime_persistence import RuntimeCommandRepository
+from app.modules.agent_platform.runtime_persistence import RuntimeCheckpointRepository, RuntimeCommandRepository, RuntimeEventRepository
 from app.modules.agent_platform.traces import AgentRunStateConflict, TraceRepository, TraceService
 
 
@@ -118,6 +119,14 @@ class TraceRuntimeFailureHandler:
             )
         except AgentRunStateConflict:
             return
+        await RuntimeTerminalCoordinator(
+            RuntimeCheckpointRepository(session), RuntimeEventRepository(session)
+        ).complete(
+            run_id=run_id,
+            status="failed",
+            request_id=None,
+            error_code=error_code,
+        )
 
 
 SessionContextFactory = Callable[[], AbstractAsyncContextManager]
@@ -127,7 +136,8 @@ ProcessorFactory = Callable[[object], RuntimeCommandProcessorPort]
 class RuntimeWorker:
     def __init__(self, *, sessions: SessionContextFactory, processor_factory: ProcessorFactory,
                  worker_id: str, claim_timeout: timedelta = timedelta(seconds=60),
-                 poll_interval: float = 2.0, now: Callable[[], datetime] | None = None,
+                 poll_interval: float = 2.0, batch_size: int = 1,
+                 now: Callable[[], datetime] | None = None,
                  failures: RuntimeFailurePort | None = None,
                  wakeup: RuntimeWakeupPort | None = None) -> None:
         self._sessions = sessions
@@ -135,6 +145,9 @@ class RuntimeWorker:
         self._worker_id = worker_id
         self._claim_timeout = claim_timeout
         self._poll_interval = poll_interval
+        if not 1 <= batch_size <= 10:
+            raise ValueError("runtime batch size must be between 1 and 10")
+        self._batch_size = batch_size
         self._now = now or (lambda: datetime.now(UTC))
         self._failures = failures
         self._wakeup = wakeup
@@ -142,6 +155,7 @@ class RuntimeWorker:
     async def run_once(self, *, limit: int = 10) -> int:
         async with self._sessions() as session:
             async with session.begin():
+                await RuntimeCheckpointRepository(session).delete_expired(self._now())
                 claimed = await RuntimeCommandRepository(session).claim_batch(
                     worker_id=self._worker_id, now=self._now(),
                     stale_after=self._claim_timeout, limit=limit,
@@ -179,7 +193,8 @@ class RuntimeWorker:
                             # 与 fail_or_retry 一致，Run 终态同样保留首次失败的根因错误码
                             await self._failures.mark_failed(session, command.run_id, command.error_code or code)
                     else:
-                        await repository.complete(command.id, self._worker_id, self._now())
+                        if not await repository.complete(command.id, self._worker_id, self._now()):
+                            raise AgentRunStateConflict()
         except Exception:
             # 失败记账自身失败（如连接中断、事务失效）：回滚后由命令租约超时重新领取，
             # Worker 必须存活而不是整进程退出（真实 PG 下发现的缺陷）。
@@ -188,7 +203,7 @@ class RuntimeWorker:
 
     async def serve(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
-            processed = await self.run_once()
+            processed = await self.run_once(limit=self._batch_size)
             if processed == 0:
                 if self._wakeup is not None:
                     try:

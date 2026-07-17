@@ -15,8 +15,8 @@ class Transaction:
 def actor(): return AuthenticatedUser(USER,"student01","Student",None,None,"active",(AuthenticatedRole(uuid4(),"student","Student"),),("agent:run",),None,NOW,1)
 def service(decision):
     session=MagicMock(); session.begin.return_value=Transaction(); trace=MagicMock(); trace.create_run.return_value=AgentRun(id=RUN,user_id=USER,client_request_id="agent-request",input_summary="safe",status="created",step_count=0,specialist_count=0,created_at=NOW,updated_at=NOW); trace.finalize=AsyncMock()
-    queries=MagicMock(); idem=MagicMock(); idem.begin=AsyncMock(return_value=decision); idem.complete=AsyncMock(return_value=True); dispatcher=MagicMock(); dispatcher.start=AsyncMock(); dispatcher.cancel=AsyncMock()
-    return AgentRunService(session=session,trace=trace,queries=queries,idempotency=idem,dispatcher=dispatcher,now=lambda:NOW),dispatcher,idem
+    queries=MagicMock(); idem=MagicMock(); idem.begin=AsyncMock(return_value=decision); idem.complete=AsyncMock(return_value=True); dispatcher=MagicMock(); dispatcher.start=AsyncMock(); dispatcher.cancel=AsyncMock(); terminal=MagicMock(); terminal.complete=AsyncMock()
+    return AgentRunService(session=session,trace=trace,queries=queries,idempotency=idem,dispatcher=dispatcher,terminal=terminal,now=lambda:NOW),dispatcher,idem
 
 def test_create_completes_and_dispatches_with_redacted_context():
     svc,dispatcher,idem=service(IdempotencyDecision(record_id=uuid4())); result=asyncio.run(svc.create(actor=actor(),input_text="查询电费",conversation_id=None,mode="auto",context={"token":"secret","safe":"ok"},idempotency_key="key",request_id="agent-request"))
@@ -25,3 +25,13 @@ def test_create_completes_and_dispatches_with_redacted_context():
 def test_idempotency_replay_does_not_dispatch_again():
     body={"code":"OK","message":"success","data":{"id":str(RUN)},"request_id":"first-request","timestamp":NOW.isoformat()}; svc,dispatcher,_=service(IdempotencyDecision(record_id=uuid4(),replay=IdempotencyReplay(202,body,"agent_run",str(RUN))))
     result=asyncio.run(svc.create(actor=actor(),input_text="查询电费",conversation_id=None,mode="auto",context={},idempotency_key="key",request_id="new-request")); assert result.request_id=="first-request"; dispatcher.start.assert_not_awaited()
+
+def test_cancel_clears_checkpoint_and_publishes_terminal_event():
+    from app.modules.agent_platform.run_queries import RunAggregate
+    svc,dispatcher,_=service(IdempotencyDecision(record_id=uuid4()))
+    run=AgentRun(id=RUN,user_id=USER,client_request_id="agent-request",input_summary="safe",status="awaiting_approval",step_count=1,specialist_count=1,created_at=NOW,updated_at=NOW)
+    svc._queries.get_aggregate=AsyncMock(return_value=RunAggregate(run,(),(),()))
+    result=asyncio.run(svc.cancel(actor=actor(),run_id=RUN,idempotency_key="cancel-key",request_id="cancel-request"))
+    assert result.status_code==200
+    svc._terminal.complete.assert_awaited_once_with(run_id=RUN,status="cancelled",request_id="cancel-request")
+    dispatcher.cancel.assert_awaited_once_with(RUN)

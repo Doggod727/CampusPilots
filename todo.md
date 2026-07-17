@@ -23,6 +23,12 @@
   - 实测两个 Worker 各领取 20 条命令且领取区间重叠；40 个命令均一次成功、40 个 Run 均安全取消、40 个终态事件均为唯一 sequence=1，失败和 active 命令均为 0。
   - 命令完成与失败重试增加 `claimed_by` 所有权条件；同机 Worker 默认 ID 改为 `hostname:pid`，并允许通过 `AGENT_RUNTIME_WORKER_ID` 显式指定。
   - 定向测试 14 项、全量测试 `725 passed`；compileall、Alembic 唯一 Head `0009_agent_steps_status_length`、真实 current、离线完整升降级、136 个 OpenAPI operationId 解析与 Redocly lint 全部通过。
+- [x] [#189 M5：验证 Checkpoint 崩溃与 60 秒租约恢复](https://github.com/Doggod727/CampusPilot/issues/189)（2026-07-17）
+  - 新增显式确认的 PowerShell 7 恢复探针：先种入真实 `student01` 已批准模拟电费恢复状态，再锁定 Run 行、终止仅由脚本启动的 Worker A，严格等待生产 60 秒租约后由 Worker B 恢复；原始日志、密文、Tool 参数和配置均不输出。
+  - 真实 PostgreSQL CAS 实测从版本 1 原子更新至 2，持有旧版本的第二 Session 被 `AGENT_CHECKPOINT_INVALID` 安全拒绝；崩溃后版本 2、approved 审批和 0 条副作用保持不变。
+  - Worker B 以 attempt 2 完成恢复：Run succeeded、1 个 Step、1 个 ToolCall、1 条模拟充值、1 条成功审计和 3 个连续事件；Checkpoint 清除且电费余额未变化，探针业务数据及审计按确定性 ID 精确清理。
+  - 修复最后一次领取后崩溃永久卡死、丢失命令所有权仍提交、终态 Checkpoint/SSE 泄漏和过期密文不清理问题；生产 Worker 默认单命令领取，避免串行批次在处理前租约过期。
+  - 定向测试 31 项、全量测试 `734 passed`；双 Worker 并发真实探针再次通过 40 条命令 20/20 分配，当前真实数据库 Checkpoint 与 active 命令均为 0。
 
 ## 契约与设计差异
 
@@ -730,4 +736,5 @@
 - [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。
 - [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
 - [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
-- [ ] 继续执行 M5 Checkpoint 崩溃恢复、审批一次消费、SSE重放、用户/IP 双维度限流和 Provider 故障集成验证；Outbox 双 Worker 并发领取已由 #188 在真实 PostgreSQL 下完成。
+- [ ] 继续执行 M5 审批到期协调、SSE 重放、用户/IP 双维度限流和 Provider 故障集成验证；Outbox 并发与 Checkpoint 崩溃恢复已分别由 #188/#189 在真实 PostgreSQL 下完成。
+- [ ] M5 最终验收前修复 Agent Run 启动恢复保真：当前 Worker 只取得 `input_summary[:1000]`，公开创建请求的 1001–4000 字输入以及 mode/context 尚未进入认证加密恢复状态。

@@ -25,6 +25,14 @@ def test_claim_uses_skip_locked_and_updates_only_claimed_entities():
     assert "ORDER BY agent_platform.agent_runtime_commands.available_at" in sql
     assert "LIMIT 10" in sql
 
+def test_stale_final_attempt_can_be_recovered_without_exceeding_the_attempt_limit():
+    command=AgentRuntimeCommand(id=COMMAND,run_id=RUN,action="resume",payload={},status="processing",attempt_count=1,max_attempts=1,available_at=NOW-timedelta(minutes=2),claimed_by="dead-worker",claimed_at=NOW-timedelta(minutes=2),created_at=NOW-timedelta(minutes=2),updated_at=NOW-timedelta(minutes=2))
+    session=MagicMock(); session.execute=AsyncMock(return_value=result(scalars=(command,)))
+    claimed=asyncio.run(RuntimeCommandRepository(session).claim_batch(worker_id="recovery-worker",now=NOW,stale_after=timedelta(minutes=1),limit=1))
+    assert claimed==(command,)
+    assert command.status=="processing" and command.claimed_by=="recovery-worker"
+    assert command.attempt_count==command.max_attempts==1
+
 def test_command_complete_and_retry_require_the_claim_owner_and_do_not_manage_session():
     command=AgentRuntimeCommand(id=COMMAND,status="processing",attempt_count=1,max_attempts=3)
     session=MagicMock(); statements=[]
@@ -46,6 +54,15 @@ def test_checkpoint_cas_compiles_version_condition():
     session.execute=AsyncMock(side_effect=execute); assert asyncio.run(RuntimeCheckpointRepository(session).update_if_version(RUN,2,state_version=3,encrypted_state="cipher",state_sha256="a"*64,expires_at=NOW+timedelta(hours=1),updated_at=NOW))
     sql=str(statements[0].compile(dialect=postgresql.dialect(),compile_kwargs={"literal_binds":True}))
     assert "state_version = 2" in sql and "state_version=3" in sql.replace(" ","")
+
+def test_checkpoint_expiry_cleanup_is_bounded_by_expiry_time():
+    session=MagicMock(); statements=[]
+    async def execute(stmt): statements.append(stmt); return result(rowcount=3)
+    session.execute=AsyncMock(side_effect=execute)
+    assert asyncio.run(RuntimeCheckpointRepository(session).delete_expired(NOW))==3
+    sql=str(statements[0].compile(dialect=postgresql.dialect(),compile_kwargs={"literal_binds":True}))
+    assert "DELETE FROM agent_platform.agent_runtime_checkpoints" in sql
+    assert "expires_at <=" in sql
 
 def test_event_append_allocates_next_sequence_and_redacts_data():
     session=MagicMock(); statements=[]

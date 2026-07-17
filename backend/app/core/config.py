@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     agent_checkpoint_secret: SecretStr | None = None
     agent_checkpoint_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
     agent_runtime_max_attempts: int = Field(default=3, ge=1, le=10)
+    agent_runtime_batch_size: int = Field(default=1, ge=1, le=10)
     agent_runtime_claim_timeout_seconds: int = Field(default=60, gt=0, le=3600)
     agent_runtime_poll_seconds: float = Field(default=2.0, gt=0, le=60)
     agent_run_rate_limit_per_minute: int = Field(default=20, gt=0, le=1000)

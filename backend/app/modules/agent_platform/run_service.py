@@ -10,10 +10,11 @@ from uuid import UUID
 from app.core.config import Settings
 from app.infrastructure.database import Database
 from app.modules.agent_platform.domain.contracts import UserContext
+from app.modules.agent_platform.checkpointing import RuntimeTerminalCoordinator
 from app.modules.agent_platform.orchestration.runtime import RuntimeDispatcherPort
 from app.modules.agent_platform.run_queries import AgentRunQueryRepository, AgentRunQueryService, RunDTO, RunDetailDTO, RunPageDTO, run_dto
 from app.modules.agent_platform.traces import AgentRunNotFound, AgentRunStateConflict, TraceRepository, TraceService
-from app.modules.agent_platform.runtime_persistence import RuntimeCommandRepository
+from app.modules.agent_platform.runtime_persistence import RuntimeCheckpointRepository, RuntimeCommandRepository, RuntimeEventRepository
 from app.modules.agent_platform.runtime_worker import OutboxRuntimeDispatcher
 from app.modules.agent_platform.runtime_worker import RedisRuntimeWakeup
 from redis.asyncio import Redis
@@ -34,9 +35,10 @@ class RunMutationResult:
 class AgentRunService:
     def __init__(self, *, session, trace: TraceService, queries: AgentRunQueryService,
                  idempotency: IdempotencyService, dispatcher: RuntimeDispatcherPort,
+                 terminal: RuntimeTerminalCoordinator,
                  now=None) -> None:
         self._session=session; self._trace=trace; self._queries=queries
-        self._idempotency=idempotency; self._dispatcher=dispatcher
+        self._idempotency=idempotency; self._dispatcher=dispatcher; self._terminal=terminal
         self._now=now or (lambda:datetime.now(UTC))
 
     async def create(self, *, actor:AuthenticatedUser, input_text:str, conversation_id:UUID|None,
@@ -72,6 +74,11 @@ class AgentRunService:
             if aggregate is None: raise AgentRunNotFound()
             if aggregate.run.status not in TraceService.TERMINAL:
                 await self._trace.finalize(run_id,"cancelled",finish_reason="user_cancelled")
+                await self._terminal.complete(
+                    run_id=run_id,
+                    status="cancelled",
+                    request_id=request_id,
+                )
                 aggregate.run.status="cancelled"; aggregate.run.finished_at=self._utc(); aggregate.run.updated_at=self._utc()
                 await self._dispatcher.cancel(run_id)
                 should_dispatch = True
@@ -99,7 +106,16 @@ async def agent_run_service_context(settings:Settings):
         async with database.session() as session:
             query_repo=AgentRunQueryRepository(session)
             dispatcher=OutboxRuntimeDispatcher(RuntimeCommandRepository(session),max_attempts=settings.agent_runtime_max_attempts,wakeup=RedisRuntimeWakeup(redis))
-            yield AgentRunService(session=session,trace=TraceService(TraceRepository(session)),queries=AgentRunQueryService(query_repo),idempotency=IdempotencyService(session=session,repository=IdempotencyRecordRepository(session)),dispatcher=dispatcher)
+            yield AgentRunService(
+                session=session,
+                trace=TraceService(TraceRepository(session)),
+                queries=AgentRunQueryService(query_repo),
+                idempotency=IdempotencyService(session=session,repository=IdempotencyRecordRepository(session)),
+                dispatcher=dispatcher,
+                terminal=RuntimeTerminalCoordinator(
+                    RuntimeCheckpointRepository(session), RuntimeEventRepository(session)
+                ),
+            )
     finally:
         await redis.aclose()
         await database.dispose()

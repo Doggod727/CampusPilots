@@ -9,11 +9,12 @@ from uuid import UUID
 from app.core.config import Settings
 from app.infrastructure.database import Database
 from app.modules.agent_platform.approvals import ApprovalRepository, ApprovalService
+from app.modules.agent_platform.checkpointing import RuntimeTerminalCoordinator
 from app.modules.agent_platform.orchestration.runtime import RuntimeDispatcherPort
 from app.modules.agent_platform.run_queries import AgentRunQueryRepository, AgentRunQueryService, approval_dto
 from app.modules.agent_platform.tool_gateway.errors import ToolApprovalInvalid
 from app.modules.agent_platform.traces import TraceRepository, TraceService
-from app.modules.agent_platform.runtime_persistence import RuntimeCommandRepository
+from app.modules.agent_platform.runtime_persistence import RuntimeCheckpointRepository, RuntimeCommandRepository, RuntimeEventRepository
 from app.modules.agent_platform.runtime_worker import OutboxRuntimeDispatcher
 from app.modules.platform.audit import AuditService
 from app.modules.platform.auth import AuthenticatedUser
@@ -32,10 +33,11 @@ class ApprovalMutationResult:
 class ApprovalDecisionService:
     def __init__(self, *, session, approvals:ApprovalService, queries:AgentRunQueryService,
                  trace:TraceService, idempotency:IdempotencyService,
-                 audit:AuditService, dispatcher:RuntimeDispatcherPort, now=None) -> None:
+                 audit:AuditService, dispatcher:RuntimeDispatcherPort,
+                 terminal:RuntimeTerminalCoordinator, now=None) -> None:
         self._session=session; self._approvals=approvals; self._queries=queries; self._trace=trace
         self._idempotency=idempotency; self._audit=audit; self._dispatcher=dispatcher
-        self._now=now or (lambda:datetime.now(UTC))
+        self._terminal=terminal; self._now=now or (lambda:datetime.now(UTC))
 
     async def decide(self, *, actor:AuthenticatedUser, run_id:UUID, approval_id:UUID,
                      decision:Literal["approve","reject"], argument_hash:str,
@@ -54,6 +56,12 @@ class ApprovalDecisionService:
                 await self._trace.transition_tool(call.id,{"awaiting_approval"},"rejected",error_code="TOOL_APPROVAL_REJECTED",finished_at=self._utc())
                 await self._trace.transition_step(call.step_id,{"awaiting_approval"},"failed",error_code="TOOL_APPROVAL_REJECTED",finished_at=self._utc())
                 await self._trace.finalize(run_id,"partial",finish_reason="approval_rejected",error_code="TOOL_APPROVAL_REJECTED")
+                await self._terminal.complete(
+                    run_id=run_id,
+                    status="partial",
+                    request_id=request_id,
+                    error_code="TOOL_APPROVAL_REJECTED",
+                )
             else:
                 await self._dispatcher.resume(run_id,approval_id)
                 should_resume=True
@@ -76,5 +84,16 @@ async def approval_decision_service_context(settings:Settings):
     try:
         async with database.session() as session:
             dispatcher=OutboxRuntimeDispatcher(RuntimeCommandRepository(session),max_attempts=settings.agent_runtime_max_attempts)
-            yield ApprovalDecisionService(session=session,approvals=ApprovalService(ApprovalRepository(session),ttl_seconds=settings.approval_ttl_seconds),queries=AgentRunQueryService(AgentRunQueryRepository(session)),trace=TraceService(TraceRepository(session)),idempotency=IdempotencyService(session=session,repository=IdempotencyRecordRepository(session)),audit=AuditService(AuditLogRepository(session)),dispatcher=dispatcher)
+            yield ApprovalDecisionService(
+                session=session,
+                approvals=ApprovalService(ApprovalRepository(session),ttl_seconds=settings.approval_ttl_seconds),
+                queries=AgentRunQueryService(AgentRunQueryRepository(session)),
+                trace=TraceService(TraceRepository(session)),
+                idempotency=IdempotencyService(session=session,repository=IdempotencyRecordRepository(session)),
+                audit=AuditService(AuditLogRepository(session)),
+                dispatcher=dispatcher,
+                terminal=RuntimeTerminalCoordinator(
+                    RuntimeCheckpointRepository(session), RuntimeEventRepository(session)
+                ),
+            )
     finally: await database.dispose()

@@ -25,13 +25,18 @@ class RuntimeCommandRepository:
     async def claim_batch(self, *, worker_id:str, now:datetime, stale_after:timedelta, limit:int=10) -> tuple[AgentRuntimeCommand,...]:
         stmt=(select(AgentRuntimeCommand).where(
             or_(
-                (AgentRuntimeCommand.status=="pending") & (AgentRuntimeCommand.available_at<=now),
+                (AgentRuntimeCommand.status=="pending") &
+                (AgentRuntimeCommand.available_at<=now) &
+                (AgentRuntimeCommand.attempt_count < AgentRuntimeCommand.max_attempts),
                 (AgentRuntimeCommand.status=="processing") & (AgentRuntimeCommand.claimed_at < now-stale_after),
-            ), AgentRuntimeCommand.attempt_count < AgentRuntimeCommand.max_attempts,
+            ),
         ).order_by(AgentRuntimeCommand.available_at,AgentRuntimeCommand.created_at,AgentRuntimeCommand.id).limit(limit).with_for_update(skip_locked=True))
         commands=tuple((await self._session.execute(stmt)).scalars().all())
         for command in commands:
-            command.status="processing"; command.claimed_by=worker_id; command.claimed_at=now; command.attempt_count+=1; command.updated_at=now
+            command.status="processing"; command.claimed_by=worker_id; command.claimed_at=now
+            if command.attempt_count < command.max_attempts:
+                command.attempt_count+=1
+            command.updated_at=now
         return commands
 
     async def complete(self, command_id:UUID, worker_id:str, now:datetime) -> bool:
@@ -68,6 +73,9 @@ class RuntimeCheckpointRepository:
         return (await self._session.execute(stmt)).rowcount==1
     async def delete(self, run_id:UUID) -> bool:
         return (await self._session.execute(delete(AgentRuntimeCheckpoint).where(AgentRuntimeCheckpoint.run_id==run_id))).rowcount==1
+    async def delete_expired(self, now:datetime) -> int:
+        result=await self._session.execute(delete(AgentRuntimeCheckpoint).where(AgentRuntimeCheckpoint.expires_at<=now))
+        return result.rowcount
 
 
 class RuntimeEventRepository:

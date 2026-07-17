@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.modules.agent_platform.checkpointing import CheckpointCodec, DatabaseRuntimeCheckpointStore, InvalidRuntimeCheckpoint, PersistentRuntimeEventSink
+from app.modules.agent_platform.checkpointing import CheckpointCodec, DatabaseRuntimeCheckpointStore, InvalidRuntimeCheckpoint, PersistentRuntimeEventSink, RuntimeTerminalCoordinator
 from app.modules.agent_platform.domain.contracts import AgentTask, RouteDecision, SupervisorPlan, ToolCallRequest, UserContext
 from app.modules.agent_platform.models import AgentRuntimeCheckpoint
 from app.modules.agent_platform.orchestration.runtime import RuntimeCheckpoint
@@ -61,3 +61,13 @@ def test_persistent_event_sink_delegates_redacted_storage() -> None:
     sink = PersistentRuntimeEventSink(repository, request_id="request-123", clock=lambda: NOW)
     assert asyncio.run(sink.publish(uuid4(), "route", {"target": "service"})) is expected
     assert repository.append.await_args.kwargs["request_id"] == "request-123"
+
+
+def test_terminal_coordinator_clears_checkpoint_before_appending_safe_event() -> None:
+    checkpoints=MagicMock(); checkpoints.delete=AsyncMock(return_value=True)
+    events=MagicMock(); events.append=AsyncMock()
+    coordinator=RuntimeTerminalCoordinator(checkpoints,events,clock=lambda:NOW)
+    asyncio.run(coordinator.complete(run_id=uuid4(),status="failed",request_id="request-123",error_code="SAFE_ERROR"))
+    checkpoints.delete.assert_awaited_once()
+    assert events.append.await_args.kwargs["event"]=="error"
+    assert events.append.await_args.kwargs["data"]=={"status":"failed","error_code":"SAFE_ERROR"}
