@@ -62,7 +62,11 @@ from app.modules.platform.repositories import (
     UserRepository,
 )
 from app.shared.responses import SuccessResponse
-from app.modules.agent_platform.rate_limit import RateLimitPort, RedisRateLimiter
+from app.modules.agent_platform.rate_limit import (
+    RateLimitPort,
+    RedisRateLimiter,
+    user_ip_rate_limit_subjects,
+)
 from redis.asyncio import Redis
 
 router = APIRouter(prefix="/internal/v1", tags=["InternalTools"])
@@ -398,6 +402,24 @@ def get_internal_tool_rate_limit() -> int:
     return get_settings().internal_tool_rate_limit_per_minute
 
 
+async def enforce_internal_tool_rate_limit(
+    payload: ToolInvokeRequest,
+    request: Request,
+    principal: Annotated[
+        InternalServicePrincipal, Depends(get_internal_service_principal)
+    ],
+    limiter: Annotated[RateLimitPort, Depends(get_internal_tool_rate_limiter)],
+    rate_limit: Annotated[int, Depends(get_internal_tool_rate_limit)],
+) -> InternalServicePrincipal:
+    client_ip = request.client.host if request.client else "unknown"
+    await limiter.check(
+        scope="internal_tool",
+        subjects=user_ip_rate_limit_subjects(payload.user_id, client_ip),
+        limit=rate_limit,
+    )
+    return principal
+
+
 @router.post(
     "/tools/{tool_name}:invoke",
     operation_id="invokeInternalTool",
@@ -407,20 +429,14 @@ async def invoke_internal_tool(
     tool_name: str,
     payload: ToolInvokeRequest,
     request: Request,
-    _principal: Annotated[InternalServicePrincipal, Depends(get_internal_service_principal)],
+    _principal: Annotated[
+        InternalServicePrincipal, Depends(enforce_internal_tool_rate_limit)
+    ],
     service: Annotated[InternalToolService, Depends(get_internal_tool_service)],
-    limiter: Annotated[RateLimitPort, Depends(get_internal_tool_rate_limiter)],
-    rate_limit: Annotated[int, Depends(get_internal_tool_rate_limit)],
     idempotency_key: Annotated[
         str, Header(alias="Idempotency-Key", min_length=8, max_length=128)
     ],
 ) -> JSONResponse:
-    client_ip = request.client.host if request.client else "unknown"
-    await limiter.check(
-        scope="internal_tool",
-        subjects=(str(payload.user_id), client_ip),
-        limit=rate_limit,
-    )
     status, data = await service.invoke(
         tool_name=tool_name,
         payload=payload,

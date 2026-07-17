@@ -29,6 +29,12 @@
   - Worker B 以 attempt 2 完成恢复：Run succeeded、1 个 Step、1 个 ToolCall、1 条模拟充值、1 条成功审计和 3 个连续事件；Checkpoint 清除且电费余额未变化，探针业务数据及审计按确定性 ID 精确清理。
   - 修复最后一次领取后崩溃永久卡死、丢失命令所有权仍提交、终态 Checkpoint/SSE 泄漏和过期密文不清理问题；生产 Worker 默认单命令领取，避免串行批次在处理前租约过期。
   - 定向测试 31 项、全量测试 `734 passed`；双 Worker 并发真实探针再次通过 40 条命令 20/20 分配，当前真实数据库 Checkpoint 与 active 命令均为 0。
+- [x] [#190 M5：验证真实 Redis 用户/IP 双维度限流](https://github.com/Doggod727/CampusPilot/issues/190)（2026-07-17）
+  - Redis 固定窗口计数改为单条 Lua 原子“全部可用才统一递增”；任一用户/IP 维度已满时拒绝请求且不再污染另一维度，内存实现同步采用相同 all-or-none 语义。
+  - 用户和 IP subject 增加显式维度前缀后再做 SHA-256；Run 与内部 Tool 的限流守卫前移到业务 Service 构造之前，429 不再承担数据库/Runtime 装配开销。
+  - 新增 PowerShell 7 真实探针：仅信任 loopback 代理、以固定全局租约独占 Redis DB15 且只精确清理自身哈希键、内存签发真实种子用户 JWT，并对真实 PostgreSQL 执行 `createAgentRun` 和无副作用 `service.get_guide` R0 Tool；测试 Dispatcher 不创建可被 Worker 领取的 Outbox。
+  - 实测 Run 成功 22 次、内部 Tool 成功 62 次；20/60 阈值、用户限制、IP 限制、独立主体、`RATE_LIMITED`/`Retry-After`、下一窗口恢复和精确数据库/Redis 清理全部通过。
+  - 定向测试 29 项、全量测试 `750 passed`；compileall、Alembic 唯一/真实 Head `0009_agent_steps_status_length`、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
 
 ## 契约与设计差异
 
@@ -736,5 +742,6 @@
 - [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。
 - [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
 - [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
-- [ ] 继续执行 M5 审批到期协调、SSE 重放、用户/IP 双维度限流和 Provider 故障集成验证；Outbox 并发与 Checkpoint 崩溃恢复已分别由 #188/#189 在真实 PostgreSQL 下完成。
+- [ ] 继续执行 M5 审批到期协调、SSE 重放和 Provider 故障集成验证；Outbox 并发、Checkpoint 崩溃恢复与用户/IP 双维度限流已分别由 #188/#189/#190 在真实 PostgreSQL/Redis 下完成。
+- [ ] Compose/Nginx 收尾时显式配置 Uvicorn 可信代理来源；不得信任任意 `X-Forwarded-For`。Redis 不可用时限流当前落为通用 500，后续契约总审计决定并同步稳定 fail-closed 503 语义。
 - [ ] M5 最终验收前修复 Agent Run 启动恢复保真：当前 Worker 只取得 `input_summary[:1000]`，公开创建请求的 1001–4000 字输入以及 mode/context 尚未进入认证加密恢复状态。
