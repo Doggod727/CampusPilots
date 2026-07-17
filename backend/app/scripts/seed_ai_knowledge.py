@@ -31,8 +31,8 @@ async def seed(session) -> None:
         await session.execute(statement.on_conflict_do_update(index_elements=[AppConfig.key], set_={"namespace": namespace, "value": value, "value_type": value_type, "description": description, "editable": editable}))
     owner = (await session.execute(select(User).where(User.username == "knowledge01", User.deleted_at.is_(None)))).scalar_one_or_none()
     if owner is not None:
-        statement = insert(KnowledgeBase).values(id=DEMO_KB_ID, name="校园演示知识库", description="用于离线演示与冻结评测", visibility="public", owner_user_id=owner.id, embedding_model="bge-small-zh-v1.5", chunk_size=500, chunk_overlap=80, collection_name="kb_61000000000040008000000000000001", created_by=owner.id)
-        await session.execute(statement.on_conflict_do_update(index_elements=[KnowledgeBase.id], set_={"description": "用于离线演示与冻结评测", "visibility": "public", "owner_user_id": owner.id, "created_by": owner.id}))
+        statement = insert(KnowledgeBase).values(id=DEMO_KB_ID, name="四川大学校园知识库", description="四川大学公开资料演示知识库（学校简介、公告与要闻）", visibility="public", owner_user_id=owner.id, embedding_model="bge-small-zh-v1.5", chunk_size=500, chunk_overlap=80, collection_name="kb_61000000000040008000000000000001", created_by=owner.id)
+        await session.execute(statement.on_conflict_do_update(index_elements=[KnowledgeBase.id], set_={"description": "四川大学公开资料演示知识库（学校简介、公告与要闻）", "visibility": "public", "owner_user_id": owner.id, "created_by": owner.id}))
 
 
 async def main() -> None:

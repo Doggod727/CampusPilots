@@ -90,21 +90,24 @@ def test_seed_constants_include_the_m5_platform_compatibility_baseline() -> None
     assert "knowledge:write_all" in seed_demo.ROLE_PERMISSION_CODES["knowledge_admin"]
 
 
-def test_campus_service_seed_constants_match_sql_004_baseline() -> None:
-    assert len(seed_demo.CAMPUS_SEEDS) == 2
-    assert len(seed_demo.DEPARTMENT_SEEDS) == 3
-    assert len(seed_demo.CONTACT_SEEDS) == 3
+def test_campus_service_seed_constants_match_scu_snapshot() -> None:
+    assert len(seed_demo.CAMPUS_SEEDS) == 4
+    assert len(seed_demo.DEPARTMENT_SEEDS) == 8
+    assert len(seed_demo.CONTACT_SEEDS) == 8
     assert len(seed_demo.GUIDE_CATEGORY_SEEDS) == 3
-    assert len(seed_demo.SERVICE_GUIDE_SEEDS) == 2
-    assert len(seed_demo.GUIDE_APPLICABILITY_SEEDS) == 4
-    assert len(seed_demo.GUIDE_MATERIAL_SEEDS) == 4
-    assert len(seed_demo.GUIDE_STEP_SEEDS) == 5
-    assert {seed.code for seed in seed_demo.CAMPUS_SEEDS} == {"main", "east"}
+    assert len(seed_demo.SERVICE_GUIDE_SEEDS) == 6
+    assert len(seed_demo.GUIDE_APPLICABILITY_SEEDS) == 12
+    assert len(seed_demo.GUIDE_MATERIAL_SEEDS) == 11
+    assert len(seed_demo.GUIDE_STEP_SEEDS) == 15
+    assert {seed.code for seed in seed_demo.CAMPUS_SEEDS} == {
+        "wangjiang", "huaxi", "jiangan", "meishan"
+    }
     assert {seed.code for seed in seed_demo.DEPARTMENT_SEEDS} == {
-        "student_affairs", "logistics", "academic_affairs"
+        "xsc", "hqbzb", "jwc", "tsg", "cwc", "xxhb", "bwb", "yjsy"
     }
     assert {seed.code for seed in seed_demo.SERVICE_GUIDE_SEEDS} == {
-        "enrollment_certificate", "student_card_replacement"
+        "enrollment_certificate", "student_card_replacement", "transcript",
+        "library_borrowing", "campus_network", "dorm_repair",
     }
     assert len(seed_demo.DEMO_WORK_ORDER_IDS) == 3
     assert len(seed_demo.DEMO_WORK_ORDER_EVENT_IDS) == 8
@@ -119,7 +122,7 @@ def test_seed_demo_uses_one_transaction_and_hashes_each_account() -> None:
     assert usernames == tuple(account.username for account in seed_demo.DEMO_ACCOUNTS)
     assert hasher.passwords == ["local-password"] * len(seed_demo.DEMO_ACCOUNTS)
     session.begin.assert_called_once_with()
-    assert session.execute.await_count == 67
+    assert session.execute.await_count == 101
 
 
 def test_seed_statements_use_postgresql_upserts_and_replace_mappings() -> None:
@@ -263,13 +266,13 @@ def test_campus_service_seed_statements_are_idempotent_and_resolve_parent_codes(
     assert "ON CONFLICT (code) DO UPDATE" in category_sql
     assert "campus_service.departments.id" in contact_sql
     assert "FROM campus_service.departments" in contact_sql
-    assert "departments.code = 'student_affairs'" in contact_sql
+    assert "departments.code = 'xsc'" in contact_sql
     assert "ON CONFLICT (id) DO UPDATE" in contact_sql
     assert "SELECT" in guide_sql
     assert "campus_service.guide_categories" in guide_sql
     assert "campus_service.departments" in guide_sql
     assert "guide_categories.code = 'student_certificate'" in guide_sql
-    assert "departments.code = 'student_affairs'" in guide_sql
+    assert "departments.code = 'xsc'" in guide_sql
     assert "ON CONFLICT (code) DO UPDATE" in guide_sql
     assert "SELECT campus_service.service_guides.id" in applicability_sql
     assert "service_guides.code = 'enrollment_certificate'" in applicability_sql
@@ -297,6 +300,7 @@ def test_seed_result_does_not_include_the_password() -> None:
     assert "local-password" not in output
     assert seed_demo.DEMO_ELECTRICITY_ROOM_ID not in output
     assert "演示宿舍区" not in output
+    # SCU 快照使用明显占位电话（028-00000000）且不虚构邮箱（见 data/scu/README.md）。
     assert seed_demo.CONTACT_SEEDS[0].phone not in output
-    assert seed_demo.CONTACT_SEEDS[0].email not in output
+    assert seed_demo.CONTACT_SEEDS[0].email is None
     assert seed_demo.SERVICE_GUIDE_SEEDS[0].source_url not in output
