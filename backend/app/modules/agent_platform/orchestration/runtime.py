@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.modules.agent_platform.approvals import ApprovalService
 from app.modules.agent_platform.domain.contracts import (
@@ -14,7 +14,7 @@ from app.modules.agent_platform.domain.contracts import (
 )
 from app.modules.agent_platform.orchestration.router import RouterService
 from app.modules.agent_platform.orchestration.supervisor import SupervisorPlanner
-from app.modules.agent_platform.tool_gateway.errors import ToolApprovalRequired
+from app.modules.agent_platform.tool_gateway.errors import ToolApprovalRequired, ToolArgumentInvalid
 from app.modules.agent_platform.tool_gateway.executor import ToolExecutor
 from app.modules.agent_platform.traces import AgentRunStateConflict, TraceService
 
@@ -205,7 +205,23 @@ class BoundedGraphRuntime:
             outcome=SpecialistOutcome(await self._safety.check_output(state.user,outcome.result),outcome.tool_request)
             if outcome.tool_request is not None:
                 request=outcome.tool_request.model_copy(update={"agent_run_id":run_id,"step_id":step.id})
-                prepared=self._tools.prepare(request) if self._tools else None
+                try:
+                    prepared=self._tools.prepare(request) if self._tools else None
+                except ToolArgumentInvalid:
+                    # 真实模型偶发参数名漂移：给予一次带错误回显的修正机会，仍失败则按步骤失败处理
+                    corrected=task.model_copy(update={"structured_input":{**task.structured_input,"tool_argument_error":"上一次 tool_call 的参数不符合 input_schema，请严格按工具的 input_schema 修正参数名与类型后重新输出 tool_call"}})
+                    outcome=await specialist.invoke(corrected,state.user)
+                    outcome=SpecialistOutcome(await self._safety.check_output(state.user,outcome.result),outcome.tool_request)
+                    if outcome.tool_request is not None:
+                        request=outcome.tool_request.model_copy(update={"agent_run_id":run_id,"step_id":step.id})
+                        prepared=self._tools.prepare(request) if self._tools else None
+                    else:
+                        prepared=None
+            if outcome.tool_request is not None:
+                if prepared is not None and request.idempotency_key is None:
+                    # R2/R3 强制幂等键：LLM 不负责管理幂等语义，由运行时按
+                    # run/step/tool/参数哈希确定性生成，重试与审批复用同一键。
+                    request = request.model_copy(update={"idempotency_key": str(uuid5(NAMESPACE_URL, f"campuspilot:tool-call:{run_id}:{step.id}:{request.tool_name}:{prepared.arguments_hash}"))})
                 call=self._trace.append_tool(run_id=run_id,step_id=step.id,tool_name=request.tool_name,tool_version=request.tool_version,arguments_hash=prepared.arguments_hash if prepared else "0"*64,arguments_summary=request.arguments,idempotency_key=request.idempotency_key)
                 try:
                     await self._execute_tool(state,step.id,call.id,request,task.target_agent)

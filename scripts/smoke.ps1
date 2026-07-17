@@ -293,12 +293,19 @@ $chat = Invoke-Api -Method POST -Path '/api/v1/chat/completions' -Token $tokens[
 $answer = $chat.Body.data.assistant_message.content
 Assert '同步 Chat 返回真实 RAG 回答（含校区信息）' ($chat.Status -eq 200 -and $answer -and $answer -match '望江') ($chat.Raw)
 
-$sse = Invoke-Sse -Path '/api/v1/chat/stream' -Token $tokens['student01'] -Body @{ question = '四川大学校训是什么？'; knowledge_base_ids = @($kbId) } -Headers @{ 'Idempotency-Key' = (New-Idem) }
+$sse = Invoke-Sse -Path '/api/v1/chat/stream' -Token $tokens['student01'] -Body @{ question = '四川大学有几个校区？望江校区地址是什么？'; knowledge_base_ids = @($kbId) } -Headers @{ 'Idempotency-Key' = (New-Idem) }
 $eventNames = $sse.Events.Event
 Assert 'SSE 流按 meta→delta*→sources→done 顺序' ($sse.Status -eq 200 -and $eventNames[0] -eq 'meta' -and ($eventNames -contains 'delta') -and ($eventNames -contains 'sources') -and $eventNames[-1] -eq 'done') (($eventNames -join ',') )
 $meta = $sse.Events[0].Data | ConvertFrom-Json
 $sseAnswer = ($sse.Events | Where-Object { $_.Event -eq 'delta' } | ForEach-Object { ($_.Data | ConvertFrom-Json).content }) -join ''
-Assert 'SSE 回答含校训关键词' ($sseAnswer -match '海纳百川') ($sseAnswer)
+Assert 'SSE 回答含校区关键词' ($sseAnswer -match '望江') ($sseAnswer)
+
+# 无合格检索结果时按设计走兜底流（meta→sources→done，finish_reason=fallback）
+$sseFallback = Invoke-Sse -Path '/api/v1/chat/stream' -Token $tokens['student01'] -Body @{ question = '请介绍量子引力最新实验进展'; knowledge_base_ids = @($kbId) } -Headers @{ 'Idempotency-Key' = (New-Idem) }
+$fbNames = $sseFallback.Events.Event
+$fbDone = ($sseFallback.Events | Where-Object { $_.Event -eq 'done' } | Select-Object -First 1)
+$fbReason = $fbDone ? (($fbDone.Data | ConvertFrom-Json).finish_reason) : ''
+Assert '不可检索问题按兜底流返回（meta→sources→done + fallback）' ($fbNames[0] -eq 'meta' -and $fbNames[-1] -eq 'done' -and $fbReason -eq 'fallback') (($fbNames -join ',') + ' reason=' + $fbReason)
 
 $feedback = Invoke-Api -Method POST -Path "/api/v1/messages/$($meta.message_id)/feedback" -Token $tokens['student01'] -Body @{ rating = 1 } -Headers @{ 'Idempotency-Key' = (New-Idem) }
 Assert '消息反馈 201' ($feedback.Status -eq 201) ($feedback.Raw)
@@ -340,7 +347,8 @@ if (-not $internalSecret) {
     $envLine = Get-Content (Join-Path (Split-Path -Parent $PSScriptRoot) '.env') | Where-Object { $_ -match '^INTERNAL_TOOL_SECRET=' }
     $internalSecret = $envLine -replace '^INTERNAL_TOOL_SECRET=', ''
 }
-$topupRun = Invoke-Api -Method POST -Path '/api/v1/agent-runs' -Token $tokens['student01'] -Body @{ input = "请立即使用电费充值工具为我的宿舍房间（ID $roomId）充值20元电费"; mode = 'service' } -Headers @{ 'Idempotency-Key' = (New-Idem) }
+$topupInput = '请调用 electricity.create_topup_request 工具为我的宿舍充值20元电费，arguments 必须严格为 {"room_id":"' + $roomId + '","amount_cny":20}（参数名逐字一致，不可用 amount）'
+$topupRun = Invoke-Api -Method POST -Path '/api/v1/agent-runs' -Token $tokens['student01'] -Body @{ input = $topupInput; mode = 'service' } -Headers @{ 'Idempotency-Key' = (New-Idem) }
 Assert '创建服务型 Run 返回 202' ($topupRun.Status -eq 202 -and $topupRun.Body.data.id) ($topupRun.Raw)
 $topupRunId = $topupRun.Body.data.id
 

@@ -125,7 +125,7 @@ class ElectricityBalanceOutput(ToolModel):
 
 class ElectricityTopupInput(ToolModel):
     room_id: UUID
-    amount: Decimal = Field(ge=Decimal("1.00"), le=Decimal("500.00"), decimal_places=2)
+    amount_cny: Decimal = Field(ge=Decimal("1.00"), le=Decimal("500.00"), decimal_places=2)
 
 
 class ElectricityTopupOutput(ToolModel):

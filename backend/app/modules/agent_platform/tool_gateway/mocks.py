@@ -224,8 +224,8 @@ async def _electricity_topup(
     data = ElectricityTopupInput.model_validate(payload)
     _require_room(context, data.room_id)
     return ElectricityTopupOutput(
-        topup_request_id=deterministic_id("topup", f"{context.user_id}:{data.room_id}:{data.amount}"),
-        amount=data.amount,
+        topup_request_id=deterministic_id("topup", f"{context.user_id}:{data.room_id}:{data.amount_cny}"),
+        amount=data.amount_cny,
     )
 
 

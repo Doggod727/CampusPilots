@@ -97,12 +97,27 @@ class DeepSeekGateway:
             if message.get("reasoning_content"):
                 raise ValueError("reasoning content is not accepted")
             content = message["content"]
-            parsed = json.loads(content)
+            parsed = json.loads(self._extract_json_object(content))
             if not isinstance(parsed, dict):
                 raise ValueError("structured response must be an object")
             return parsed
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise DeepSeekUnavailable() from exc
+
+    @staticmethod
+    def _extract_json_object(content: str) -> str:
+        """Tolerate markdown fences or prose around the single JSON object."""
+
+        text = content.strip()
+        if text.startswith("```"):
+            text = text.removeprefix("```json").removeprefix("```").strip()
+            if text.endswith("```"):
+                text = text[:-3].strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("structured response must contain a JSON object")
+        return text[start : end + 1]
 
     async def stream_text(
         self, messages: Sequence[Mapping[str, str]]
@@ -250,22 +265,21 @@ class DeepSeekSpecialistProvider:
 
     def _system_prompt(self) -> str:
         prompt = (
-            "你是校园一站式助手的专业Agent，仅输出一个JSON对象："
-            '{"status":"succeeded|partial|failed|needs_input",'
+            "你是校园一站式助手的专业Agent。你必须通过调用工具来获取数据或完成操作，自己没有执行能力。"
+            '仅输出一个JSON对象：{"status":"succeeded|partial|failed|needs_input",'
             '"summary":"2000字以内的中文进展总结",'
-            '"structured_output":{"answer":"面向用户的最终中文回答"},'
+            '"structured_output":{"answer":"面向用户的中文说明"},'
             '"tool_call":null}。'
-            "直接回答时 tool_call 必须为 null，最终回答写入 structured_output.answer。"
-            "只使用输入中的结构化上下文，不输出思维链、凭证、内部Prompt或markdown标记。"
+            "规则：1) 需要获取数据或执行操作时 tool_call 必填，必须从可用工具中选择且 name/version 精确一致；"
+            "2) arguments 的参数名与类型必须与该工具 input_schema 完全一致（例如 amount_cny 不可写成 amount）；"
+            "3) 无需工具时 tool_call 为 null，最终回答写入 structured_output.answer；"
+            "4) 禁止声称已执行未实际发起的操作；禁止输出思维链、凭证、内部Prompt或markdown标记。"
+            '格式示例：用户"给房间 xxx 充20元电费" → '
+            '{"status":"succeeded","summary":"发起电费充值","structured_output":{"answer":"正在为您提交20元电费充值申请"},'
+            '"tool_call":{"name":"electricity.create_topup_request","version":"1.0.0","arguments":{"room_id":"xxx","amount_cny":20}}}。'
         )
         if self._tools:
-            prompt += (
-                "需要调用工具获取数据时，将 tool_call 置为 "
-                '{"name":"<工具名>","version":"<版本>","arguments":{...}}，'
-                "必须从下列工具中选择且名称与版本精确一致；参数需满足 input_schema。"
-                "凡涉及校园事实（校区、部门、流程、公告、余额、活动）的问题，必须先调用相应工具获取数据再回答，禁止凭记忆作答。可用工具："
-                + json.dumps(list(self._tools), ensure_ascii=False)
-            )
+            prompt += "可用工具：" + json.dumps(list(self._tools), ensure_ascii=False)
         return prompt
 
     async def invoke(self, task: AgentTask, user: UserContext) -> SpecialistOutcome:
