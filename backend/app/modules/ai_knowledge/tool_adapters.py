@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 from uuid import uuid4
 
+from app.modules.agent_platform.deepseek import DeepSeekUnavailable
 from app.modules.agent_platform.tool_gateway.catalog import (
     Citation,
     KnowledgeAnswerInput,
@@ -48,6 +49,6 @@ class KnowledgeAnswerToolHandler:
         sources = [{"title": item.document_title, "content": item.content[:1200]} for item in result.citations]
         response = await self.gateway.json_completion(({"role": "system", "content": "仅依据sources回答，输出JSON对象answer，不输出思维链。"}, {"role": "user", "content": json.dumps({"question": data.question, "sources": sources}, ensure_ascii=False)}))
         answer = response.get("answer")
-        if not isinstance(answer, str) or not answer.strip(): raise ValueError("invalid provider answer")
+        if not isinstance(answer, str) or not answer.strip(): raise DeepSeekUnavailable()
         citations = tuple(Citation(chunk_id=item.chunk_id, document_id=item.document_id, title=item.document_title, quote=item.content[:1000]) for item in result.citations)
         return KnowledgeAnswerOutput(answer=answer.strip(), citations=citations, message_id=uuid4(), usage={"prompt_tokens": 0, "completion_tokens": 0}, finish_reason="stop")

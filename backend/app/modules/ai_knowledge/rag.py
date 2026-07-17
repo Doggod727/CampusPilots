@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from app.modules.agent_platform.deepseek import DeepSeekUnavailable
 from app.modules.ai_knowledge.conversations import ConversationService
 from app.modules.ai_knowledge.citations import append_citations
 from app.modules.ai_knowledge.models import LlmCall, Message
@@ -38,7 +39,7 @@ class RagChatService:
         self.session.add(call)
         payload = await self.gateway.json_completion(messages)
         answer = payload.get("answer")
-        if not isinstance(answer, str) or not answer.strip(): raise ValueError("invalid provider answer")
+        if not isinstance(answer, str) or not answer.strip(): raise DeepSeekUnavailable()
         ConversationService.complete(assistant, answer.strip())
         assistant.model = "deepseek-v4-pro"
         call.status, call.finished_at = "completed", datetime.now(UTC)

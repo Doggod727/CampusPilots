@@ -66,3 +66,18 @@ def test_worker_retries_then_marks_run_failed_without_leaking_exception() -> Non
         asyncio.run(RuntimeWorker(sessions=session_context, processor_factory=lambda _: processor, worker_id="worker-1", now=lambda: NOW, failures=failures).run_once())
     assert process_repo.fail_or_retry.await_args.kwargs["error_code"] == "AGENT_RUNTIME_FAILED"
     failures.mark_failed.assert_awaited_once_with(sessions[1], RUN, "AGENT_RUNTIME_FAILED")
+
+
+def test_worker_survives_failure_accounting_errors_and_continues() -> None:
+    @asynccontextmanager
+    async def session_context():
+        session = MagicMock(); session.begin.return_value = Tx(); yield session
+    stuck = AgentRuntimeCommand(id=uuid4(), run_id=uuid4(), action="start", payload={}, status="processing", attempt_count=1, max_attempts=3)
+    nxt = AgentRuntimeCommand(id=uuid4(), run_id=uuid4(), action="start", payload={}, status="processing", attempt_count=1, max_attempts=3)
+    claim_repo = MagicMock(); claim_repo.claim_batch = AsyncMock(return_value=(stuck, nxt))
+    broken_repo = MagicMock(); broken_repo.get_processing = AsyncMock(return_value=stuck); broken_repo.fail_or_retry = AsyncMock(side_effect=RuntimeError("connection invalid"))
+    ok_repo = MagicMock(); ok_repo.get_processing = AsyncMock(return_value=nxt); ok_repo.fail_or_retry = AsyncMock(return_value="pending")
+    processor = MagicMock(); processor.process = AsyncMock(side_effect=RuntimeError("provider down"))
+    with patch("app.modules.agent_platform.runtime_worker.RuntimeCommandRepository", side_effect=[claim_repo, broken_repo, ok_repo]):
+        count = asyncio.run(RuntimeWorker(sessions=session_context, processor_factory=lambda _: processor, worker_id="worker-1", now=lambda: NOW).run_once())
+    assert count == 2 and ok_repo.fail_or_retry.await_count == 1

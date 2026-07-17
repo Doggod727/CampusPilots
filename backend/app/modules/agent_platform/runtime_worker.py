@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
+import traceback
 from typing import Protocol
 from uuid import UUID, uuid4
 from redis.asyncio import Redis
@@ -151,26 +152,33 @@ class RuntimeWorker:
         return len(command_ids)
 
     async def _process_one(self, command_id: UUID) -> None:
-        async with self._sessions() as session:
-            repository = RuntimeCommandRepository(session)
-            async with session.begin():
-                command = await repository.get_processing(command_id, self._worker_id)
-                if command is None:
-                    return
-                try:
-                    # SAVEPOINT 语义：处理失败只回滚业务写入，命令记账（重试/失败）仍可提交；
-                    # 避免部分提交的残留状态导致重试立即冲突（真实 PG 下发现的缺陷）。
-                    async with session.begin_nested():
-                        await self._processor_factory(session).process(command)
-                except Exception as exc:
-                    code = getattr(exc, "code", "AGENT_RUNTIME_FAILED")
-                    retry_at = self._now() + timedelta(seconds=min(60, 2 ** max(command.attempt_count, 1)))
-                    status = await repository.fail_or_retry(command.id, now=self._now(), retry_at=retry_at, error_code=code)
-                    if status == "failed" and self._failures is not None:
-                        # 与 fail_or_retry 一致，Run 终态同样保留首次失败的根因错误码
-                        await self._failures.mark_failed(session, command.run_id, command.error_code or code)
-                else:
-                    await repository.complete(command.id, self._now())
+        try:
+            async with self._sessions() as session:
+                repository = RuntimeCommandRepository(session)
+                async with session.begin():
+                    command = await repository.get_processing(command_id, self._worker_id)
+                    if command is None:
+                        return
+                    try:
+                        # SAVEPOINT 语义：处理失败只回滚业务写入，命令记账（重试/失败）仍可提交；
+                        # 避免部分提交的残留状态导致重试立即冲突（真实 PG 下发现的缺陷）。
+                        async with session.begin_nested():
+                            await self._processor_factory(session).process(command)
+                    except Exception as exc:
+                        code = getattr(exc, "code", "AGENT_RUNTIME_FAILED")
+                        traceback.print_exc()
+                        retry_at = self._now() + timedelta(seconds=min(60, 2 ** max(command.attempt_count, 1)))
+                        status = await repository.fail_or_retry(command.id, now=self._now(), retry_at=retry_at, error_code=code)
+                        if status == "failed" and self._failures is not None:
+                            # 与 fail_or_retry 一致，Run 终态同样保留首次失败的根因错误码
+                            await self._failures.mark_failed(session, command.run_id, command.error_code or code)
+                    else:
+                        await repository.complete(command.id, self._now())
+        except Exception:
+            # 失败记账自身失败（如连接中断、事务失效）：回滚后由命令租约超时重新领取，
+            # Worker 必须存活而不是整进程退出（真实 PG 下发现的缺陷）。
+            traceback.print_exc()
+            return
 
     async def serve(self, stop: asyncio.Event) -> None:
         while not stop.is_set():

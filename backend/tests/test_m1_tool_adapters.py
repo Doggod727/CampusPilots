@@ -1,10 +1,14 @@
 import asyncio
 import inspect
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
-from app.modules.ai_knowledge.tool_adapters import KnowledgeSearchToolHandler
-from app.modules.agent_platform.tool_gateway.catalog import KnowledgeSearchInput
+import pytest
+
+from app.modules.agent_platform.deepseek import DeepSeekUnavailable
+from app.modules.ai_knowledge.tool_adapters import KnowledgeAnswerToolHandler, KnowledgeSearchToolHandler
+from app.modules.agent_platform.tool_gateway.catalog import KnowledgeAnswerInput, KnowledgeSearchInput
 from app.modules.agent_platform import composition
 
 
@@ -33,6 +37,18 @@ def test_knowledge_tool_resolves_empty_scope_to_authorized_bases_only():
     invocation = SimpleNamespace(user=SimpleNamespace(user_id=uuid4(), permissions=("knowledge:read",)))
     asyncio.run(KnowledgeSearchToolHandler(retrieval)(invocation, KnowledgeSearchInput(query="校历")))
     assert retrieval.searched_with[2] == [knowledge_base_id]
+
+
+def test_knowledge_answer_tool_invalid_provider_answer_maps_to_provider_error():
+    citation = SimpleNamespace(
+        chunk_id=uuid4(), document_id=uuid4(), document_title="t",
+        content="c", source_location="loc", page_number=None, score=0.9,
+    )
+    retrieval = Retrieval(authorized=(uuid4(),), citations=(citation,))
+    gateway = SimpleNamespace(json_completion=AsyncMock(return_value={"response": "no answer key"}))
+    invocation = SimpleNamespace(user=SimpleNamespace(user_id=uuid4(), permissions=("knowledge:read",)))
+    with pytest.raises(DeepSeekUnavailable):
+        asyncio.run(KnowledgeAnswerToolHandler(retrieval, gateway)(invocation, KnowledgeAnswerInput(question="校历")))
 
 
 def test_runtime_composition_uses_real_m1_handlers_and_specialists():
