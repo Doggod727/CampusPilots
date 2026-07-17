@@ -93,20 +93,25 @@ Worker 接入，不能把排队成功解释为评估已完成。
 调用 Worker，API 进程和 `/health/live` 不会自动启动评估或加载模型。
 
 M5 P0 后端已覆盖 Agent/Tool 目录、运行、审批、SSE、数据集、训练任务骨架、模型注册和
-评估任务骨架。M2 的指南、工单和电费共 5 个 Tool、M3 的活动与失物招领共 4 个 Tool
-均使用真实 Service Adapter；M4 治理同样使用真实 Adapter。M1 知识仍为明确 Mock。
-M2 外部校园事项进度仍使用按用户隔离、可故障注入的显式 Mock Adapter。MCP、Reranker、
-真实 LoRA/QLoRA、并行 Agent、前端与 Compose 属于后续增强，不计入本次 P0 验收。
+评估任务骨架。当前 M1 知识、M2 电费与 M4 治理为真实 Service Adapter；M3 社区仍为明确
+Mock，必须在相应模块完成后替换。MCP、Reranker、真实 LoRA/QLoRA、并行 Agent、前端与
+Compose 属于后续增强，不计入本次 P0 验收。
 
-M2 校园服务中心的 15 个 OpenAPI operationId 已全部实现。演示种子包含指南、联系人、
-电费房间以及 submitted/processing/completed 三类固定 `WO-DEMO-*` 工单；真实 PostgreSQL
-空库迁移、并发编号/幂等、重复种子和端到端联调仍需在对应环境可用后执行。
+## M1 知识库与 RAG
 
-M3 校园社区与互助的 38 个 OpenAPI operationId 已全部实现，覆盖话题、帖子、评论、互动、
-举报、匿名身份反查、活动、并发报名、失物匹配和加密认领闭环。活动演示数据始终写入；
-只有配置 `COMMUNITY_DATA_ENCRYPTION_KEY` 时才写入含加密联系方式/evidence 的失物、候选和
-认领演示数据。真实 PostgreSQL 的最后名额竞争、锁超时、重复种子和完整加密认领 E2E
-仍需在环境可用后执行。
+M1 提供知识库和文档生命周期、异步入库、授权检索、会话、同步 Chat、SSE、引用和反馈。
+本地向量能力使用可选 AI 依赖；生产启动前执行 `pip install -e ".[ai]"`，并预先将
+`BAAI/bge-small-zh-v1.5` 放置到 `KNOWLEDGE_EMBEDDING_MODEL_PATH`，禁止运行时自动下载。
+
+```powershell
+cd backend
+python -m app.scripts.seed_ai_knowledge
+python -m app.scripts.ingestion_worker
+```
+
+`KNOWLEDGE_CHROMA_PATH` 只保存可重建向量索引，PostgreSQL 中的 Document/Chunk/发布状态
+始终是事实源。DeepSeek 仅在检索达到 0.62 阈值时调用；无可靠上下文直接返回 fallback。
+当前环境未提供真实 PostgreSQL、Chroma、本地模型和 DeepSeek，因此保留真实端到端验收待办。
 
 运行当前后端测试：
 

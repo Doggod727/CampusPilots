@@ -675,7 +675,47 @@
   - PR #63 在最终验证后转为Ready并普通合并；真实PostgreSQL/Redis/DeepSeek并发与Provider验证继续作为显式待办，不虚报完成。
   - 最终全量 `pytest` 459 项通过；`compileall`、OpenAPI lint（5 条既有非阻断警告）、Alembic 唯一 Head `0006_agent_runtime_delivery` 与离线升降级通过。
 
+## M1 开发进度
+
+- [x] [#110 M1：AI知识库数据库迁移](https://github.com/Doggod727/CampusPilot/issues/110)（2026-07-15）
+  - 新增 `0007_ai_knowledge_schema`，自包含固化设计SQL中的11张表、约束、索引、函数、6个触发器和注释；逻辑用户引用不建立跨Schema外键。
+  - downgrade按依赖逆序删除M1对象，不删除共享`pgcrypto`扩展；真实PostgreSQL空库验证保留待办。
+- [x] [#112 M1：AI知识库全量ORM基线](https://github.com/Doggod727/CampusPilot/issues/112)（2026-07-15）
+  - 映射ai_knowledge全部11张表，保留PostgreSQL UUID/JSONB/Numeric/时区时间、核心约束、索引与外键删除策略；敏感内容和哈希不进入repr。
+- [x] [#113 M1：知识文件隔离存储与配置](https://github.com/Doggod727/CampusPilot/issues/113)（2026-07-15）
+  - 增加上传、切分、检索和历史轮数配置；隔离存储使用服务端UUID对象键、流式SHA-256、20MiB上限及路径/符号链接防护，模块导入不创建目录。
+- [x] [#114 M1：知识库仓储与授权服务](https://github.com/Doggod727/CampusPilot/issues/114)（2026-07-15）
+  - 实现全局权限、owner、member、public、department固定授权规则，以及分页、乐观锁、引用保护和逻辑删除。
+- [x] [#115 M1：知识库管理API](https://github.com/Doggod727/CampusPilot/issues/115)（2026-07-15）
+  - 实现知识库list/create/get/update/delete五个OpenAPI操作，严格DTO、权限、统一信封、版本控制和204逻辑删除。
+- [x] [#116 M1：文档上传与生命周期API](https://github.com/Doggod727/CampusPilot/issues/116)（2026-07-15）
+  - 实现文档列表/批量上传/详情/删除/Chunk预览/发布/停用及入库任务查询/重试，上传固定202并执行文件边界保护。
+- [x] [#117 M1：Parser与确定性切分](https://github.com/Doggod727/CampusPilot/issues/117)（2026-07-15）
+  - 支持TXT/MD/DOCX/PDF内容嗅探与解析，使用500字符、80字符重叠的确定性切分并保留页码元数据。
+- [x] [#118 M1：Embedding与Chroma Store](https://github.com/Doggod727/CampusPilot/issues/118)（2026-07-15）
+  - 提供延迟加载的本地bge-small-zh-v1.5 Provider与Chroma命名、upsert/query/delete/rebuild端口；PostgreSQL仍为事实源。
+- [x] [#119 M1：幂等文档入库Worker](https://github.com/Doggod727/CampusPilot/issues/119)（2026-07-15）
+  - 使用SKIP LOCKED领取任务，按文档版本执行解析、切分、向量索引与Chunk替换；失败仅保存稳定错误码。
+- [x] [#120 M1：授权RAG检索服务](https://github.com/Doggod727/CampusPilot/issues/120)（2026-07-15）
+  - 先计算授权知识库交集，再执行向量召回与PostgreSQL发布状态回查；0.62以下返回明确空结果。
+- [x] [#121 M1：会话与消息仓储服务](https://github.com/Doggod727/CampusPilot/issues/121)（2026-07-15）
+  - 实现本人作用域、会话行锁、连续sequence、pending assistant占位、request_id去重和不可恢复终态。
+- [x] [#122 M1：会话与消息API](https://github.com/Doggod727/CampusPilot/issues/122)（2026-07-15）
+  - 实现会话list/create/get/delete与消息list/get；越权和不存在统一隐藏为CONVERSATION_NOT_FOUND。
+- [x] [#123 M1：DeepSeek RAG与同步Chat API](https://github.com/Doggod727/CampusPilot/issues/123)（2026-07-15）
+  - 实现安全历史、受控引用Prompt与同步Chat；无合格检索结果直接fallback且不调用Provider。
+- [x] [#124 M1：Chat SSE事件流](https://github.com/Doggod727/CampusPilot/issues/124)（2026-07-15）
+  - 实现meta、delta、sources、done/error固定事件顺序；Provider开始输出后不做透明重试。
+- [x] [#125 M1：引用与消息反馈](https://github.com/Doggod727/CampusPilot/issues/125)（2026-07-15）
+  - 原子追加有界引用快照，并为本人已完成/兜底回答提供-1/1幂等反馈upsert。
+- [x] [#126 M1：真实知识Tool Adapter](https://github.com/Doggod727/CampusPilot/issues/126)（2026-07-15）
+  - knowledge.search/answer改用M1授权检索与DeepSeek网关；Tool传入知识范围只能缩小，空范围安全兜底。
+- [x] [#127 M1：种子、RAG评测与最终验收](https://github.com/Doggod727/CampusPilot/issues/127)（2026-07-15）
+  - 提供幂等M1配置/演示知识种子、入库Worker CLI和30题冻结评测集；同步OpenAPI行为、详细设计与README；483项后端测试通过。
+
 ## 待办
+
+- [ ] 在具备PostgreSQL、Chroma、本地BGE模型及DeepSeek密钥的环境执行M1真实上传→入库→检索→REST/SSE→Tool端到端验证。
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
 - [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。

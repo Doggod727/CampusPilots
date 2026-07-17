@@ -43,7 +43,7 @@ def _compiled_postgresql(statement: object) -> str:
 
 
 def test_seed_constants_include_the_m5_platform_compatibility_baseline() -> None:
-    assert len(seed_demo.PERMISSIONS) == 44
+    assert len(seed_demo.PERMISSIONS) == 47
     assert {role.code for role in seed_demo.ROLES} == {
         "super_admin",
         "knowledge_admin",
@@ -85,6 +85,9 @@ def test_seed_constants_include_the_m5_platform_compatibility_baseline() -> None
         "agent:run", "moderation:execute", "audit:write"
     )
     assert "electricity:read_own" in seed_demo.ROLE_PERMISSION_CODES["student"]
+    assert "chat:use" in seed_demo.ROLE_PERMISSION_CODES["student"]
+    assert "knowledge:read_all" in seed_demo.ROLE_PERMISSION_CODES["knowledge_admin"]
+    assert "knowledge:write_all" in seed_demo.ROLE_PERMISSION_CODES["knowledge_admin"]
 
 
 def test_campus_service_seed_constants_match_sql_004_baseline() -> None:

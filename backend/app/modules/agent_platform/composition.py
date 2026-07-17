@@ -14,7 +14,7 @@ from app.modules.agent_platform.checkpointing import DatabaseRuntimeCheckpointSt
 from app.modules.agent_platform.deepseek import DeepSeekGateway, DeepSeekRouterAdapter, DeepSeekSpecialistProvider
 from app.modules.agent_platform.internal_auth import InternalUserContextLoader
 from app.modules.agent_platform.models import AgentRun
-from app.modules.agent_platform.orchestration.runtime import BoundedGraphRuntime, DeterministicMockSpecialist
+from app.modules.agent_platform.orchestration.runtime import BoundedGraphRuntime
 from app.modules.agent_platform.orchestration.router import RouterService
 from app.modules.agent_platform.orchestration.supervisor import SupervisorPlanner
 from app.modules.agent_platform.runtime_persistence import RuntimeCheckpointRepository, RuntimeEventRepository
@@ -62,6 +62,17 @@ from app.modules.platform.repositories import (
     AuditLogRepository, IdempotencyRecordRepository, ModerationCaseRepository,
     RbacRepository, SensitiveWordRepository, UserRepository,
 )
+from app.modules.ai_knowledge.knowledge import KnowledgeRepository, KnowledgeService
+from app.modules.ai_knowledge.retrieval import RetrievalService
+from app.modules.ai_knowledge.tool_adapters import (
+    KnowledgeAnswerToolHandler,
+    KnowledgeSearchToolHandler,
+)
+from app.modules.ai_knowledge.vectors import (
+    BgeSmallZhEmbeddingProvider,
+    ChromaVectorStore,
+    LazyChromaClient,
+)
 
 
 class M4AgentSafetyAdapter:
@@ -107,7 +118,7 @@ class RuntimeCompositionFactory:
     async def load_catalogs(self, session: AsyncSession):
         return await PersistentCatalogLoader(CatalogRepository(session)).load()
 
-    async def build_tool_executor(self, session: AsyncSession, catalogs=None):
+    async def build_tool_executor(self, session: AsyncSession, catalogs=None, gateway=None):
         agents, tools = catalogs or await self.load_catalogs(session)
         audit = AuditService(AuditLogRepository(session))
         moderation = ModerationService(
@@ -158,8 +169,19 @@ class RuntimeCompositionFactory:
             moderation=moderation,
             idempotency=IdempotencyService(session=session,
                 repository=IdempotencyRecordRepository(session)), audit=audit, matcher=matcher)
+        knowledge = KnowledgeService(session, KnowledgeRepository(session))
+        retrieval = RetrievalService(
+            session,
+            knowledge,
+            BgeSmallZhEmbeddingProvider(str(self.settings.knowledge_embedding_model_path)),
+            ChromaVectorStore(LazyChromaClient(str(self.settings.knowledge_chroma_path))),
+            self.settings.knowledge_score_threshold,
+        )
+        knowledge_gateway = gateway or self._deepseek_gateway()
         handlers = build_mock_handlers()
         handlers.update({
+            "knowledge.search": KnowledgeSearchToolHandler(retrieval),
+            "knowledge.answer": KnowledgeAnswerToolHandler(retrieval, knowledge_gateway),
             "service.get_guide": ServiceGuideToolHandler(guides),
             "work_order.create": WorkOrderCreateToolHandler(work_orders),
             "work_order.get": WorkOrderGetToolHandler(work_orders),
@@ -189,17 +211,14 @@ class RuntimeCompositionFactory:
 
     async def build_graph_runtime(self, session: AsyncSession) -> BoundedGraphRuntime:
         agents, tools = await self.load_catalogs(session)
-        executor, approvals, moderation = await self.build_tool_executor(session, (agents, tools))
-        gateway = DeepSeekGateway(
-            api_key=self.settings.deepseek_api_key.get_secret_value(),
-            base_url=str(self.settings.deepseek_base_url),
-            model=self.settings.deepseek_model,
-            timeout_seconds=self.settings.agent_run_timeout_seconds,
+        gateway = self._deepseek_gateway()
+        executor, approvals, moderation = await self.build_tool_executor(
+            session, (agents, tools), gateway=gateway
         )
         deepseek = DeepSeekSpecialistProvider(gateway)
         specialists = {
-            "knowledge_agent": DeterministicMockSpecialist("knowledge_agent"),
-            "community_agent": DeterministicMockSpecialist("community_agent"),
+            "knowledge_agent": deepseek,
+            "community_agent": deepseek,
             "service_agent": deepseek,
             "governance_agent": deepseek,
             "modelops_agent": deepseek,
@@ -226,6 +245,14 @@ class RuntimeCompositionFactory:
             checkpoints=DatabaseRuntimeCheckpointStore.from_settings(
                 RuntimeCheckpointRepository(session), self.settings
             ),
+        )
+
+    def _deepseek_gateway(self) -> DeepSeekGateway:
+        return DeepSeekGateway(
+            api_key=self.settings.deepseek_api_key.get_secret_value(),
+            base_url=str(self.settings.deepseek_base_url),
+            model=self.settings.deepseek_model,
+            timeout_seconds=self.settings.agent_run_timeout_seconds,
         )
 
     def command_processor(self, session: AsyncSession):

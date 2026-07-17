@@ -37,6 +37,10 @@ from app.modules.community.event_routes import router as community_event_router
 from app.modules.community.lost_found_routes import router as community_lost_found_router
 from app.modules.community.claim_routes import item_router as community_item_claim_router
 from app.modules.community.claim_routes import router as community_claim_router
+from app.modules.ai_knowledge.routes import router as knowledge_base_router
+from app.modules.ai_knowledge.document_routes import router as knowledge_document_router
+from app.modules.ai_knowledge.conversation_routes import router as knowledge_conversation_router
+from app.modules.ai_knowledge.chat_routes import router as knowledge_chat_router
 
 
 def create_app() -> FastAPI:
@@ -94,6 +98,10 @@ def create_app() -> FastAPI:
     application.include_router(community_lost_found_router)
     application.include_router(community_item_claim_router)
     application.include_router(community_claim_router)
+    application.include_router(knowledge_base_router)
+    application.include_router(knowledge_document_router)
+    application.include_router(knowledge_conversation_router)
+    application.include_router(knowledge_chat_router)
     return application
 
 

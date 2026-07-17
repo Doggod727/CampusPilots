@@ -46,6 +46,21 @@ class FakeClient:
         return result
 
 
+class _StreamContext:
+    def __init__(self, response): self.response = response
+    async def __aenter__(self): return self.response
+    async def __aexit__(self, *_args): return False
+
+
+class TrueStreamClient:
+    def __init__(self, response): self.response = response; self.requests = []
+    def stream(self, method, url, **kwargs):
+        self.requests.append((method, url, kwargs))
+        return _StreamContext(self.response)
+    async def post(self, *_args, **_kwargs):
+        raise AssertionError("streaming must not use buffered post")
+
+
 def _completion(payload, *, reasoning=None):
     message = {"content": json.dumps(payload)}
     if reasoning is not None:
@@ -113,6 +128,20 @@ def test_stream_retries_only_before_first_content():
     chunks = asyncio.run(collect())
     assert chunks == ["A"]
     assert len(client.requests) == 2
+
+
+def test_stream_uses_http_stream_transport_without_buffered_post():
+    client = TrueStreamClient(FakeResponse(lines=(
+        'data: {"choices":[{"delta":{"content":"实时"}}]}',
+        'data: [DONE]',
+    )))
+    gateway = DeepSeekGateway(api_key="secret", client=client)
+
+    async def collect():
+        return [chunk async for chunk in gateway.stream_text(({"role": "user", "content": "x"},))]
+
+    assert asyncio.run(collect()) == ["实时"]
+    assert client.requests[0][0] == "POST"
 
 
 def test_gateway_rejects_unapproved_model():
