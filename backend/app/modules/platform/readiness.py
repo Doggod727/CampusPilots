@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from time import perf_counter
@@ -43,7 +42,7 @@ class ReadinessData(BaseModel):
     dependencies: ReadinessDependencies
 
 
-Probe = Callable[[], Awaitable[DependencyStatus]]
+Probe = Callable[[Settings], Awaitable[DependencyStatus]]
 
 
 def _status(start: float, *, up: bool, message: str | None = None) -> DependencyStatus:
@@ -83,17 +82,20 @@ async def probe_redis(settings: Settings) -> DependencyStatus:
             await client.aclose()
 
 
-async def probe_chroma() -> DependencyStatus:
-    """Report Chroma as not configured until the M1 adapter is available.
-
-    This keeps readiness deterministic for the current backend-only delivery while
-    preserving the OpenAPI dependency shape. A future adapter can replace this
-    probe without changing the endpoint contract.
-    """
+async def probe_chroma(settings: Settings) -> DependencyStatus:
+    """Probe the same local persistent Chroma store used by M1 retrieval."""
     started = perf_counter()
-    if os.getenv("CHROMA_URL"):
-        return _status(started, up=False, message="chroma probe unavailable")
-    return _status(started, up=True, message="not configured")
+    try:
+        def heartbeat() -> None:
+            import chromadb
+
+            client = chromadb.PersistentClient(path=str(settings.knowledge_chroma_path))
+            client.heartbeat()
+
+        await asyncio.to_thread(heartbeat)
+        return _status(started, up=True)
+    except Exception:
+        return _status(started, up=False, message="chroma unavailable")
 
 
 async def check_readiness(
@@ -104,7 +106,7 @@ async def check_readiness(
     chroma: Probe = probe_chroma,
 ) -> ReadinessData:
     postgres_status, redis_status, chroma_status = await asyncio.gather(
-        postgres(settings), redis(settings), chroma()
+        postgres(settings), redis(settings), chroma(settings)
     )
     dependencies = ReadinessDependencies(
         postgres=postgres_status,

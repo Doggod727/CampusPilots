@@ -23,7 +23,7 @@ def test_check_readiness_reports_all_dependencies() -> None:
 
     data = asyncio.run(
         readiness.check_readiness(
-            _settings(), postgres=up, redis=up, chroma=lambda: up()
+            _settings(), postgres=up, redis=up, chroma=up
         )
     )
     assert data.status == "ready"
@@ -41,7 +41,7 @@ def test_check_readiness_reports_not_ready_without_details() -> None:
 
     data = asyncio.run(
         readiness.check_readiness(
-            _settings(), postgres=up, redis=down, chroma=lambda: up()
+            _settings(), postgres=up, redis=down, chroma=up
         )
     )
     assert data.status == "not_ready"
@@ -83,3 +83,15 @@ def test_liveness_does_not_require_configuration(monkeypatch) -> None:
     response = TestClient(create_app()).get("/health/live")
     assert response.status_code == 200
     assert response.json()["data"]["status"] == "alive"
+
+
+def test_chroma_probe_fails_closed_without_leaking_path(tmp_path) -> None:
+    settings = _settings().model_copy(update={"knowledge_chroma_path": tmp_path / "private"})
+    result = asyncio.run(readiness.probe_chroma(settings))
+
+    # The minimal test environment intentionally omits the optional AI dependency.
+    # A full deployment installs it; either way the probe exposes no local path.
+    assert result.status in {"up", "down"}
+    if result.status == "down":
+        assert result.message == "chroma unavailable"
+    assert str(tmp_path) not in str(result)

@@ -112,8 +112,7 @@ class DeepSeekGateway:
         last_error: Exception | None = None
         for attempt in range(self._attempts):
             try:
-                response = await self._post(messages, stream=True)
-                async for line in response.aiter_lines():
+                async for line in self._stream_lines(messages):
                     if not line.startswith("data: ") or line == "data: [DONE]":
                         continue
                     item = json.loads(line[6:])
@@ -143,8 +142,39 @@ class DeepSeekGateway:
                 last_error = exc
         raise DeepSeekUnavailable() from last_error
 
-    async def _post(self, messages, *, stream: bool):
-        payload = {
+    async def _stream_lines(
+        self, messages: Sequence[Mapping[str, str]]
+    ) -> AsyncIterator[str]:
+        payload = self._payload(messages, stream=True)
+        stream = getattr(self._client, "stream", None)
+        if callable(stream):
+            try:
+                async with stream(
+                    "POST",
+                    f"{self._base_url}/chat/completions",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    timeout=self._timeout,
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        yield line
+                return
+            except (httpx.TimeoutException, TimeoutError) as exc:
+                raise DeepSeekTimeout() from exc
+            except DeepSeekTimeout:
+                raise
+            except Exception as exc:
+                raise DeepSeekUnavailable() from exc
+
+        # Small injected test clients may only implement post(). Production uses
+        # httpx.AsyncClient.stream above, so response bytes are not buffered.
+        response = await self._post(messages, stream=True)
+        async for line in response.aiter_lines():
+            yield line
+
+    def _payload(self, messages, *, stream: bool) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "model": self._model,
             "messages": list(messages),
             "stream": stream,
@@ -152,6 +182,10 @@ class DeepSeekGateway:
         }
         if not stream:
             payload["response_format"] = {"type": "json_object"}
+        return payload
+
+    async def _post(self, messages, *, stream: bool):
+        payload = self._payload(messages, stream=stream)
         try:
             response = await self._client.post(
                 f"{self._base_url}/chat/completions",

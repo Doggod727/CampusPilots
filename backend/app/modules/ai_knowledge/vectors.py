@@ -79,3 +79,26 @@ class ChromaVectorStore:
             if exc.__class__.__name__ not in {"NotFoundError", "InvalidCollectionException"}:
                 raise
         self.upsert(knowledge_base_id, items)
+
+
+class LazyChromaClient:
+    """Create the local persistent Chroma client only when M1 actually uses it.
+
+    Runtime composition and liveness must remain importable even when the optional
+    AI dependencies are absent. Readiness and the first real vector operation still
+    fail closed, so a deployment cannot silently fall back to mock retrieval.
+    """
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self._client = None
+
+    def _get(self):
+        if self._client is None:
+            import chromadb
+
+            self._client = chromadb.PersistentClient(path=self.path)
+        return self._client
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
