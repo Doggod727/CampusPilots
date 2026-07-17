@@ -4,6 +4,7 @@
   "note": "正文全文保存于 docs/ 目录同名 markdown 文件；front-matter 记录来源 URL 与发布日期。",
   "documents": [
     {"file": "docs/school-intro.md", "title": "四川大学学校简介", "source_url": "https://www.scu.edu.cn/xxgk/xxjj.htm", "published_at": "2025-12-31", "category": "学校概况"},
+    {"file": "docs/campuses.md", "title": "四川大学校区与地址", "source_url": "https://www.scu.edu.cn/", "published_at": "2026-07-17", "category": "学校概况"},
     {"file": "docs/anniversary-130.md", "title": "四川大学130周年校庆公告（第一号）", "source_url": "https://www.scu.edu.cn/info/1203/37162.htm", "published_at": "2025-09-29", "category": "公告"},
     {"file": "docs/news-national-science-awards.md", "title": "我校8项成果获2025年度国家科学技术奖", "source_url": "https://www.scu.edu.cn/info/1203/40026.htm", "published_at": "2026-07-08", "category": "川大要闻"},
     {"file": "docs/news-party-study-session.md", "title": "学校党委理论学习中心组召开学习会", "source_url": "https://www.scu.edu.cn/info/1203/40015.htm", "published_at": "2026-07-07", "category": "川大要闻"},

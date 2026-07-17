@@ -360,7 +360,8 @@ async def get_internal_tool_service() -> AsyncIterator[InternalToolService]:
     try:
         async with database.session() as session:
             factory = RuntimeCompositionFactory(settings)
-            agents, tools = await factory.load_catalogs(session)
+            async with session.begin():
+                agents, tools = await factory.load_catalogs(session)
             executor, approval_service, _moderation = await factory.build_tool_executor(
                 session, (agents, tools)
             )

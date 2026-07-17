@@ -24,12 +24,15 @@ $RedisDir = 'E:\CampusPilotServices\Redis'
 
 if (-not (Test-Path $Python)) { throw "conda 环境不存在: $Python（先执行 conda create -n campuspilot python=3.12）" }
 
-# 1. PostgreSQL
+# 1. PostgreSQL（以独立隐藏进程启动，避免随启动会话退出被终止）
 & (Join-Path $PgBin 'pg_ctl.exe') -D $PgData status *> $null
 if ($LASTEXITCODE -eq 0) {
     Write-Host '[=] PostgreSQL 已在运行' -ForegroundColor DarkGray
 } else {
-    & (Join-Path $PgBin 'pg_ctl.exe') -D $PgData -l $PgLog start | Out-Host
+    Start-Process -FilePath (Join-Path $PgBin 'postgres.exe') -ArgumentList '-D', $PgData -WindowStyle Hidden
+    Start-Sleep -Seconds 4
+    & (Join-Path $PgBin 'pg_ctl.exe') -D $PgData status *> $null
+    if ($LASTEXITCODE -ne 0) { throw "PostgreSQL 启动失败，日志见 $PgLog 与数据目录 log" }
     Write-Host '[+] PostgreSQL 已启动' -ForegroundColor Green
 }
 
@@ -43,14 +46,15 @@ if ($redisUp) {
 }
 
 # 3. API + Workers（各开新窗口，关闭窗口即停止对应进程）
+# 入库 Worker 为一次性排空设计：窗口内循环运行以覆盖后续上传
 $processes = @(
-    @{ Name = 'api';              Args = '-m uvicorn app.main:app --host 127.0.0.1 --port 8000' },
-    @{ Name = 'runtime-worker';   Args = '-m app.scripts.runtime_worker' },
-    @{ Name = 'evaluation-worker'; Args = '-m app.scripts.evaluation_worker' },
-    @{ Name = 'ingestion-worker'; Args = '-m app.scripts.ingestion_worker' }
+    @{ Name = 'api';               Command = "& '$Python' -m uvicorn app.main:app --host 127.0.0.1 --port 8000" },
+    @{ Name = 'runtime-worker';    Command = "& '$Python' -m app.scripts.runtime_worker" },
+    @{ Name = 'evaluation-worker'; Command = "& '$Python' -m app.scripts.evaluation_worker" },
+    @{ Name = 'ingestion-worker';  Command = "while (`$true) { & '$Python' -m app.scripts.ingestion_worker | Out-Host; Start-Sleep -Seconds 15 }" }
 )
 foreach ($p in $processes) {
-    $command = "Set-Location '$Backend'; & '$Python' $($p.Args)"
+    $command = "Set-Location '$Backend'; $($p.Command)"
     Start-Process -FilePath 'pwsh' -ArgumentList '-NoExit', '-Command', $command -WorkingDirectory $Backend
     Write-Host "[+] $($p.Name) 已在新窗口启动" -ForegroundColor Green
 }
