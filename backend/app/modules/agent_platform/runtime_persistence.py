@@ -34,12 +34,20 @@ class RuntimeCommandRepository:
             command.status="processing"; command.claimed_by=worker_id; command.claimed_at=now; command.attempt_count+=1; command.updated_at=now
         return commands
 
-    async def complete(self, command_id:UUID, now:datetime) -> bool:
-        stmt=update(AgentRuntimeCommand).where(AgentRuntimeCommand.id==command_id,AgentRuntimeCommand.status=="processing").values(status="succeeded",completed_at=now,updated_at=now,error_code=None)
+    async def complete(self, command_id:UUID, worker_id:str, now:datetime) -> bool:
+        stmt=update(AgentRuntimeCommand).where(
+            AgentRuntimeCommand.id==command_id,
+            AgentRuntimeCommand.status=="processing",
+            AgentRuntimeCommand.claimed_by==worker_id,
+        ).values(status="succeeded",completed_at=now,updated_at=now,error_code=None)
         return (await self._session.execute(stmt)).rowcount==1
 
-    async def fail_or_retry(self, command_id:UUID, *, now:datetime, retry_at:datetime, error_code:str) -> str | None:
-        command=(await self._session.execute(select(AgentRuntimeCommand).where(AgentRuntimeCommand.id==command_id,AgentRuntimeCommand.status=="processing").with_for_update())).scalar_one_or_none()
+    async def fail_or_retry(self, command_id:UUID, *, worker_id:str, now:datetime, retry_at:datetime, error_code:str) -> str | None:
+        command=(await self._session.execute(select(AgentRuntimeCommand).where(
+            AgentRuntimeCommand.id==command_id,
+            AgentRuntimeCommand.status=="processing",
+            AgentRuntimeCommand.claimed_by==worker_id,
+        ).with_for_update())).scalar_one_or_none()
         if command is None: return None
         terminal=command.attempt_count>=command.max_attempts
         # 保留首次失败的真实错误码：重试时的次生错误（如状态冲突）不得掩盖根因。

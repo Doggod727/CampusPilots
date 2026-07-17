@@ -50,7 +50,8 @@ def test_worker_claims_with_fresh_sessions_and_marks_success() -> None:
     processor = MagicMock(); processor.process = AsyncMock()
     with patch("app.modules.agent_platform.runtime_worker.RuntimeCommandRepository", side_effect=[claim_repo, process_repo]):
         count = asyncio.run(RuntimeWorker(sessions=session_context, processor_factory=lambda _: processor, worker_id="worker-1", now=lambda: NOW).run_once())
-    assert count == 1 and len(sessions) == 2; processor.process.assert_awaited_once_with(command); process_repo.complete.assert_awaited_once()
+    assert count == 1 and len(sessions) == 2; processor.process.assert_awaited_once_with(command)
+    process_repo.complete.assert_awaited_once_with(command.id,"worker-1",NOW)
 
 
 def test_worker_retries_then_marks_run_failed_without_leaking_exception() -> None:
@@ -65,6 +66,7 @@ def test_worker_retries_then_marks_run_failed_without_leaking_exception() -> Non
     with patch("app.modules.agent_platform.runtime_worker.RuntimeCommandRepository", side_effect=[claim_repo, process_repo]):
         asyncio.run(RuntimeWorker(sessions=session_context, processor_factory=lambda _: processor, worker_id="worker-1", now=lambda: NOW, failures=failures).run_once())
     assert process_repo.fail_or_retry.await_args.kwargs["error_code"] == "AGENT_RUNTIME_FAILED"
+    assert process_repo.fail_or_retry.await_args.kwargs["worker_id"] == "worker-1"
     failures.mark_failed.assert_awaited_once_with(sessions[1], RUN, "AGENT_RUNTIME_FAILED")
 
 

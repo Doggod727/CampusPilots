@@ -12,8 +12,17 @@
 
 ## 当前模块
 
-- M4：公共基础与平台治理
-- 开发分支：`m4`
+- 全项目集成收尾：M5 强化、ModelOps、前端与部署验收
+- 开发分支：`integration`（PR #182，完成后转 Ready，不自动合并）
+
+## 全项目集成收尾进度
+
+- [x] [#188 M5：验证双 Runtime Worker 并发领取事务 Outbox](https://github.com/Doggod727/CampusPilot/issues/188)（2026-07-17）
+  - 新增 PowerShell 7 可重复探针，拒绝已有 Worker 和真实积压命令，只启动并终止自身创建的两个生产 Runtime Worker 进程；临时日志不进入仓库且不回显配置或凭证。
+  - 探针在真实 PostgreSQL 的同一事务中创建 40 个无外部副作用的 cancel Run/Outbox，验证完成后按精确 Run ID 级联清理，不创建幂等、审计、Step、ToolCall 或 Checkpoint 数据。
+  - 实测两个 Worker 各领取 20 条命令且领取区间重叠；40 个命令均一次成功、40 个 Run 均安全取消、40 个终态事件均为唯一 sequence=1，失败和 active 命令均为 0。
+  - 命令完成与失败重试增加 `claimed_by` 所有权条件；同机 Worker 默认 ID 改为 `hostname:pid`，并允许通过 `AGENT_RUNTIME_WORKER_ID` 显式指定。
+  - 定向测试 14 项、全量测试 `725 passed`；compileall、Alembic 唯一 Head `0009_agent_steps_status_length`、真实 current、离线完整升降级、136 个 OpenAPI operationId 解析与 Redocly lint 全部通过。
 
 ## 契约与设计差异
 
@@ -721,4 +730,4 @@
 - [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。
 - [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
 - [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
-- [ ] 真实 PostgreSQL/Redis/DeepSeek 环境可用后执行 M5 Outbox并发领取、Checkpoint恢复、审批一次消费、SSE重放、限流和Provider故障集成验证。
+- [ ] 继续执行 M5 Checkpoint 崩溃恢复、审批一次消费、SSE重放、用户/IP 双维度限流和 Provider 故障集成验证；Outbox 双 Worker 并发领取已由 #188 在真实 PostgreSQL 下完成。
