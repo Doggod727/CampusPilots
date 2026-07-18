@@ -45,6 +45,11 @@
   - 新增 `verify-m5-runtime-acceptance.ps1` 汇总入口：启动时拒绝已有 Worker，串行复跑 Outbox 并发、Checkpoint 60 秒恢复、双维度限流、Provider 故障四个真实探针并拉起 Worker 执行完整冒烟，任一环节失败即按稳定错误码中止。
   - 实测汇总报告：`contract_operations=31`、`catalog_tools=14`、`catalog_zero_drift=true`、`real_handlers=14`、四个探针与冒烟全部 `true`；M5 详细设计升级 V0.4 结论，todo.md 移除已完成的 Runtime 待办（保留审批到期协调与启动恢复保真两条边界）。
   - 定向测试 35 项、全量测试 `765 passed`；compileall、Alembic 唯一/真实 Head、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
+- [x] [#193 M5：生产 Evaluation Provider Registry 与 Fake 隔离](https://github.com/Doggod727/CampusPilot/issues/193)（2026-07-18）
+  - 新增 `MODELOPS_EXECUTION_MODE=disabled|local`（默认 disabled，本机 local）；生产 `evaluation_worker` 改用 `build_production_evaluator_registry`，未接入真实 Provider 前对所有目标类型 fail-closed。
+  - `DeterministicFakeEvaluator`/`deterministic_fake_registry` 迁出生产模块至 `tests/fake_evaluators.py`，仅供测试装配；生产入口源码静态检查无 Fake 引用。
+  - 真实环境实测：生产评估 Worker 领取探针任务后以 `EVALUATION_PROVIDER_UNAVAILABLE` 稳定失败、零指标写入，探针行精确清理。
+  - 定向测试 40 项、全量测试 `770 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
 
 ## 契约与设计差异
 

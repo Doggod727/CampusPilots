@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     dataset_artifact_root: Path = Path("/data/datasets")
     dataset_upload_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
     training_gpu_enabled: bool = False
+    modelops_execution_mode: str = Field(default="disabled", pattern="^(disabled|local)$")
     local_training_base_models: str = "Qwen/Qwen2.5-1.5B-Instruct"
     knowledge_upload_root: Path = Path("/data/knowledge")
     knowledge_max_file_bytes: int = Field(default=20 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
