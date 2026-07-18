@@ -81,6 +81,11 @@
   - 新增仓库级审计 `test_openapi_contract_audit.py`：136 个 operationId 全局唯一、方法与路径逐一对应；M5 关键 operation 响应矩阵（429/409/502/504/SSE text-event-stream）不缺失；仅健康检查与登出允许不声明 401。
   - 实测 136/136 零漂移；Redocly lint 0 error/0 warning（≤5 条既有非阻断警告约束满足）。
   - 定向测试 88 项、全量测试 `808 passed`；compileall 通过。
+- [x] [#200 后端：README/AGENTS/todo 文档同步](https://github.com/Doggod727/CampusPilot/issues/200)（2026-07-18）
+  - README 重写为简洁版：前置环境（conda env、E 盘 PG/Redis）→ 配置 → 迁移与种子 → 启动（API + 四 Worker）→ 验证（health、冒烟、探针）→ 前端开发中。
+  - AGENTS.md 同步真实状态：唯一 Composition 14/14 真实 Handler、ModelOps 真实能力（MODELOPS_EXECUTION_MODE、真实训练与五类评估）、本机环境与依赖钉版、迁移 0009、实测 808 passed/冒烟 68/0；移除“M3 Mock/Chroma 未配置/无真实环境”等过时表述。
+  - todo.md 待办收敛：已完成的迁移/ready/M1 E2E/种子幂等待办归档，仅保留审批到期协调、启动恢复保真、Compose 代理、QLoRA/本地评估边界与前端批次。
+  - 根目录 AGENTS.md 与 DESIGN.md 纳入版本控制。
 
 ## 契约与设计差异
 
@@ -786,8 +791,12 @@
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
 - [ ] 前端与 Docker Compose 转入后续批次；M1/M3 真实 Handler 已替换 M5 显式 Mock（#192 验收确认 14/14 Tool 均为真实 Handler、目录零漂移）。
-- [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
-- [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
+## 待办
+
 - [ ] M5 审批到期协调真实环境验证（过期审批的决策与恢复拒绝）；Outbox 并发、Checkpoint 崩溃恢复、用户/IP 双维度限流与 DeepSeek Provider 故障矩阵已分别由 #188/#189/#190/#191 在真实 PostgreSQL/Redis 下完成，SSE 重放由冒烟覆盖。
 - [ ] Compose/Nginx 收尾时显式配置 Uvicorn 可信代理来源；不得信任任意 `X-Forwarded-For`。Redis 不可用时限流当前落为通用 500，后续契约总审计决定并同步稳定 fail-closed 503 语义。
 - [ ] Agent Run 启动恢复保真：当前 Worker 只取得 `input_summary[:1000]`，公开创建请求的 1001–4000 字输入以及 mode/context 尚未进入认证加密恢复状态（在 M5 后续强化批次处理）。
+- [ ] 前端与 Docker Compose 后续批次（自合并后 main 建 `frontend` 分支）；M1/M3 真实 Handler 已替换 M5 显式 Mock（#192 验收确认 14/14 Tool 均为真实 Handler、目录零漂移）。
+- [ ] QLoRA 需 CUDA+bitsandbytes（本机仅 CPU，当前稳定拒绝）；本地模型评估当前仅 LoRA 产物前向损失对比。
+
+> 已完成并归档：真实空库迁移升→降→升、`/health/ready` 集成、M1 真实上传→入库→检索→REST/SSE→Tool 端到端、重复种子幂等、M1/M3 真实 Handler 替换 Mock（均由集成批次实测，见上文各 Issue 记录与冒烟/探针证据）。
