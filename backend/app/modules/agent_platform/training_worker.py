@@ -279,7 +279,7 @@ class TrainingWorker:
                 job_id,
                 status="succeeded",
                 progress=100,
-                artifact_key=f"training/{job_id}/{ADAPTER_FILENAME}",
+                artifact_key=f"artifacts/{job_id}/{ADAPTER_FILENAME}",
                 artifact_sha256=outcome.artifact_sha256,
                 metrics=outcome.metrics,
                 finished=True,

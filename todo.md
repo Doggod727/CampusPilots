@@ -61,6 +61,11 @@
   - `build_production_evaluator_registry(settings, sessions)`：disabled fail-closed、local 装配五类真实 Provider；生产脚本传入真实会话工厂。
   - 真实环境实测：五类探针任务全部 queued→succeeded，指标来自真实执行（model latency_avg=924.2ms、rag recall_at_k=0.1667（5/30 兜底判例正确、当前语料对通用题零覆盖，如实记录）、tool/agent/system 全通过）；样本/Prompt/输出不进入 summary 与日志；探针数据精确清理。
   - 定向测试 59 项、全量测试 `785 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
+- [x] [#196 M5：模型产物归属与激活安全链加固](https://github.com/Doggod727/CampusPilot/issues/196)（2026-07-18）
+  - 注册携带 `training_job_id` 时校验训练任务存在、succeeded 且 `artifact_key` 正是该任务登记产物，否则 `409 MODEL_ARTIFACT_INVALID`；同 purpose 并发/重复双激活的唯一索引冲突映射为稳定 `409 MODEL_STATE_CONFLICT`（不再落 500）。
+  - 修正训练产物 `artifact_key` 与磁盘布局不一致（`artifacts/{job_id}/...` 统一），使模型注册的磁盘重算哈希校验可真实命中。
+  - 真实环境实测：归属注册 201、篡改哈希/孤儿任务/未完成任务 409、无评估激活 409、评估后激活原子切换且审计完整、complex_generation 本地激活 409 FALLBACK；种子 active 模型状态已恢复，探针数据精确清理。
+  - 定向测试 65 项、全量测试 `791 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
 
 ## 契约与设计差异
 

@@ -115,7 +115,7 @@ def test_worker_success_persists_artifact_metrics_and_terminal_state(tmp_path):
     _, run_id, _ = build_worker(tmp_path, current, SuccessBackend())
     assert run_id == current.id
     assert current.status == "succeeded" and current.progress == 100
-    assert current.artifact_key == f"training/{current.id}/adapter_model.safetensors"
+    assert current.artifact_key == f"artifacts/{current.id}/adapter_model.safetensors"
     assert current.artifact_sha256 == "b" * 64
     assert current.metrics == {"steps": 4}
     assert current.finished_at == NOW
