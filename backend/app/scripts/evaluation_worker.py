@@ -8,7 +8,7 @@ from app.modules.agent_platform.evaluation_worker import EvaluationWorker, build
 async def main() -> None:
     settings = get_settings()
     database = Database.from_settings(settings)
-    worker = EvaluationWorker(database.session, build_production_evaluator_registry(settings))
+    worker = EvaluationWorker(database.session, build_production_evaluator_registry(settings, database.session))
     try:
         while True:
             processed = await worker.run_once()

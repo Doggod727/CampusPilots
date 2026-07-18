@@ -56,6 +56,11 @@
   - 真实环境实测：tiny-random-gpt2 + 8 条冻结文本样本完成最小真实 LoRA（steps=4，initial_loss≈6.915→final_loss≈6.902），产物 21720 字节且 SHA-256 与数据库一致；探针数据（任务/数据集/审计/幂等）全部精确清理。
   - 顺带修复真实环境缺陷：数据集上传路由在事务外裸读 `detail` 导致 `A transaction is already begun` 500，检查移入 mutation 事务内（附回归测试）。
   - 定向测试 48 项、全量测试 `778 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
+- [x] [#195 M5：五类真实 Evaluation Provider](https://github.com/Doggod727/CampusPilot/issues/195)（2026-07-18）
+  - 新增 `evaluation_providers.py`：RAG（冻结 30 题关键词 Recall@K/MRR/引用覆盖，fallback 判例按零引用计分）、Agent（真实 DeepSeek Specialist 冻结任务）、Tool（仅 R0 只读工具，非 R0 用例稳定拒绝）、Model（deepseek 目标网关 sanity + 真实延迟，local 目标稳定拒绝）、System（检索+DeepSeek 探活+数据库探活）。
+  - `build_production_evaluator_registry(settings, sessions)`：disabled fail-closed、local 装配五类真实 Provider；生产脚本传入真实会话工厂。
+  - 真实环境实测：五类探针任务全部 queued→succeeded，指标来自真实执行（model latency_avg=924.2ms、rag recall_at_k=0.1667（5/30 兜底判例正确、当前语料对通用题零覆盖，如实记录）、tool/agent/system 全通过）；样本/Prompt/输出不进入 summary 与日志；探针数据精确清理。
+  - 定向测试 59 项、全量测试 `785 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
 
 ## 契约与设计差异
 

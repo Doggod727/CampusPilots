@@ -55,17 +55,22 @@ class EvaluatorRegistry:
             raise LookupError(EVALUATION_PROVIDER_UNAVAILABLE) from exc
 
 
-def build_production_evaluator_registry(settings) -> EvaluatorRegistry:
+def build_production_evaluator_registry(settings, sessions=None) -> EvaluatorRegistry:
     """Production evaluator registry; Fake evaluators are reserved for test fixtures.
 
-    MODELOPS_EXECUTION_MODE=local enables real provider wiring in the ModelOps
-    execution batch; until then every target type fails closed with
-    EVALUATION_PROVIDER_UNAVAILABLE and no fabricated metrics are produced.
+    disabled：全目标类型 fail-closed；local：装配五类真实 Provider（需要 sessions
+    工厂访问真实数据库），未覆盖目标类型 fail-closed。
     """
 
     if settings.modelops_execution_mode not in {"disabled", "local"}:
         raise ValueError("MODELOPS_EXECUTION_MODE must be disabled or local")
-    return EvaluatorRegistry({})
+    if settings.modelops_execution_mode == "disabled":
+        return EvaluatorRegistry({})
+    if sessions is None:
+        raise ValueError("sessions factory is required for local modelops execution")
+    from app.modules.agent_platform.evaluation_providers import build_local_evaluators
+
+    return EvaluatorRegistry(build_local_evaluators(settings, sessions))
 
 
 class EvaluationWorker:

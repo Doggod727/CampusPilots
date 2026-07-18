@@ -46,12 +46,13 @@ def test_production_worker_entry_has_no_fake_evaluator_reference():
 
 
 def test_production_registry_fails_closed_for_all_target_types_in_both_modes():
-    for mode in ("disabled", "local"):
-        registry = build_production_evaluator_registry(SimpleNamespace(modelops_execution_mode=mode))
-        for target_type in TARGET_TYPES:
-            with pytest.raises(LookupError) as caught:
-                registry.resolve(target_type)
-            assert EVALUATION_PROVIDER_UNAVAILABLE in str(caught.value)
+    registry = build_production_evaluator_registry(SimpleNamespace(modelops_execution_mode="disabled"))
+    for target_type in TARGET_TYPES:
+        with pytest.raises(LookupError) as caught:
+            registry.resolve(target_type)
+        assert EVALUATION_PROVIDER_UNAVAILABLE in str(caught.value)
+    with pytest.raises(ValueError):
+        build_production_evaluator_registry(SimpleNamespace(modelops_execution_mode="local"))
 
 
 def test_production_registry_rejects_unknown_mode():
