@@ -77,6 +77,10 @@
   - 新增仓库级守护测试 `test_scu_snapshot.py`：个人敏感模式与缺失 `source_url` 文档入库即失败。
   - 幂等实测：`seed_demo` 连续两次执行后用户/部门/指南/联系窗口/知识库/文档/话题数量完全一致。
   - 定向测试 77 项、全量测试 `797 passed`；compileall 通过。
+- [x] [#199 后端：136 个 OpenAPI 契约总审计](https://github.com/Doggod727/CampusPilot/issues/199)（2026-07-18）
+  - 新增仓库级审计 `test_openapi_contract_audit.py`：136 个 operationId 全局唯一、方法与路径逐一对应；M5 关键 operation 响应矩阵（429/409/502/504/SSE text-event-stream）不缺失；仅健康检查与登出允许不声明 401。
+  - 实测 136/136 零漂移；Redocly lint 0 error/0 warning（≤5 条既有非阻断警告约束满足）。
+  - 定向测试 88 项、全量测试 `808 passed`；compileall 通过。
 
 ## 契约与设计差异
 
