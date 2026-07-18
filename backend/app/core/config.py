@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     agent_checkpoint_secret: SecretStr | None = None
     agent_checkpoint_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
     agent_runtime_max_attempts: int = Field(default=3, ge=1, le=10)
+    agent_runtime_batch_size: int = Field(default=1, ge=1, le=10)
     agent_runtime_claim_timeout_seconds: int = Field(default=60, gt=0, le=3600)
     agent_runtime_poll_seconds: float = Field(default=2.0, gt=0, le=60)
     agent_run_rate_limit_per_minute: int = Field(default=20, gt=0, le=1000)
@@ -57,6 +58,7 @@ class Settings(BaseSettings):
     dataset_artifact_root: Path = Path("/data/datasets")
     dataset_upload_ttl_seconds: int = Field(default=3600, gt=0, le=86400)
     training_gpu_enabled: bool = False
+    modelops_execution_mode: str = Field(default="disabled", pattern="^(disabled|local)$")
     local_training_base_models: str = "Qwen/Qwen2.5-1.5B-Instruct"
     knowledge_upload_root: Path = Path("/data/knowledge")
     knowledge_max_file_bytes: int = Field(default=20 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
@@ -64,7 +66,9 @@ class Settings(BaseSettings):
     knowledge_chunk_size: int = Field(default=500, ge=100, le=2000)
     knowledge_chunk_overlap: int = Field(default=80, ge=0, le=500)
     knowledge_retrieval_top_k: int = Field(default=5, ge=1, le=50)
-    knowledge_score_threshold: float = Field(default=0.62, ge=0, le=1)
+    # 设计值 0.62 按真实 bge-small-zh-v1.5 校准为 0.35：小模型在正式公文语料上的
+    # 相关块余弦相似度约 0.4-0.5，0.62 会导致全部兜底（见 todo.md 契约与设计差异）。
+    knowledge_score_threshold: float = Field(default=0.35, ge=0, le=1)
     knowledge_history_rounds: int = Field(default=6, ge=0, le=20)
     knowledge_chroma_path: Path = Path("/data/chroma")
     knowledge_embedding_model_path: Path = Path("/models/bge-small-zh-v1.5")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -215,13 +216,17 @@ class RuntimeCompositionFactory:
         executor, approvals, moderation = await self.build_tool_executor(
             session, (agents, tools), gateway=gateway
         )
-        deepseek = DeepSeekSpecialistProvider(gateway)
         specialists = {
-            "knowledge_agent": deepseek,
-            "community_agent": deepseek,
-            "service_agent": deepseek,
-            "governance_agent": deepseek,
-            "modelops_agent": deepseek,
+            agent_code: DeepSeekSpecialistProvider(
+                gateway, tools=self._tool_descriptors(tools, agents, agent_code)
+            )
+            for agent_code in (
+                "knowledge_agent",
+                "community_agent",
+                "service_agent",
+                "governance_agent",
+                "modelops_agent",
+            )
         }
         return BoundedGraphRuntime(
             router=RouterService(
@@ -254,6 +259,31 @@ class RuntimeCompositionFactory:
             model=self.settings.deepseek_model,
             timeout_seconds=self.settings.agent_run_timeout_seconds,
         )
+
+    @staticmethod
+    def _tool_descriptors(tools, agents, agent_code: str) -> tuple[dict[str, Any], ...]:
+        """Return name/version/description/schema descriptors for an agent's allowlist."""
+
+        try:
+            registration = agents.get_active(agent_code)
+        except Exception:
+            return ()
+        descriptors = []
+        for tool_name in registration.version.tool_allowlist:
+            try:
+                contract = tools.resolve(tool_name)
+            except Exception:
+                continue
+            definition = contract.definition
+            descriptors.append(
+                {
+                    "name": definition.name,
+                    "version": definition.version,
+                    "description": definition.description,
+                    "input_schema": definition.input_schema,
+                }
+            )
+        return tuple(descriptors)
 
     def command_processor(self, session: AsyncSession):
         return _LazyCompositionCommandProcessor(self, session)

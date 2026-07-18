@@ -50,7 +50,7 @@ def _samples(context: UserContext, room_id: UUID) -> dict[str, dict[str, object]
         },
         "work_order.get": {"work_order_id": owned_work_order_id(context)},
         "electricity.get_balance": {"room_id": room_id},
-        "electricity.create_topup_request": {"room_id": room_id, "amount": Decimal("20.00")},
+        "electricity.create_topup_request": {"room_id": room_id, "amount_cny": Decimal("20.00")},
         "event.search": {"query": "志愿"},
         "event.register": {"event_id": uuid4()},
         "lost_found.publish": {

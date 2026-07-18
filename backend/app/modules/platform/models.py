@@ -461,7 +461,7 @@ class IdempotencyRecord(Base):
     idempotency_key: Mapped[str] = mapped_column(String(128))
     request_hash: Mapped[str] = mapped_column(CHAR(64))
     response_status: Mapped[int | None] = mapped_column(Integer())
-    response_body: Mapped[object | None] = mapped_column(JSONB())
+    response_body: Mapped[object | None] = mapped_column(JSONB(none_as_null=True))
     resource_type: Mapped[str | None] = mapped_column(String(100))
     resource_id: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
@@ -509,8 +509,8 @@ class AuditLog(Base):
     request_id: Mapped[str] = mapped_column(String(64))
     ip_address: Mapped[str | None] = mapped_column(INET())
     user_agent: Mapped[str | None] = mapped_column(String(500))
-    before_data: Mapped[dict[str, object] | None] = mapped_column(JSONB())
-    after_data: Mapped[dict[str, object] | None] = mapped_column(JSONB())
+    before_data: Mapped[dict[str, object] | None] = mapped_column(JSONB(none_as_null=True))
+    after_data: Mapped[dict[str, object] | None] = mapped_column(JSONB(none_as_null=True))
     error_code: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

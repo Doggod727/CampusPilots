@@ -1,8 +1,10 @@
 import asyncio
+import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import delete, literal, select, text, true
@@ -291,14 +293,14 @@ DEMO_ACCOUNTS = (
         "service01",
         "服务处理员",
         "service01@example.edu",
-        "后勤保障处",
+        "后勤保障部",
         "service_staff",
     ),
     DemoAccount(
         "community01",
         "社区运营员",
         "community01@example.edu",
-        "学生工作处",
+        "党委学生工作部（处）",
         "community_operator",
     ),
     DemoAccount("student01", "张同学", "student01@example.edu", "计算机学院", "student"),
@@ -353,222 +355,100 @@ DEMO_LOST_FOUND_IDS = (
 DEMO_LOST_FOUND_MATCH_ID = UUID("77000000-0000-4000-8000-000000000001")
 DEMO_LOST_FOUND_CLAIM_ID = UUID("78000000-0000-4000-8000-000000000001")
 
-CAMPUS_SEEDS = (
-    CampusSeed("main", "主校区", "示例市大学路 1 号", 10),
-    CampusSeed("east", "东校区", "示例市学府路 8 号", 20),
+_SCU_SEED_PATH = Path(__file__).resolve().parent / "data" / "scu" / "seed_data.json"
+
+
+def _load_scu_seed_data(path: Path = _SCU_SEED_PATH) -> dict:
+    """Load the Sichuan University public data snapshot (see data/scu/README.md)."""
+
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+_SCU = _load_scu_seed_data()
+
+CAMPUS_SEEDS = tuple(
+    CampusSeed(campus["code"], campus["name"], campus["address"], campus["sort_order"])
+    for campus in _SCU["campuses"]
 )
 
 WORK_ORDER_SCOPES_CONFIG_KEY = "campus_service.work_order_service_scopes"
 
-DEPARTMENT_SEEDS = (
-    DepartmentSeed(
-        UUID("10000000-0000-4000-8000-000000000001"),
-        "student_affairs",
-        "学生事务中心",
-        "学生证明、奖助与综合事务",
-    ),
-    DepartmentSeed(
-        UUID("10000000-0000-4000-8000-000000000002"),
-        "logistics",
-        "后勤保障中心",
-        "宿舍、维修与校园生活保障",
-    ),
-    DepartmentSeed(
-        UUID("10000000-0000-4000-8000-000000000003"),
-        "academic_affairs",
-        "教务处",
-        "学籍、课程与教学事务",
-    ),
+DEPARTMENT_SEEDS = tuple(
+    DepartmentSeed(UUID(department["id"]), department["code"], department["name"], department["description"])
+    for department in _SCU["departments"]
 )
 
-CONTACT_SEEDS = (
+CONTACT_SEEDS = tuple(
     ContactSeed(
-        UUID("20000000-0000-4000-8000-000000000001"),
-        "student_affairs",
-        "main",
-        "王老师",
-        "学生事务综合窗口",
-        "010-55550001",
-        "student@example.edu.cn",
-        "行政楼一层 101",
-        "工作日 09:00-12:00，14:00-17:00",
-    ),
-    ContactSeed(
-        UUID("20000000-0000-4000-8000-000000000002"),
-        "logistics",
-        "main",
-        None,
-        "后勤报修值班室",
-        "010-55550002",
-        None,
-        "后勤楼 105",
-        "每日 08:00-20:00",
-    ),
-    ContactSeed(
-        UUID("20000000-0000-4000-8000-000000000003"),
-        "academic_affairs",
-        "east",
-        "李老师",
-        "教务服务窗口",
-        "010-55550003",
-        "academic@example.edu.cn",
-        "东校区综合楼 203",
-        "工作日 09:00-16:30",
-    ),
+        UUID(contact["id"]),
+        contact["department_code"],
+        contact["campus_code"],
+        contact["contact_name"],
+        contact["office_name"],
+        contact["phone"],
+        contact["email"],
+        contact["location"],
+        contact["office_hours"],
+    )
+    for contact in _SCU["contacts"]
 )
 
-GUIDE_CATEGORY_SEEDS = (
-    GuideCategorySeed(
-        UUID("30000000-0000-4000-8000-000000000001"),
-        "student_certificate",
-        "证明办理",
-        10,
-    ),
-    GuideCategorySeed(
-        UUID("30000000-0000-4000-8000-000000000002"),
-        "academic_record",
-        "学籍教务",
-        20,
-    ),
-    GuideCategorySeed(
-        UUID("30000000-0000-4000-8000-000000000003"),
-        "campus_life",
-        "校园生活",
-        30,
-    ),
+GUIDE_CATEGORY_SEEDS = tuple(
+    GuideCategorySeed(UUID(category["id"]), category["code"], category["name"], category["sort_order"])
+    for category in _SCU["guide_categories"]
 )
 
-SERVICE_GUIDE_SEEDS = (
+SERVICE_GUIDE_SEEDS = tuple(
     ServiceGuideSeed(
-        UUID("40000000-0000-4000-8000-000000000001"),
-        "enrollment_certificate",
-        "student_certificate",
-        "student_affairs",
-        "在读证明办理",
-        "面向在校学生开具中文或英文在读证明。",
-        "行政楼一层 101",
-        "工作日 09:00-12:00，14:00-17:00",
-        "https://example.edu.cn/guides/enrollment-certificate",
-        date(2026, 12, 31),
-    ),
-    ServiceGuideSeed(
-        UUID("40000000-0000-4000-8000-000000000002"),
-        "student_card_replacement",
-        "campus_life",
-        "student_affairs",
-        "学生证补办",
-        "学生证遗失或损坏后的挂失与补办流程。",
-        "行政楼一层 101",
-        "工作日 09:00-16:30",
-        "https://example.edu.cn/guides/student-card",
-        date(2026, 12, 31),
-    ),
+        UUID(guide["id"]),
+        guide["code"],
+        guide["category_code"],
+        guide["department_code"],
+        guide["title"],
+        guide["summary"],
+        guide["location"],
+        guide["service_hours"],
+        guide["source_url"],
+        date.fromisoformat(guide["valid_until"]),
+    )
+    for guide in _SCU["service_guides"]
 )
 
-GUIDE_APPLICABILITY_SEEDS = (
+GUIDE_APPLICABILITY_SEEDS = tuple(
     GuideApplicabilitySeed(
-        "enrollment_certificate", "main", "undergraduate", "主校区本科生"
-    ),
-    GuideApplicabilitySeed(
-        "enrollment_certificate", "main", "postgraduate", "主校区研究生"
-    ),
-    GuideApplicabilitySeed(
-        "enrollment_certificate", "east", "undergraduate", "东校区本科生可线上申请"
-    ),
-    GuideApplicabilitySeed(
-        "student_card_replacement", "main", "all", "主校区在校生"
-    ),
+        applicability["guide_code"],
+        applicability["campus_code"],
+        applicability["student_type"],
+        applicability["notes"],
+    )
+    for applicability in _SCU["guide_applicability"]
 )
 
-GUIDE_MATERIAL_SEEDS = (
+GUIDE_MATERIAL_SEEDS = tuple(
     GuideMaterialSeed(
-        UUID("50000000-0000-4000-8000-000000000001"),
-        "enrollment_certificate",
-        "本人有效学生证或校园卡",
-        "用于线下核验身份。",
-        True,
-        1,
-        {},
-        10,
-    ),
-    GuideMaterialSeed(
-        UUID("50000000-0000-4000-8000-000000000002"),
-        "enrollment_certificate",
-        "英文姓名确认页",
-        "仅申请英文证明时需要。",
-        False,
-        1,
-        {"student_types": ["international"]},
-        20,
-    ),
-    GuideMaterialSeed(
-        UUID("50000000-0000-4000-8000-000000000003"),
-        "student_card_replacement",
-        "证件照",
-        "一寸近期证件照。",
-        True,
-        1,
-        {},
-        10,
-    ),
-    GuideMaterialSeed(
-        UUID("50000000-0000-4000-8000-000000000004"),
-        "student_card_replacement",
-        "损坏的原学生证",
-        "仅学生证损坏时提交。",
-        False,
-        1,
-        {},
-        20,
-    ),
+        UUID(material["id"]),
+        material["guide_code"],
+        material["name"],
+        material["description"],
+        material["required"],
+        material["copies"],
+        material["condition"],
+        material["sort_order"],
+    )
+    for material in _SCU["guide_materials"]
 )
 
-GUIDE_STEP_SEEDS = (
+GUIDE_STEP_SEEDS = tuple(
     GuideStepSeed(
-        UUID("60000000-0000-4000-8000-000000000001"),
-        "enrollment_certificate",
-        1,
-        "准备材料",
-        "确认申请语言与份数，准备身份凭证。",
-        None,
-        5,
-    ),
-    GuideStepSeed(
-        UUID("60000000-0000-4000-8000-000000000002"),
-        "enrollment_certificate",
-        2,
-        "提交申请",
-        "前往学生事务综合窗口提交申请。",
-        "行政楼一层 101",
-        10,
-    ),
-    GuideStepSeed(
-        UUID("60000000-0000-4000-8000-000000000003"),
-        "enrollment_certificate",
-        3,
-        "领取证明",
-        "按受理回执约定时间领取。",
-        "行政楼一层 101",
-        5,
-    ),
-    GuideStepSeed(
-        UUID("60000000-0000-4000-8000-000000000004"),
-        "student_card_replacement",
-        1,
-        "挂失",
-        "先在学生事务窗口办理学生证挂失。",
-        "行政楼一层 101",
-        10,
-    ),
-    GuideStepSeed(
-        UUID("60000000-0000-4000-8000-000000000005"),
-        "student_card_replacement",
-        2,
-        "提交补办材料",
-        "提交证件照并核验本人身份。",
-        "行政楼一层 101",
-        10,
-    ),
+        UUID(step["id"]),
+        step["guide_code"],
+        step["step_no"],
+        step["title"],
+        step["description"],
+        step["location"],
+        step["estimated_minutes"],
+    )
+    for step in _SCU["guide_steps"]
 )
 
 
@@ -758,8 +638,8 @@ def _work_order_scope_config_upsert_statement(service_user_id: UUID):
             "users": {
                 str(service_user_id): [
                     {
-                        "campus_code": "main",
-                        "dormitory_areas": ["演示宿舍区", "梅园", "竹园"],
+                        "campus_code": "jiangan",
+                        "dormitory_areas": ["西园", "东园"],
                     }
                 ]
             }
@@ -998,10 +878,10 @@ def _guide_step_upsert_statement(seed: GuideStepSeed):
 def _electricity_account_upsert_statement():
     statement = insert(ElectricityAccount).values(
         room_id=DEMO_ELECTRICITY_ROOM_ID,
-        campus_code="main",
-        dormitory_area="演示宿舍区",
-        building="A",
-        room="101",
+        campus_code="jiangan",
+        dormitory_area="西园",
+        building="6舍",
+        room="301",
         balance=88.50,
         currency="CNY",
         source="mock",
@@ -1085,10 +965,10 @@ def _demo_work_order_upsert_statements():
         submitted_at = base_time + timedelta(days=index)
         statement = insert(WorkOrder).values(
             **row,
-            campus_code="main",
-            dormitory_area="演示宿舍区",
-            building="A",
-            room="101",
+            campus_code="jiangan",
+            dormitory_area="西园",
+            building="6舍",
+            room="301",
             fault_category=("network" if index == 1 else "electric"),
             description="用于校园服务中心验收的固定演示报修工单。",
             preferred_start_at=submitted_at + timedelta(days=1),
@@ -1204,8 +1084,8 @@ def _demo_topic_upsert_statement(seed: tuple[UUID, str, str, str, bool, int]):
 
 def _demo_event_upsert_statements():
     values = (
-        (DEMO_EVENT_IDS[0], "校园志愿服务日", "参与校园公共空间整理与志愿服务。", "volunteer", "主校区广场", 40),
-        (DEMO_EVENT_IDS[1], "社团开放体验", "面向全校同学的社团展示与体验活动。", "club", "大学生活动中心", 80),
+        (DEMO_EVENT_IDS[0], "校园志愿服务日", "参与校园公共空间整理与志愿服务。", "volunteer", "江安校区青春广场", 40),
+        (DEMO_EVENT_IDS[1], "社团开放体验", "面向全校同学的社团展示与体验活动。", "club", "江安校区学生活动中心", 80),
     )
     statements = []
     for index, (event_id, title, description, category, location, capacity) in enumerate(values):
@@ -1252,7 +1132,7 @@ def _demo_sensitive_lost_found_statements(key):
         statement = insert(LostFoundItem).values(id=item_id, owner_user_id=_demo_user_id(username),
             item_type=item_type, title=title, category="card",
             description="黑色卡套，内有校园卡相关物品。", occurred_at=occurred,
-            location="主校区图书馆一楼", contact_type="other",
+            location="江安校区图书馆一楼", contact_type="other",
             contact_ciphertext=cipher.encrypt(contact), contact_hint=f"***{username[-4:]}",
             status=status, risk_level="low", moderation_case_id=None,
             moderation_policy_version="seed-v1", published_at=occurred,

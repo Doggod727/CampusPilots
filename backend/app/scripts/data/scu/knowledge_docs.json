@@ -1,0 +1,19 @@
+{
+  "source": "https://www.scu.edu.cn/ 公开新闻与公告",
+  "collected_at": "2026-07-17",
+  "note": "正文全文保存于 docs/ 目录同名 markdown 文件；front-matter 记录来源 URL 与发布日期。",
+  "documents": [
+    {"file": "docs/school-intro.md", "title": "四川大学学校简介", "source_url": "https://www.scu.edu.cn/xxgk/xxjj.htm", "published_at": "2025-12-31", "category": "学校概况"},
+    {"file": "docs/campuses.md", "title": "四川大学校区与地址", "source_url": "https://www.scu.edu.cn/", "published_at": "2026-07-17", "category": "学校概况"},
+    {"file": "docs/anniversary-130.md", "title": "四川大学130周年校庆公告（第一号）", "source_url": "https://www.scu.edu.cn/info/1203/37162.htm", "published_at": "2025-09-29", "category": "公告"},
+    {"file": "docs/news-national-science-awards.md", "title": "我校8项成果获2025年度国家科学技术奖", "source_url": "https://www.scu.edu.cn/info/1203/40026.htm", "published_at": "2026-07-08", "category": "川大要闻"},
+    {"file": "docs/news-party-study-session.md", "title": "学校党委理论学习中心组召开学习会", "source_url": "https://www.scu.edu.cn/info/1203/40015.htm", "published_at": "2026-07-07", "category": "川大要闻"},
+    {"file": "docs/news-july-first-commendation.md", "title": "四川大学举行庆祝中国共产党成立105周年暨“七一”表彰大会", "source_url": "https://www.scu.edu.cn/info/1203/39938.htm", "published_at": "2026-07-01", "category": "川大要闻"},
+    {"file": "docs/news-spring-semester-summary.md", "title": "学校召开2026年春季学期工作总结会", "source_url": "https://www.scu.edu.cn/info/1207/40070.htm", "published_at": "2026-07-16", "category": "基层动态"},
+    {"file": "docs/news-graduate-party-role-model.md", "title": "我校研究生获评全国百名研究生党员标兵", "source_url": "https://www.scu.edu.cn/info/1207/40048.htm", "published_at": "2026-07-13", "category": "基层动态"},
+    {"file": "docs/news-ai-school-research.md", "title": "校长汪劲松调研人工智能学院建设情况", "source_url": "https://www.scu.edu.cn/info/1207/40041.htm", "published_at": "2026-07-10", "category": "基层动态"},
+    {"file": "docs/news-summer-practice-departure.md", "title": "我校暑期“三下乡”社会实践活动暨“西部计划”“青年实干家计划”出征仪式举行", "source_url": "https://www.scu.edu.cn/info/1207/40039.htm", "published_at": "2026-07-10", "category": "基层动态"},
+    {"file": "docs/news-women-children-conference.md", "title": "我校承办的第五届华西妇幼国际会议在成都举行", "source_url": "https://www.scu.edu.cn/info/1207/40053.htm", "published_at": "2026-07-10", "category": "基层动态"},
+    {"file": "docs/news-computer-101-plan.md", "title": "计算机“101计划”核心课程建设暨集体备课工作会在我校召开", "source_url": "https://www.scu.edu.cn/info/1207/40057.htm", "published_at": "2026-07-14", "category": "基层动态"}
+  ]
+}

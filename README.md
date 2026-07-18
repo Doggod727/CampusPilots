@@ -1,162 +1,68 @@
 # CampusPilot
 
-学生生活一站式社区 AI 助手。
+学生生活一站式社区 AI 助手：校园服务、社区互助、知识库问答与多智能体能力的一站式平台。
 
-## M4 后端本地运行
+- 后端：Python 3.12 + FastAPI + SQLAlchemy 2.0 异步（PostgreSQL）+ Redis + Chroma + 本地 BGE 向量模型 + DeepSeek API（固定 `deepseek-v4-pro`）。
+- 契约：`docx/deliverables/openapi.yaml`（136 个 operationId，Redocly lint 通过）。
+- 状态：M1–M5 后端全部完成并在真实环境（PostgreSQL 17、Redis、Chroma、BGE、DeepSeek、四川大学公开数据）验证通过；跨模块冒烟 68/0；全量测试 800+。前端与 Docker Compose 开发中。
+
+## 前置环境（本机已就绪）
+
+- conda 环境：`D:\anaconda\envs\campuspilot`（Python 3.12，已安装 `.[dev]`、`.[ai]`、`.[modelops]`）。
+- PostgreSQL 17 便携实例：`E:\CampusPilotServices\PostgreSQL`（`pg_ctl -D data start`）。
+- Redis：本机 6379（Memurai 或便携实例）。
+- Chroma / BGE / 模型与数据目录：均位于 `E:\CampusPilotServices\`（路径见 `.env`）。
+
+## 配置
 
 ```powershell
-Copy-Item .env.example .env
-cd backend
-python -m pip install -e ".[dev]"
-python -m uvicorn app.main:app --reload
+Copy-Item .env.example .env   # 首次
 ```
 
-`.env.example` 只包含本地演示值和密钥占位符。真实的 JWT、DeepSeek 等密钥只写入本机 `.env`，不得提交。当前 `/health/live` 不读取配置或访问外部依赖。
+`.env.example` 只含演示值；真实密钥（JWT、DeepSeek、INTERNAL_TOOL_SECRET、AGENT_CHECKPOINT_SECRET、社区加密）各自独立，只写本机 `.env`（已被 gitignore，严禁提交）。
 
-本地 HTTP 演示使用 `REFRESH_COOKIE_SECURE=false`；生产环境必须在本机部署配置中显式设置为 `true`，否则浏览器不会以 Secure 属性保存 Refresh Cookie。
-
-存活检查：`GET http://localhost:8000/health/live`
-
-就绪检查：`GET http://localhost:8000/health/ready`。该接口只在请求时探测
-PostgreSQL 和 Redis；依赖缺失或不可用返回统一的 `503 SERVICE_NOT_READY`，
-不会在导入应用或存活检查时建立连接。当前仓库没有 Chroma 适配器，响应会明确标记
-`chroma: up / not configured`，真实 PostgreSQL、Redis 和 Chroma 联调需在后续环境完成。
-
-API 使用全局 CORS：仅允许 `FRONTEND_ORIGIN`（自动兼容末尾 `/`），允许凭据以及
-`Authorization`、`Content-Type`、`X-Request-Id`、`Idempotency-Key` 请求头。刷新和登出
-仍额外校验 `Origin`，不因全局 CORS 放宽 Cookie 会话安全边界。
-
-## M5 Agent 运行时配置
-
-M5 的 Router、Agent、Approval、Tool、Reranker 和模型/数据集对象根目录均通过
-`.env` 注入；完整非敏感模板见 `.env.example`。默认采用规则/本地 Router 置信度
-`0.80`、最多 6 步和 3 个专业 Agent，MCP 默认关闭。路径配置只作为未来运行时的
-对象根目录，本任务不会自动创建目录、加载模型或启动训练。DeepSeek API Key 仍只从
-环境变量读取，不写入数据库、日志或配置响应。
-
-DeepSeek 运行时只接受 `deepseek-v4-pro`，请求显式关闭 Thinking，结构化路由、ToolCall
-和最终回答均执行严格 Schema 校验；`reasoning_content` 不进入响应、轨迹或持久化数据。
-首个流式内容前允许有界重试，一旦开始输出便不做透明重试。
-
-内部 Tool HTTP 入口使用独立 `INTERNAL_TOOL_SECRET` Bearer 服务凭证，不接受浏览器或普通
-用户 JWT。该密钥只在内部端点实际调用时读取；未配置时内部端点安全不可用，但应用导入、
-公开 API 和 `/health/live` 不受影响。生产环境必须使用独立随机值，禁止与 JWT、Checkpoint
-或 DeepSeek 密钥复用。
-
-调用 `POST /internal/v1/tools/{tool_name}:invoke` 还必须提供 `Idempotency-Key`，并绑定已有
-Agent Run/Step。R2/R3 Tool 首次调用返回 202 和审批摘要，批准后的相同调用只消费一次审批；
-响应、轨迹和审计只保存脱敏参数摘要。
-
-这些配置只在显式构造 M5 运行时服务时读取；导入应用和调用 `/health/live` 不会因此
-加载模型、连接数据库或访问外部服务。
-
-可恢复运行时使用独立的 `AGENT_CHECKPOINT_SECRET` 对短期 Checkpoint 做认证加密，
-不得与 JWT 或外部 API 密钥复用；`AGENT_CHECKPOINT_TTL_SECONDS` 默认 3600 秒。
-密钥只在显式构造持久化运行时组件时读取，不写入数据库、日志或对象表示。
-
-Agent Run 的启动、恢复和取消使用 PostgreSQL 事务 Outbox。HTTP 事务提交成功即保证命令
-已持久化，Worker 可在崩溃后重新领取；Redis 通知仅用于降低唤醒延迟，不可用时继续按
-`AGENT_RUNTIME_POLL_SECONDS` 轮询数据库。
-
-运行时与评估 Worker 仅在显式进程启动时读取配置和连接依赖：
+## 迁移与种子
 
 ```powershell
 cd backend
-python -m app.scripts.runtime_worker
-python -m app.scripts.evaluation_worker
-```
-
-Agent Run 与内部 Tool 入口分别受 `AGENT_RUN_RATE_LIMIT_PER_MINUTE`、
-`INTERNAL_TOOL_RATE_LIMIT_PER_MINUTE` 的用户/IP 双维度限制，超限统一返回
-`429 RATE_LIMITED` 和 `Retry-After`。生产实现使用 Redis；离线测试使用确定性内存端口。
-
-Agent Run 事件使用 `GET /api/v1/agent-runs/{run_id}/stream` 下行 SSE。客户端可在
-`Last-Event-ID` 传入上次收到的数字 sequence 进行重放；非法或超前游标返回
-`409 AGENT_EVENT_CURSOR_INVALID`。SSE 不接收审批，审批仍调用对应的 HTTP 接口。
-
-数据集上传写入 `DATASET_ARTIFACT_ROOT` 下的隔离区，默认保留 3600 秒且最大 100 MiB。
-仅服务端生成的对象键进入数据库和 API；原始文件名不会作为磁盘路径。
-
-训练 API 当前是 P0 数据库队列骨架：创建只返回 `queued`，不会启动 GPU 或真实微调。
-允许的本地基座模型由 `LOCAL_TRAINING_BASE_MODELS` 配置；DeepSeek API 模型不会进入本地训练。
-
-模型注册只保存受控对象键和哈希；响应会移除密钥、Token和Secret配置。模型激活要求已有
-成功评估，`complex_generation` 始终保留DeepSeek活动兜底。
-
-评估 API 提供 `/api/v1/evaluations` 的分页、创建、详情和 2～5 项结果比较。创建仅登记
-`queued` 任务并要求 `Idempotency-Key`，不会在 HTTP 请求内启动 GPU、DeepSeek 或本地
-模型；只有冻结、校验有效且无敏感数据的数据集版本可以引用。当前真实执行由后续可插拔
-Worker 接入，不能把排队成功解释为评估已完成。
-
-后端同时提供可插拔 `EvaluatorPort` 与单次领取 Worker 骨架。离线演示的 Fake Evaluator
-只生成固定测试指标，不代表真实模型质量；生产环境仍需接入独立评估器并以常驻任务进程
-调用 Worker，API 进程和 `/health/live` 不会自动启动评估或加载模型。
-
-M5 P0 后端已覆盖 Agent/Tool 目录、运行、审批、SSE、数据集、训练任务骨架、模型注册和
-评估任务骨架。当前 M1 知识、M2 电费与 M4 治理为真实 Service Adapter；M3 社区仍为明确
-Mock，必须在相应模块完成后替换。MCP、Reranker、真实 LoRA/QLoRA、并行 Agent、前端与
-Compose 属于后续增强，不计入本次 P0 验收。
-
-## M1 知识库与 RAG
-
-M1 提供知识库和文档生命周期、异步入库、授权检索、会话、同步 Chat、SSE、引用和反馈。
-本地向量能力使用可选 AI 依赖；生产启动前执行 `pip install -e ".[ai]"`，并预先将
-`BAAI/bge-small-zh-v1.5` 放置到 `KNOWLEDGE_EMBEDDING_MODEL_PATH`，禁止运行时自动下载。
-
-```powershell
-cd backend
+python -m alembic upgrade head     # 真实迁移（读取根 .env）
+$env:DEMO_SEED_PASSWORD = '<本机演示口令>'
+python -m app.scripts.seed_demo    # 演示账号 + 四川大学真实公开数据（幂等）
 python -m app.scripts.seed_ai_knowledge
-python -m app.scripts.ingestion_worker
+python -m app.scripts.seed_agent_platform
 ```
 
-`KNOWLEDGE_CHROMA_PATH` 只保存可重建向量索引，PostgreSQL 中的 Document/Chunk/发布状态
-始终是事实源。DeepSeek 仅在检索达到 0.62 阈值时调用；无可靠上下文直接返回 fallback。
-当前环境未提供真实 PostgreSQL、Chroma、本地模型和 DeepSeek，因此保留真实端到端验收待办。
-
-运行当前后端测试：
+## 启动（API + 四个 Worker）
 
 ```powershell
-cd backend
-python -m pytest
+pwsh -File scripts\start-dev.ps1   # 一键启动：PostgreSQL + Redis + API + 全部 Worker（幂等，日志在 logs/）
+pwsh -File scripts\status-dev.ps1  # 状态检查：进程 + /health/ready
+pwsh -File scripts\stop-dev.ps1    # 幂等停止应用进程（不动共享 PG/Redis）
 ```
 
-## M4 管理接口
-
-当前后端已提供用户/角色/权限、敏感词、审核案件、审计日志、业务配置和看板接口，
-均使用 OpenAPI 中的 `x-permissions` 权限码、统一成功/错误信封和 `X-Request-Id`。
-写操作按契约使用幂等键或乐观锁；配置只允许 `editable=true` 项更新，敏感快照会递归脱敏。
-接口路径、请求字段和稳定错误码以
-[`docx/deliverables/openapi.yaml`](docx/deliverables/openapi.yaml)
-为准。
-
-## M4 数据库迁移
-
-迁移从仓库根目录 `.env` 的 `DATABASE_URL` 读取 PostgreSQL 连接。进入 `backend` 后执行：
+或手动（`backend/` 下）：
 
 ```powershell
-# 不连接数据库，仅生成待执行 SQL
-python -m alembic upgrade head --sql
-
-# PostgreSQL 可用时执行升级或降级
-python -m alembic upgrade head
-python -m alembic downgrade base
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+python -m app.scripts.runtime_worker       # Agent 运行时
+python -m app.scripts.ingestion_worker     # 文档入库
+python -m app.scripts.training_worker      # 真实 LoRA 训练（MODELOPS_EXECUTION_MODE=local）
+python -m app.scripts.evaluation_worker    # 真实评估（五类 Provider）
 ```
 
-当前开发机没有 Docker/PostgreSQL，仅完成了 Alembic 离线 SQL 验证；真实空库升降级仍需在可用环境中执行。
-
-## M4 演示账号种子
-
-在 PostgreSQL 已完成迁移且本机 `.env` 已配置后，临时注入演示密码并执行种子命令：
+## 验证
 
 ```powershell
-cd backend
-$env:DEMO_SEED_PASSWORD = Read-Host "Set a local demo seed password"
-python -m app.scripts.seed_demo
-Remove-Item Env:DEMO_SEED_PASSWORD
+curl http://127.0.0.1:8000/health/live     # 存活（无依赖）
+curl http://127.0.0.1:8000/health/ready    # 就绪（按需探测 PG/Redis/Chroma）
+pwsh -File scripts\smoke.ps1               # 跨模块冒烟（68 项）
+cd backend; python -m pytest               # 全量测试
 ```
 
-命令会重复收敛到预定义的系统角色、权限、角色权限和 6 个演示账号。密码只在运行时读取并写入 Argon2id 哈希，命令输出不会显示密码。
+专项真实环境探针（可重复）：`scripts/verify-runtime-outbox-concurrency.ps1`、`verify-runtime-checkpoint-recovery.ps1`、`verify-runtime-rate-limits.ps1`、`verify-deepseek-provider-faults.ps1`、`verify-m5-runtime-acceptance.ps1`、`verify-modelops-integration.ps1`。
 
-本仓库当前交付范围为后端与契约文档；前端和 Docker Compose 尚未创建。没有 Docker、
-PostgreSQL 或 Redis 的机器只能执行模拟依赖、离线迁移 SQL 和 pytest，不能宣称真实空库
-升级/降级或就绪探针集成验证已完成。
+## 说明
+
+- ModelOps：`MODELOPS_EXECUTION_MODE=local` 时训练/评估真实执行（LoRA 支持 CPU/CUDA，QLoRA 需 CUDA+bitsandbytes；评估含 RAG/Agent/Tool/Model/System 五类 Provider）；`disabled`（默认）时评估任务稳定失败、不产生伪造指标。
+- 演示数据：校区、部门、指南、知识库文档来自四川大学官网公开快照（`backend/app/scripts/data/scu/README.md` 含溯源与哈希）；电费为明确 Mock（`is_simulated=true`）。
+- 前端与 Docker Compose 开发中，尚未交付。

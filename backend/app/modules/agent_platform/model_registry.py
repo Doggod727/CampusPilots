@@ -9,6 +9,7 @@ from uuid import UUID,uuid4
 from fastapi import APIRouter,Depends,Header,Query,Request
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 from sqlalchemy import func,select,update
+from sqlalchemy.exc import IntegrityError
 from starlette.responses import JSONResponse
 from app.core.config import Settings,get_settings
 from app.core.errors import AppError
@@ -65,6 +66,9 @@ class ModelRepository:
   return(await self.s.execute(stmt)).scalar_one_or_none()
  async def duplicate(self,name,version):return(await self.s.execute(select(ModelVersion.id).where(ModelVersion.name==name,ModelVersion.version==version))).scalar_one_or_none()is not None
  async def evaluated(self,id):return(await self.s.execute(select(func.count()).select_from(EvaluationJob).where(EvaluationJob.target_type=="model",EvaluationJob.target_id==id,EvaluationJob.status=="succeeded"))).scalar_one()>0
+ async def training_job(self,id):
+  from app.modules.agent_platform.models import TrainingJob
+  return(await self.s.execute(select(TrainingJob).where(TrainingJob.id==id))).scalar_one_or_none()
  async def deactivate_purpose(self,purpose,except_id,now):await self.s.execute(update(ModelVersion).where(ModelVersion.purpose==purpose,ModelVersion.status=="active",ModelVersion.id!=except_id).values(status="inactive",activated_at=None))
  def add(self,x):self.s.add(x)
 
@@ -89,29 +93,37 @@ class ModelService:
    d=await self.idem.begin(user_id=actor.user_id,endpoint="POST /api/v1/models",idempotency_key=key,request_body=body)
    if d.replay:return d.replay.response_status,dict(d.replay.response_body),str(d.replay.response_body["request_id"])
    if d.pending:raise IdempotencyConflict()
+   if p.training_job_id is not None:
+    job=await self.r.training_job(p.training_job_id)
+    # 产物归属校验：训练任务必须成功完成且 artifact_key 正是该任务登记产物
+    if job is None or job.status!="succeeded" or not job.artifact_key or job.artifact_key!=p.artifact_key:raise ModelArtifactInvalid()
    if p.provider=="local":await verify_artifact(self.root,p.artifact_key,p.artifact_sha256)
    if await self.r.duplicate(p.name,p.version):raise DuplicateModel()
    now=self.now();x=ModelVersion(id=uuid4(),name=p.name,purpose=p.purpose,provider=p.provider,base_model=p.base_model,version=p.version,quantization=p.quantization,artifact_key=p.artifact_key,artifact_sha256=p.artifact_sha256,config=p.config,metrics={},status="candidate",training_job_id=p.training_job_id,created_by=actor.user_id,created_at=now);self.r.add(x);data=dto(x);response=SuccessResponse(data=data,request_id=rid,timestamp=now).model_dump(mode="json")
    if not await self.idem.complete(record_id=d.record_id,response_status=201,response_body=response,resource_type="model",resource_id=str(x.id)):raise IdempotencyConflict()
   return 201,response,rid
  async def change(self,actor,id,action,key,rid):
-  async with self.s.begin():
-   d=await self.idem.begin(user_id=actor.user_id,endpoint=f"POST /api/v1/models/{id}/{action}",idempotency_key=key,request_body={"id":str(id),"action":action})
-   if d.replay:return d.replay.response_status,dict(d.replay.response_body),str(d.replay.response_body["request_id"])
-   if d.pending:raise IdempotencyConflict()
-   x=await self.r.get(id,lock=True)
-   if x is None:raise ModelNotFound()
-   before=x.status
-   if action=="activate":
-    if x.status!="active":
-     if not await self.r.evaluated(id):raise ModelEvaluationRequired()
-     if x.purpose=="complex_generation"and x.provider!="deepseek":raise ModelFallbackRequired()
-     await self.r.deactivate_purpose(x.purpose,x.id,self.now());x.status="active";x.activated_at=self.now()
-   else:
-    if x.status=="active"and x.purpose=="complex_generation":raise ModelFallbackRequired()
-    if x.status=="active":x.status="inactive";x.activated_at=None
-   data=dto(x);response=SuccessResponse(data=data,request_id=rid,timestamp=self.now()).model_dump(mode="json");self.audit.record_success(action=f"model.{action}",resource_type="model",resource_id=str(id),request_id=rid,actor_user_id=actor.user_id,actor_username=actor.username,before_data={"status":before},after_data={"status":x.status})
-   if not await self.idem.complete(record_id=d.record_id,response_status=200,response_body=response,resource_type="model",resource_id=str(id)):raise IdempotencyConflict()
+  try:
+   async with self.s.begin():
+    d=await self.idem.begin(user_id=actor.user_id,endpoint=f"POST /api/v1/models/{id}/{action}",idempotency_key=key,request_body={"id":str(id),"action":action})
+    if d.replay:return d.replay.response_status,dict(d.replay.response_body),str(d.replay.response_body["request_id"])
+    if d.pending:raise IdempotencyConflict()
+    x=await self.r.get(id,lock=True)
+    if x is None:raise ModelNotFound()
+    before=x.status
+    if action=="activate":
+     if x.status!="active":
+      if not await self.r.evaluated(id):raise ModelEvaluationRequired()
+      if x.purpose=="complex_generation"and x.provider!="deepseek":raise ModelFallbackRequired()
+      await self.r.deactivate_purpose(x.purpose,x.id,self.now());x.status="active";x.activated_at=self.now()
+    else:
+     if x.status=="active"and x.purpose=="complex_generation":raise ModelFallbackRequired()
+     if x.status=="active":x.status="inactive";x.activated_at=None
+    data=dto(x);response=SuccessResponse(data=data,request_id=rid,timestamp=self.now()).model_dump(mode="json");self.audit.record_success(action=f"model.{action}",resource_type="model",resource_id=str(id),request_id=rid,actor_user_id=actor.user_id,actor_username=actor.username,before_data={"status":before},after_data={"status":x.status})
+    if not await self.idem.complete(record_id=d.record_id,response_status=200,response_body=response,resource_type="model",resource_id=str(id)):raise IdempotencyConflict()
+  except IntegrityError as exc:
+   if "uq_model_one_active_purpose" in str(exc):raise ModelStateConflict() from exc
+   raise
   return 200,response,rid
 
 router=APIRouter(prefix="/api/v1/models",tags=["Models"]);ModelResponse=SuccessResponse[ModelDTO];ModelListResponse=SuccessResponse[ModelListDTO]

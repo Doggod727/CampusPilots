@@ -34,6 +34,56 @@ from app.modules.agent_platform.tool_gateway.mocks import (
 )
 from app.modules.agent_platform.tool_gateway.registry import ToolRegistry
 
+_JSON_TYPE_CHECKS = {
+    "string": lambda value: isinstance(value, str),
+    "number": lambda value: isinstance(value, (int, float)) and not isinstance(value, bool),
+    "integer": lambda value: isinstance(value, int) and not isinstance(value, bool),
+    "boolean": lambda value: isinstance(value, bool),
+    "object": lambda value: isinstance(value, dict),
+    "array": lambda value: isinstance(value, list),
+}
+
+
+def _schema_type_matches(fragment: Mapping[str, object], value: object) -> bool:
+    if "anyOf" in fragment:
+        return any(
+            _schema_type_matches(variant, value)
+            for variant in fragment.get("anyOf") or ()
+            if isinstance(variant, Mapping)
+        )
+    type_check = _JSON_TYPE_CHECKS.get(fragment.get("type") or "")
+    return type_check(value) if type_check is not None else False
+
+
+def canonicalize_tool_arguments(
+    arguments: Mapping[str, object], input_schema: Mapping[str, object]
+) -> dict[str, object]:
+    """Repair an unambiguous missing-required-key alias produced by an LLM.
+
+    真实模型偶发参数名漂移（如 amount → amount_cny）。仅当恰好缺一个必填键、
+    且恰好有一个类型匹配的未知键时才重命名；其余情况原样交给 Schema 校验，
+    不做任何猜测性改写。
+    """
+
+    values = dict(arguments)
+    properties = input_schema.get("properties") or {}
+    required = [key for key in (input_schema.get("required") or ()) if key in properties]
+    missing = [key for key in required if key not in values]
+    unknown = [key for key in values if key not in properties]
+    if len(missing) != 1 or not unknown:
+        return values
+    target = missing[0]
+    candidates = [
+        key
+        for key in unknown
+        if isinstance(properties.get(target), Mapping)
+        and _schema_type_matches(properties[target], values[key])
+    ]
+    if len(candidates) != 1:
+        return values
+    values[target] = values.pop(candidates[0])
+    return values
+
 
 def canonical_arguments_hash(payload: ToolModel) -> str:
     serialized = json.dumps(
@@ -215,6 +265,11 @@ class ToolExecutor:
 
     def prepare(self, request: ToolCallRequest) -> PreparedToolCall:
         contract = self._registry.resolve(request.tool_name, request.tool_version)
+        arguments = canonicalize_tool_arguments(
+            request.arguments, contract.definition.input_schema
+        )
+        if arguments != dict(request.arguments):
+            request = request.model_copy(update={"arguments": arguments})
         return self._validate_payload(contract, request)
 
     @staticmethod

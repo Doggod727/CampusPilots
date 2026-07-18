@@ -8,13 +8,12 @@ import pytest
 from app.modules.agent_platform.evaluation_worker import (
     EVALUATION_PROVIDER_UNAVAILABLE,
     TARGET_TYPES,
-    DeterministicFakeEvaluator,
     EvaluationOutcome,
     EvaluationWorker,
     EvaluatorRegistry,
-    deterministic_fake_registry,
 )
 from app.modules.agent_platform.models import EvaluationJob
+from tests.fake_evaluators import DeterministicFakeEvaluator, deterministic_fake_registry
 
 
 NOW = datetime(2026, 7, 15, tzinfo=UTC)

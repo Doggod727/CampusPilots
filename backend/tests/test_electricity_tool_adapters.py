@@ -93,7 +93,7 @@ def test_topup_adapter_passes_verified_approval_and_idempotency_to_m2() -> None:
         source="mock", notice="internal wording", created_at=NOW, request_hash="c" * 64,
     ))
     executor, verifier = _executor(service)
-    arguments = {"room_id": ROOM_ID, "amount": Decimal("20.00")}
+    arguments = {"room_id": ROOM_ID, "amount_cny": Decimal("20.00")}
     payload = TOOL_CONTRACTS["electricity.create_topup_request"].input_model.model_validate(arguments)
     verifier.grant(
         approval_id=APPROVAL_ID, user_id=USER_ID,
@@ -136,7 +136,7 @@ def test_invalid_topup_never_calls_real_adapter_service(
             request=ToolCallRequest(
                 agent_run_id=RUN_ID, step_id=STEP_ID,
                 tool_name="electricity.create_topup_request", tool_version="1.0.0",
-                arguments={"room_id": ROOM_ID, "amount": Decimal("20.00")},
+                arguments={"room_id": ROOM_ID, "amount_cny": Decimal("20.00")},
                 idempotency_key=idempotency_key, approval_id=approval_id,
             ),
             agent_allowlist=("electricity.create_topup_request",),

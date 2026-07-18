@@ -13,7 +13,7 @@ from app.modules.agent_platform.tool_gateway.catalog import (
 )
 
 EXPECTED_SCHEMA_HASHES = {
-    "electricity.create_topup_request": "bb80f5638a4a24921e0c55a58a7a645845e43f7cbd252bae18778da6aa6bf976",
+    "electricity.create_topup_request": "f005ecdcae0db0b7f78649afb38677845b40c1b42b4d0a966bf4bf7f3abf9c5d",
     "electricity.get_balance": "4ea8a62594670530e1179dc02181b78167de5350e0b8c12cb093521aaeea1aeb",
     "event.register": "e7991304a0533c447f1b0ab7a265733eb0402c78f97fa7932054d97eadb4c20b",
     "event.search": "434ebc5d31bd9dbd8322a0a2361db9733575feb6d34295691b7fae1aab4dd2ca",

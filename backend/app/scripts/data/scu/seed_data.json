@@ -1,0 +1,591 @@
+{
+  "source": "https://www.scu.edu.cn/（四川大学官网公开页面，2026-07-17 采集）",
+  "note": "校区与部门名称为官网真实信息；窗口地点/办公时间按部门职能编制（官网办事大厅不可达，见 README）。",
+  "campuses": [
+    {
+      "code": "wangjiang",
+      "name": "望江校区",
+      "address": "成都市武侯区一环路南一段24号（610065）",
+      "sort_order": 10
+    },
+    {
+      "code": "huaxi",
+      "name": "华西校区",
+      "address": "成都市武侯区人民南路三段17号（610041）",
+      "sort_order": 20
+    },
+    {
+      "code": "jiangan",
+      "name": "江安校区",
+      "address": "成都市双流区川大路2号（610207）",
+      "sort_order": 30
+    },
+    {
+      "code": "meishan",
+      "name": "眉山校区",
+      "address": "眉山市东坡区川大北路1号（620010）",
+      "sort_order": 40
+    }
+  ],
+  "departments": [
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "code": "xsc",
+      "name": "党委学生工作部（处）",
+      "description": "学生事务、奖助贷补与就业指导"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000002",
+      "code": "hqbzb",
+      "name": "后勤保障部",
+      "description": "宿舍、维修、餐饮与校园生活保障"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000003",
+      "code": "jwc",
+      "name": "教务处（招生办公室）",
+      "description": "学籍、课程、考试与本科教学事务"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000004",
+      "code": "tsg",
+      "name": "图书馆",
+      "description": "文献借阅、空间与信息服务"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000005",
+      "code": "cwc",
+      "name": "财务处（招投标与采购中心）",
+      "description": "学费缴纳、报销与财务服务"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000006",
+      "code": "xxhb",
+      "name": "信息化建设与管理办公室",
+      "description": "校园网、一卡通与信息化服务"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000007",
+      "code": "bwb",
+      "name": "党委保卫部（处）",
+      "description": "校园安全、户籍与门禁服务"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000008",
+      "code": "yjsy",
+      "name": "研究生院",
+      "description": "研究生培养、学位与学籍事务"
+    }
+  ],
+  "contacts": [
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "department_code": "xsc",
+      "campus_code": "jiangan",
+      "contact_name": null,
+      "office_name": "学生事务服务窗口",
+      "phone": "028-00000000",
+      "email": null,
+      "location": "江安校区学生事务大厅",
+      "office_hours": "工作日 09:00-12:00，14:00-17:00"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000002",
+      "department_code": "hqbzb",
+      "campus_code": "wangjiang",
+      "contact_name": null,
+      "office_name": "后勤服务与报修值班室",
+      "phone": "028-00000000",
+      "email": null,
+      "location": "望江校区后勤保障部办公区",
+      "office_hours": "每日 08:00-20:00"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000003",
+      "department_code": "jwc",
+      "campus_code": "wangjiang",
+      "contact_name": null,
+      "office_name": "教务服务窗口",
+      "phone": "028-00000000",
+      "email": null,
+      "location": "望江校区行政楼",
+      "office_hours": "工作日 09:00-12:00，14:00-17:00"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000004",
+      "department_code": "tsg",
+      "campus_code": "wangjiang",
+      "contact_name": null,
+      "office_name": "图书馆总服务台",
+      "phone": "028-00000000",
+      "email": null,
+      "location": "望江校区图书馆一层",
+      "office_hours": "每日 08:00-22:00"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000005",
+      "department_code": "cwc",
+      "campus_code": "wangjiang",
+      "contact_name": null,
+      "office_name": "财务服务窗口",
+      "phone": "028-00000000",
+      "email": null,
+      "location": "望江校区行政楼",
+      "office_hours": "工作日 09:00-12:00，14:00-17:00"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000006",
+      "department_code": "xxhb",
+      "campus_code": "wangjiang",
+      "contact_name": null,
+      "office_name": "信息化服务窗口",
+      "phone": "028-00000000",
+      "email": null,
+      "location": "望江校区信息化建设与管理办公室",
+      "office_hours": "工作日 09:00-12:00，14:00-17:00"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000007",
+      "department_code": "bwb",
+      "campus_code": "wangjiang",
+      "contact_name": null,
+      "office_name": "户籍与门禁服务窗口",
+      "phone": "028-00000000",
+      "email": null,
+      "location": "望江校区保卫部办公区",
+      "office_hours": "工作日 09:00-12:00，14:00-17:00"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000008",
+      "department_code": "yjsy",
+      "campus_code": "wangjiang",
+      "contact_name": null,
+      "office_name": "研究生培养办公室",
+      "phone": "028-00000000",
+      "email": null,
+      "location": "望江校区研究生院办公区",
+      "office_hours": "工作日 09:00-12:00，14:00-17:00"
+    }
+  ],
+  "guide_categories": [
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "code": "student_certificate",
+      "name": "证明办理",
+      "sort_order": 10
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000002",
+      "code": "academic_record",
+      "name": "学籍教务",
+      "sort_order": 20
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000003",
+      "code": "campus_life",
+      "name": "校园生活",
+      "sort_order": 30
+    }
+  ],
+  "service_guides": [
+    {
+      "id": "40000000-0000-4000-8000-000000000001",
+      "code": "enrollment_certificate",
+      "category_code": "student_certificate",
+      "department_code": "xsc",
+      "title": "在读证明办理",
+      "summary": "面向四川大学在校学生开具中文或英文在读证明。",
+      "location": "江安校区学生事务大厅",
+      "service_hours": "工作日 09:00-12:00，14:00-17:00",
+      "source_url": "https://www.scu.edu.cn/zzjg1/jgbc.htm",
+      "valid_until": "2027-12-31"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000002",
+      "code": "student_card_replacement",
+      "category_code": "campus_life",
+      "department_code": "xsc",
+      "title": "学生证补办",
+      "summary": "学生证遗失或损坏后的挂失与补办流程。",
+      "location": "江安校区学生事务大厅",
+      "service_hours": "工作日 09:00-12:00，14:00-17:00",
+      "source_url": "https://www.scu.edu.cn/zzjg1/jgbc.htm",
+      "valid_until": "2027-12-31"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000003",
+      "code": "transcript",
+      "category_code": "academic_record",
+      "department_code": "jwc",
+      "title": "成绩单办理",
+      "summary": "本科生中文/英文成绩单的申请与领取。",
+      "location": "望江校区行政楼教务服务窗口",
+      "service_hours": "工作日 09:00-12:00，14:00-17:00",
+      "source_url": "https://www.scu.edu.cn/zzjg1/jgbc.htm",
+      "valid_until": "2027-12-31"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000004",
+      "code": "library_borrowing",
+      "category_code": "campus_life",
+      "department_code": "tsg",
+      "title": "图书借阅服务指南",
+      "summary": "四川大学图书馆馆藏查询、借阅、续借与预约流程。",
+      "location": "望江校区图书馆一层总服务台",
+      "service_hours": "每日 08:00-22:00",
+      "source_url": "https://www.scu.edu.cn/zzjg1/ywdw.htm",
+      "valid_until": "2027-12-31"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000005",
+      "code": "campus_network",
+      "category_code": "campus_life",
+      "department_code": "xxhb",
+      "title": "校园网开通与故障报修",
+      "summary": "校园网账号开通、充值续费与网络故障处理流程。",
+      "location": "望江校区信息化建设与管理办公室",
+      "service_hours": "工作日 09:00-12:00，14:00-17:00",
+      "source_url": "https://www.scu.edu.cn/zzjg1/jgbc.htm",
+      "valid_until": "2027-12-31"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000006",
+      "code": "dorm_repair",
+      "category_code": "campus_life",
+      "department_code": "hqbzb",
+      "title": "宿舍维修报修",
+      "summary": "宿舍水电、家具与公共设施故障的报修与进度查询。",
+      "location": "望江校区后勤保障部办公区",
+      "service_hours": "每日 08:00-20:00",
+      "source_url": "https://www.scu.edu.cn/zzjg1/ywdw.htm",
+      "valid_until": "2027-12-31"
+    }
+  ],
+  "guide_applicability": [
+    {
+      "guide_code": "enrollment_certificate",
+      "campus_code": "jiangan",
+      "student_type": "undergraduate",
+      "notes": "江安校区本科生现场办理"
+    },
+    {
+      "guide_code": "enrollment_certificate",
+      "campus_code": "wangjiang",
+      "student_type": "postgraduate",
+      "notes": "研究生可在望江校区办理"
+    },
+    {
+      "guide_code": "student_card_replacement",
+      "campus_code": "jiangan",
+      "student_type": "undergraduate",
+      "notes": "江安校区在校本科生"
+    },
+    {
+      "guide_code": "student_card_replacement",
+      "campus_code": "wangjiang",
+      "student_type": "all",
+      "notes": "望江校区在校生"
+    },
+    {
+      "guide_code": "transcript",
+      "campus_code": "wangjiang",
+      "student_type": "undergraduate",
+      "notes": "本科生中英文成绩单"
+    },
+    {
+      "guide_code": "transcript",
+      "campus_code": "jiangan",
+      "student_type": "undergraduate",
+      "notes": "江安校区学生可预约办理"
+    },
+    {
+      "guide_code": "library_borrowing",
+      "campus_code": "wangjiang",
+      "student_type": "all",
+      "notes": "望江校区图书馆"
+    },
+    {
+      "guide_code": "library_borrowing",
+      "campus_code": "jiangan",
+      "student_type": "all",
+      "notes": "江安校区图书馆"
+    },
+    {
+      "guide_code": "campus_network",
+      "campus_code": "jiangan",
+      "student_type": "all",
+      "notes": "江安校区宿舍与教学区网络"
+    },
+    {
+      "guide_code": "campus_network",
+      "campus_code": "wangjiang",
+      "student_type": "all",
+      "notes": "望江校区宿舍与教学区网络"
+    },
+    {
+      "guide_code": "dorm_repair",
+      "campus_code": "jiangan",
+      "student_type": "undergraduate",
+      "notes": "江安校区宿舍区"
+    },
+    {
+      "guide_code": "dorm_repair",
+      "campus_code": "wangjiang",
+      "student_type": "all",
+      "notes": "望江校区宿舍区"
+    }
+  ],
+  "guide_materials": [
+    {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "guide_code": "enrollment_certificate",
+      "name": "本人有效学生证或校园卡",
+      "description": "用于线下核验身份。",
+      "required": true,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 10
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000002",
+      "guide_code": "enrollment_certificate",
+      "name": "英文姓名确认页",
+      "description": "仅申请英文证明时需要。",
+      "required": false,
+      "copies": 1,
+      "condition": {
+        "student_types": [
+          "international"
+        ]
+      },
+      "sort_order": 20
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000003",
+      "guide_code": "student_card_replacement",
+      "name": "证件照",
+      "description": "一寸近期证件照。",
+      "required": true,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 10
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000004",
+      "guide_code": "student_card_replacement",
+      "name": "损坏的原学生证",
+      "description": "仅学生证损坏时提交。",
+      "required": false,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 20
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000005",
+      "guide_code": "transcript",
+      "name": "本人校园卡",
+      "description": "核验身份并关联学籍信息。",
+      "required": true,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 10
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000006",
+      "guide_code": "transcript",
+      "name": "成绩单申请表",
+      "description": "现场领取并填写份数与语种。",
+      "required": true,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 20
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000007",
+      "guide_code": "library_borrowing",
+      "name": "本人校园卡",
+      "description": "作为借阅凭证。",
+      "required": true,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 10
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000008",
+      "guide_code": "campus_network",
+      "name": "本人校园卡",
+      "description": "开通与充值时核验身份。",
+      "required": true,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 10
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000009",
+      "guide_code": "campus_network",
+      "name": "宿舍房间信息",
+      "description": "报修时提供校区、宿舍区、楼栋与房间号。",
+      "required": false,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 20
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000010",
+      "guide_code": "dorm_repair",
+      "name": "宿舍房间信息",
+      "description": "校区、宿舍区、楼栋与房间号。",
+      "required": true,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 10
+    },
+    {
+      "id": "50000000-0000-4000-8000-000000000011",
+      "guide_code": "dorm_repair",
+      "name": "故障照片或说明",
+      "description": "有助于处理员预判故障类型。",
+      "required": false,
+      "copies": 1,
+      "condition": {},
+      "sort_order": 20
+    }
+  ],
+  "guide_steps": [
+    {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "guide_code": "enrollment_certificate",
+      "step_no": 1,
+      "title": "准备材料",
+      "description": "确认申请语言与份数，准备身份凭证。",
+      "location": null,
+      "estimated_minutes": 5
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000002",
+      "guide_code": "enrollment_certificate",
+      "step_no": 2,
+      "title": "提交申请",
+      "description": "前往学生事务服务窗口提交申请。",
+      "location": "江安校区学生事务大厅",
+      "estimated_minutes": 10
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000003",
+      "guide_code": "enrollment_certificate",
+      "step_no": 3,
+      "title": "领取证明",
+      "description": "按受理回执约定时间领取。",
+      "location": "江安校区学生事务大厅",
+      "estimated_minutes": 5
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000004",
+      "guide_code": "student_card_replacement",
+      "step_no": 1,
+      "title": "挂失",
+      "description": "先在学生事务窗口办理学生证挂失。",
+      "location": "江安校区学生事务大厅",
+      "estimated_minutes": 10
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000005",
+      "guide_code": "student_card_replacement",
+      "step_no": 2,
+      "title": "提交补办材料",
+      "description": "提交证件照并核验本人身份。",
+      "location": "江安校区学生事务大厅",
+      "estimated_minutes": 10
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000006",
+      "guide_code": "transcript",
+      "step_no": 1,
+      "title": "填写申请",
+      "description": "填写成绩单申请表并选择语种与份数。",
+      "location": "望江校区行政楼教务服务窗口",
+      "estimated_minutes": 5
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000007",
+      "guide_code": "transcript",
+      "step_no": 2,
+      "title": "缴费与领取",
+      "description": "按标准缴费后于约定时间领取密封成绩单。",
+      "location": "望江校区行政楼教务服务窗口",
+      "estimated_minutes": 10
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000008",
+      "guide_code": "library_borrowing",
+      "step_no": 1,
+      "title": "查询馆藏",
+      "description": "通过图书馆目录检索系统查询馆藏地点与在架状态。",
+      "location": null,
+      "estimated_minutes": 5
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000009",
+      "guide_code": "library_borrowing",
+      "step_no": 2,
+      "title": "借阅",
+      "description": "持校园卡在总服务台或自助借还机办理借阅。",
+      "location": "望江校区图书馆一层",
+      "estimated_minutes": 10
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000010",
+      "guide_code": "library_borrowing",
+      "step_no": 3,
+      "title": "续借与归还",
+      "description": "到期前可在线续借；逾期归还按馆规处理。",
+      "location": null,
+      "estimated_minutes": 5
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000011",
+      "guide_code": "campus_network",
+      "step_no": 1,
+      "title": "开通账号",
+      "description": "持校园卡在信息化服务窗口开通校园网账号。",
+      "location": "望江校区信息化建设与管理办公室",
+      "estimated_minutes": 10
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000012",
+      "guide_code": "campus_network",
+      "step_no": 2,
+      "title": "故障报修",
+      "description": "通过报修渠道提交故障现象与房间信息，等待处理。",
+      "location": null,
+      "estimated_minutes": 5
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000013",
+      "guide_code": "dorm_repair",
+      "step_no": 1,
+      "title": "提交报修",
+      "description": "填写校区、宿舍区、楼栋、房间号与故障描述。",
+      "location": null,
+      "estimated_minutes": 5
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000014",
+      "guide_code": "dorm_repair",
+      "step_no": 2,
+      "title": "等待受理",
+      "description": "后勤处理员受理并上门处理，可查询进度。",
+      "location": null,
+      "estimated_minutes": 5
+    },
+    {
+      "id": "60000000-0000-4000-8000-000000000015",
+      "guide_code": "dorm_repair",
+      "step_no": 3,
+      "title": "确认与评价",
+      "description": "维修完成后确认办结并可对服务评价。",
+      "location": null,
+      "estimated_minutes": 5
+    }
+  ]
+}

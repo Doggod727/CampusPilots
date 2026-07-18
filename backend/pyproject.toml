@@ -33,6 +33,12 @@ ai = [
     "chromadb>=0.6,<1.0",
     "sentence-transformers>=3.3,<4.0",
 ]
+modelops = [
+    "torch>=2.2",
+    "transformers>=4.45,<5.0",
+    "peft>=0.13,<1.0",
+    "accelerate>=1.0,<2.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

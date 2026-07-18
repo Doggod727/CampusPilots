@@ -58,7 +58,7 @@ class ElectricityTopupToolHandler:
             user_id=invocation.user.user_id,
             room_ids=invocation.user.room_ids,
             room_id=data.room_id,
-            amount=data.amount,
+            amount=data.amount_cny,
             idempotency_key=invocation.idempotency_key,
             agent_run_id=invocation.agent_run_id,
             approval_id=invocation.approval_id,

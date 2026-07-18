@@ -31,6 +31,14 @@ def test_database_creation_is_lazy_and_uses_async_postgresql_driver() -> None:
     asyncio.run(database.dispose())
 
 
+def test_database_pool_recycles_stale_connections_before_use() -> None:
+    database = Database(TEST_DATABASE_URL)
+
+    assert database.engine.sync_engine.pool._pre_ping is True
+
+    asyncio.run(database.dispose())
+
+
 def test_real_session_factory_uses_expected_configuration_without_connecting() -> None:
     database = Database(TEST_DATABASE_URL)
 

@@ -55,31 +55,22 @@ class EvaluatorRegistry:
             raise LookupError(EVALUATION_PROVIDER_UNAVAILABLE) from exc
 
 
-class DeterministicFakeEvaluator:
-    """Offline evaluator with fixed, non-production metrics."""
+def build_production_evaluator_registry(settings, sessions=None) -> EvaluatorRegistry:
+    """Production evaluator registry; Fake evaluators are reserved for test fixtures.
 
-    METRICS = {
-        "agent": ("completion_rate", 0.92),
-        "tool": ("success_rate", 0.98),
-        "model": ("accuracy", 0.90),
-        "rag": ("recall_at_5", 0.88),
-        "system": ("end_to_end_success", 0.90),
-    }
+    disabled：全目标类型 fail-closed；local：装配五类真实 Provider（需要 sessions
+    工厂访问真实数据库），未覆盖目标类型 fail-closed。
+    """
 
-    async def evaluate(self, evaluation: EvaluationJob) -> EvaluationOutcome:
-        name, value = self.METRICS[evaluation.target_type]
-        return EvaluationOutcome(
-            summary={"mode": "deterministic_fake", "target_type": evaluation.target_type},
-            metrics=(
-                EvaluationMetricValue(name=name, value=value),
-                EvaluationMetricValue(name="latency_p95", value=25.0, unit="ms"),
-            ),
-        )
+    if settings.modelops_execution_mode not in {"disabled", "local"}:
+        raise ValueError("MODELOPS_EXECUTION_MODE must be disabled or local")
+    if settings.modelops_execution_mode == "disabled":
+        return EvaluatorRegistry({})
+    if sessions is None:
+        raise ValueError("sessions factory is required for local modelops execution")
+    from app.modules.agent_platform.evaluation_providers import build_local_evaluators
 
-
-def deterministic_fake_registry() -> EvaluatorRegistry:
-    evaluator = DeterministicFakeEvaluator()
-    return EvaluatorRegistry({target_type: evaluator for target_type in TARGET_TYPES})
+    return EvaluatorRegistry(build_local_evaluators(settings, sessions))
 
 
 class EvaluationWorker:

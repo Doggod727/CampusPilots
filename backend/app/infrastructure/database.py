@@ -20,7 +20,7 @@ class Database:
     """Explicit owner of the async SQLAlchemy engine and session factory."""
 
     def __init__(self, database_url: str) -> None:
-        self.engine: AsyncEngine = create_async_engine(database_url)
+        self.engine: AsyncEngine = create_async_engine(database_url, pool_pre_ping=True)
         self.session_factory = async_sessionmaker(
             bind=self.engine,
             expire_on_commit=False,

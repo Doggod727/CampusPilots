@@ -12,8 +12,84 @@
 
 ## 当前模块
 
-- M4：公共基础与平台治理
-- 开发分支：`m4`
+- 全项目集成收尾：M5 强化、ModelOps、前端与部署验收
+- 开发分支：`integration`（PR #182，完成后转 Ready，不自动合并）
+
+## 全项目集成收尾进度
+
+- [x] [#188 M5：验证双 Runtime Worker 并发领取事务 Outbox](https://github.com/Doggod727/CampusPilot/issues/188)（2026-07-17）
+  - 新增 PowerShell 7 可重复探针，拒绝已有 Worker 和真实积压命令，只启动并终止自身创建的两个生产 Runtime Worker 进程；临时日志不进入仓库且不回显配置或凭证。
+  - 探针在真实 PostgreSQL 的同一事务中创建 40 个无外部副作用的 cancel Run/Outbox，验证完成后按精确 Run ID 级联清理，不创建幂等、审计、Step、ToolCall 或 Checkpoint 数据。
+  - 实测两个 Worker 各领取 20 条命令且领取区间重叠；40 个命令均一次成功、40 个 Run 均安全取消、40 个终态事件均为唯一 sequence=1，失败和 active 命令均为 0。
+  - 命令完成与失败重试增加 `claimed_by` 所有权条件；同机 Worker 默认 ID 改为 `hostname:pid`，并允许通过 `AGENT_RUNTIME_WORKER_ID` 显式指定。
+  - 定向测试 14 项、全量测试 `725 passed`；compileall、Alembic 唯一 Head `0009_agent_steps_status_length`、真实 current、离线完整升降级、136 个 OpenAPI operationId 解析与 Redocly lint 全部通过。
+- [x] [#189 M5：验证 Checkpoint 崩溃与 60 秒租约恢复](https://github.com/Doggod727/CampusPilot/issues/189)（2026-07-17）
+  - 新增显式确认的 PowerShell 7 恢复探针：先种入真实 `student01` 已批准模拟电费恢复状态，再锁定 Run 行、终止仅由脚本启动的 Worker A，严格等待生产 60 秒租约后由 Worker B 恢复；原始日志、密文、Tool 参数和配置均不输出。
+  - 真实 PostgreSQL CAS 实测从版本 1 原子更新至 2，持有旧版本的第二 Session 被 `AGENT_CHECKPOINT_INVALID` 安全拒绝；崩溃后版本 2、approved 审批和 0 条副作用保持不变。
+  - Worker B 以 attempt 2 完成恢复：Run succeeded、1 个 Step、1 个 ToolCall、1 条模拟充值、1 条成功审计和 3 个连续事件；Checkpoint 清除且电费余额未变化，探针业务数据及审计按确定性 ID 精确清理。
+  - 修复最后一次领取后崩溃永久卡死、丢失命令所有权仍提交、终态 Checkpoint/SSE 泄漏和过期密文不清理问题；生产 Worker 默认单命令领取，避免串行批次在处理前租约过期。
+  - 定向测试 31 项、全量测试 `734 passed`；双 Worker 并发真实探针再次通过 40 条命令 20/20 分配，当前真实数据库 Checkpoint 与 active 命令均为 0。
+- [x] [#190 M5：验证真实 Redis 用户/IP 双维度限流](https://github.com/Doggod727/CampusPilot/issues/190)（2026-07-17）
+  - Redis 固定窗口计数改为单条 Lua 原子“全部可用才统一递增”；任一用户/IP 维度已满时拒绝请求且不再污染另一维度，内存实现同步采用相同 all-or-none 语义。
+  - 用户和 IP subject 增加显式维度前缀后再做 SHA-256；Run 与内部 Tool 的限流守卫前移到业务 Service 构造之前，429 不再承担数据库/Runtime 装配开销。
+  - 新增 PowerShell 7 真实探针：仅信任 loopback 代理、以固定全局租约独占 Redis DB15 且只精确清理自身哈希键、内存签发真实种子用户 JWT，并对真实 PostgreSQL 执行 `createAgentRun` 和无副作用 `service.get_guide` R0 Tool；测试 Dispatcher 不创建可被 Worker 领取的 Outbox。
+  - 实测 Run 成功 22 次、内部 Tool 成功 62 次；20/60 阈值、用户限制、IP 限制、独立主体、`RATE_LIMITED`/`Retry-After`、下一窗口恢复和精确数据库/Redis 清理全部通过。
+  - 定向测试 29 项、全量测试 `750 passed`；compileall、Alembic 唯一/真实 Head `0009_agent_steps_status_length`、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
+- [x] [#191 M5：验证 DeepSeek Provider 故障矩阵](https://github.com/Doggod727/CampusPilot/issues/191)（2026-07-18）
+  - 新增可重复 PowerShell 7 探针（拒绝已有 Runtime Worker 与活动命令）：仅以子进程环境变量覆盖 `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`，不改父进程与本机 `.env`；标准输出、HTTP 错误、SSE 与数据库证据均不回显密钥、URL 查询参数或上游正文。
+  - 传输矩阵 12/12：真实 httpx 网关 ×（错误 Key/不可达地址/本地延迟服务）×（Router/Specialist/M1 RAG Answer/SSE 流），错误 Key 与不可达稳定映射 `502 AGENT_PROVIDER_UNAVAILABLE`，超时限稳定映射 `504 AGENT_PROVIDER_TIMEOUT`；Router 层故障按设计安全回落本地/clarify（补回归测试）。
+  - 公共边界：真实 API + PostgreSQL 下同步 Chat 返回 502 统一信封、Chat SSE 输出 `AGENT_PROVIDER_UNAVAILABLE` error 事件、Specialist 不可达时 Agent Run 经 Outbox 重试后收敛 failed 且命令/Run 错误码一致；Run 事件、消息、审计泄密扫描与探针数据精确清理全部通过。
+  - 定向测试 31 项、全量测试 `761 passed`；compileall、Alembic 唯一/真实 Head、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
+- [x] [#192 M5：真实环境总验收（目录/契约/装配/专项证据汇总）](https://github.com/Doggod727/CampusPilot/issues/192)（2026-07-18）
+  - 新增 `m5_acceptance_probe` 静态核对：M5 31 个 operationId 与 FastAPI 路由按方法+路径逐一对应且全局唯一；14 个 Tool 冻结契约经真实 PostgreSQL 目录零漂移加载并输出确定性 SHA-256 指纹；唯一 Composition 装配下 14/14 Tool 均为真实 Handler、无 Mock 残留。
+  - 新增 `verify-m5-runtime-acceptance.ps1` 汇总入口：启动时拒绝已有 Worker，串行复跑 Outbox 并发、Checkpoint 60 秒恢复、双维度限流、Provider 故障四个真实探针并拉起 Worker 执行完整冒烟，任一环节失败即按稳定错误码中止。
+  - 实测汇总报告：`contract_operations=31`、`catalog_tools=14`、`catalog_zero_drift=true`、`real_handlers=14`、四个探针与冒烟全部 `true`；M5 详细设计升级 V0.4 结论，todo.md 移除已完成的 Runtime 待办（保留审批到期协调与启动恢复保真两条边界）。
+  - 定向测试 35 项、全量测试 `765 passed`；compileall、Alembic 唯一/真实 Head、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
+- [x] [#193 M5：生产 Evaluation Provider Registry 与 Fake 隔离](https://github.com/Doggod727/CampusPilot/issues/193)（2026-07-18）
+  - 新增 `MODELOPS_EXECUTION_MODE=disabled|local`（默认 disabled，本机 local）；生产 `evaluation_worker` 改用 `build_production_evaluator_registry`，未接入真实 Provider 前对所有目标类型 fail-closed。
+  - `DeterministicFakeEvaluator`/`deterministic_fake_registry` 迁出生产模块至 `tests/fake_evaluators.py`，仅供测试装配；生产入口源码静态检查无 Fake 引用。
+  - 真实环境实测：生产评估 Worker 领取探针任务后以 `EVALUATION_PROVIDER_UNAVAILABLE` 稳定失败、零指标写入，探针行精确清理。
+  - 定向测试 40 项、全量测试 `770 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
+- [x] [#194 M5：真实 Training Worker 与最小真实 LoRA 训练](https://github.com/Doggod727/CampusPilot/issues/194)（2026-07-18）
+  - 新增 `training_worker`（模块与常驻 CLI）：SKIP LOCKED 领取、preparing→training→evaluating→succeeded/failed/cancelled 阶段推进、独立事务逐阶段提交 progress、后台看护线程处理取消与进度刷新；仅 `[modelops]` 可选依赖组（torch/transformers/peft/accelerate）惰性加载。
+  - LoRA 支持 CPU/CUDA 手动训练循环；QLoRA 仅在 CUDA+bitsandbytes 可用时执行，否则 `TRAINING_RESOURCE_UNAVAILABLE` 安全失败；基座模型经 hf-mirror 快照至 E 盘 `base-models/`，产物与 SHA-256 写入 E 盘 `artifacts/`。
+  - 真实环境实测：tiny-random-gpt2 + 8 条冻结文本样本完成最小真实 LoRA（steps=4，initial_loss≈6.915→final_loss≈6.902），产物 21720 字节且 SHA-256 与数据库一致；探针数据（任务/数据集/审计/幂等）全部精确清理。
+  - 顺带修复真实环境缺陷：数据集上传路由在事务外裸读 `detail` 导致 `A transaction is already begun` 500，检查移入 mutation 事务内（附回归测试）。
+  - 定向测试 48 项、全量测试 `778 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
+- [x] [#195 M5：五类真实 Evaluation Provider](https://github.com/Doggod727/CampusPilot/issues/195)（2026-07-18）
+  - 新增 `evaluation_providers.py`：RAG（冻结 30 题关键词 Recall@K/MRR/引用覆盖，fallback 判例按零引用计分）、Agent（真实 DeepSeek Specialist 冻结任务）、Tool（仅 R0 只读工具，非 R0 用例稳定拒绝）、Model（deepseek 目标网关 sanity + 真实延迟，local 目标稳定拒绝）、System（检索+DeepSeek 探活+数据库探活）。
+  - `build_production_evaluator_registry(settings, sessions)`：disabled fail-closed、local 装配五类真实 Provider；生产脚本传入真实会话工厂。
+  - 真实环境实测：五类探针任务全部 queued→succeeded，指标来自真实执行（model latency_avg=924.2ms、rag recall_at_k=0.1667（5/30 兜底判例正确、当前语料对通用题零覆盖，如实记录）、tool/agent/system 全通过）；样本/Prompt/输出不进入 summary 与日志；探针数据精确清理。
+  - 定向测试 59 项、全量测试 `785 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
+- [x] [#196 M5：模型产物归属与激活安全链加固](https://github.com/Doggod727/CampusPilot/issues/196)（2026-07-18）
+  - 注册携带 `training_job_id` 时校验训练任务存在、succeeded 且 `artifact_key` 正是该任务登记产物，否则 `409 MODEL_ARTIFACT_INVALID`；同 purpose 并发/重复双激活的唯一索引冲突映射为稳定 `409 MODEL_STATE_CONFLICT`（不再落 500）。
+  - 修正训练产物 `artifact_key` 与磁盘布局不一致（`artifacts/{job_id}/...` 统一），使模型注册的磁盘重算哈希校验可真实命中。
+  - 真实环境实测：归属注册 201、篡改哈希/孤儿任务/未完成任务 409、无评估激活 409、评估后激活原子切换且审计完整、complex_generation 本地激活 409 FALLBACK；种子 active 模型状态已恢复，探针数据精确清理。
+  - 定向测试 65 项、全量测试 `791 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
+- [x] [#197 M5：ModelOps 真实集成验收](https://github.com/Doggod727/CampusPilot/issues/197)（2026-07-18）
+  - Local 模型评估落地：provider=local 的 LoRA 注册模型经 base+adapter 真实前向计算 `base_loss/lora_loss/loss_improvement`，产物缺失或不可加载稳定拒绝；训练→登记→评估→激活全链真实闭环。
+  - 训练失败恢复：preparing/training/evaluating 超租约任务由 Worker 安全 requeue；并发加载修复——transformers 并发 `from_pretrained` 产生 meta 张量，加载段串行化并强制实体权重（真实双 Worker 并发暴露）。
+  - 集成探针 `verify-modelops-integration.ps1` 全绿：数据集链、真实 LoRA 训练链、本地评估、激活原子切换、领取前取消不执行、敏感版本 409、过期任务恢复、双 Worker 并发各执行一次、探针数据精确清理。
+  - 定向测试 73 项、全量测试 `793 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过；生产 Worker 静态检查无 Fake。
+- [x] [#198 后端：SCU 公开数据溯源审核与隐私扫描](https://github.com/Doggod727/CampusPilot/issues/198)（2026-07-18）
+  - 快照全量隐私扫描：手机号/座机/邮箱/身份证模式零命中（`028-00000000` 为明确占位号）；公开职务人名属官网公开报道，保留。
+  - `data/scu/README.md` 补齐溯源：文件清单、来源 URL、采集方法、12 篇知识文档计数修正与全部文件 SHA-256 内容哈希。
+  - 新增仓库级守护测试 `test_scu_snapshot.py`：个人敏感模式与缺失 `source_url` 文档入库即失败。
+  - 幂等实测：`seed_demo` 连续两次执行后用户/部门/指南/联系窗口/知识库/文档/话题数量完全一致。
+  - 定向测试 77 项、全量测试 `797 passed`；compileall 通过。
+- [x] [#199 后端：136 个 OpenAPI 契约总审计](https://github.com/Doggod727/CampusPilot/issues/199)（2026-07-18）
+  - 新增仓库级审计 `test_openapi_contract_audit.py`：136 个 operationId 全局唯一、方法与路径逐一对应；M5 关键 operation 响应矩阵（429/409/502/504/SSE text-event-stream）不缺失；仅健康检查与登出允许不声明 401。
+  - 实测 136/136 零漂移；Redocly lint 0 error/0 warning（≤5 条既有非阻断警告约束满足）。
+  - 定向测试 88 项、全量测试 `808 passed`；compileall 通过。
+- [x] [#200 后端：README/AGENTS/todo 文档同步](https://github.com/Doggod727/CampusPilot/issues/200)（2026-07-18）
+  - README 重写为简洁版：前置环境（conda env、E 盘 PG/Redis）→ 配置 → 迁移与种子 → 启动（API + 四 Worker）→ 验证（health、冒烟、探针）→ 前端开发中。
+  - AGENTS.md 同步真实状态：唯一 Composition 14/14 真实 Handler、ModelOps 真实能力（MODELOPS_EXECUTION_MODE、真实训练与五类评估）、本机环境与依赖钉版、迁移 0009、实测 808 passed/冒烟 68/0；移除“M3 Mock/Chroma 未配置/无真实环境”等过时表述。
+  - todo.md 待办收敛：已完成的迁移/ready/M1 E2E/种子幂等待办归档，仅保留审批到期协调、启动恢复保真、Compose 代理、QLoRA/本地评估边界与前端批次。
+  - 根目录 AGENTS.md 与 DESIGN.md 纳入版本控制。
+- [x] [#201 后端：PowerShell 启停与验证 Runbook](https://github.com/Doggod727/CampusPilot/issues/201)（2026-07-18）
+  - `start-dev.ps1` 加固：补齐 training worker 共 5 个组件，同名进程存在即跳过（幂等），输出全部重定向到 `logs/`（已加入 .gitignore，不回显密钥）；入库 Worker 按一次性排空设计以 15s 监督循环运行。
+  - 新增 `stop-dev.ps1`（幂等，仅停应用进程）与 `status-dev.ps1`（进程 + `/health/ready` 依赖视图）。
+  - 实测：全停→启动→重复启动零重复进程→status 与 ready 一致（postgres/redis/chroma 全 up）。
 
 ## 契约与设计差异
 
@@ -718,7 +794,13 @@
 - [ ] 在具备PostgreSQL、Chroma、本地BGE模型及DeepSeek密钥的环境执行M1真实上传→入库→检索→REST/SSE→Tool端到端验证。
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
-- [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。
-- [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
-- [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
-- [ ] 真实 PostgreSQL/Redis/DeepSeek 环境可用后执行 M5 Outbox并发领取、Checkpoint恢复、审批一次消费、SSE重放、限流和Provider故障集成验证。
+- [ ] 前端与 Docker Compose 转入后续批次；M1/M3 真实 Handler 已替换 M5 显式 Mock（#192 验收确认 14/14 Tool 均为真实 Handler、目录零漂移）。
+## 待办
+
+- [ ] M5 审批到期协调真实环境验证（过期审批的决策与恢复拒绝）；Outbox 并发、Checkpoint 崩溃恢复、用户/IP 双维度限流与 DeepSeek Provider 故障矩阵已分别由 #188/#189/#190/#191 在真实 PostgreSQL/Redis 下完成，SSE 重放由冒烟覆盖。
+- [ ] Compose/Nginx 收尾时显式配置 Uvicorn 可信代理来源；不得信任任意 `X-Forwarded-For`。Redis 不可用时限流当前落为通用 500，后续契约总审计决定并同步稳定 fail-closed 503 语义。
+- [ ] Agent Run 启动恢复保真：当前 Worker 只取得 `input_summary[:1000]`，公开创建请求的 1001–4000 字输入以及 mode/context 尚未进入认证加密恢复状态（在 M5 后续强化批次处理）。
+- [ ] 前端与 Docker Compose 后续批次（自合并后 main 建 `frontend` 分支）；M1/M3 真实 Handler 已替换 M5 显式 Mock（#192 验收确认 14/14 Tool 均为真实 Handler、目录零漂移）。
+- [ ] QLoRA 需 CUDA+bitsandbytes（本机仅 CPU，当前稳定拒绝）；本地模型评估当前仅 LoRA 产物前向损失对比。
+
+> 已完成并归档：真实空库迁移升→降→升、`/health/ready` 集成、M1 真实上传→入库→检索→REST/SSE→Tool 端到端、重复种子幂等、M1/M3 真实 Handler 替换 Mock（均由集成批次实测，见上文各 Issue 记录与冒烟/探针证据）。

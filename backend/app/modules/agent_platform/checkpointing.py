@@ -139,3 +139,38 @@ class PersistentRuntimeEventSink:
             run_id=run_id, event=event, data=data,
             request_id=self._request_id, occurred_at=self._clock(),
         )
+
+
+class RuntimeTerminalCoordinator:
+    """Delete short-lived recovery state and append one terminal SSE fact."""
+
+    def __init__(
+        self,
+        checkpoints: RuntimeCheckpointRepository,
+        events: RuntimeEventRepository,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._checkpoints = checkpoints
+        self._events = events
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    async def complete(
+        self,
+        *,
+        run_id: UUID,
+        status: str,
+        request_id: str | None,
+        error_code: str | None = None,
+    ) -> None:
+        await self._checkpoints.delete(run_id)
+        data: dict[str, Any] = {"status": status}
+        if error_code is not None:
+            data["error_code"] = error_code
+        await self._events.append(
+            run_id=run_id,
+            event="error" if status == "failed" else "done",
+            data=data,
+            request_id=request_id,
+            occurred_at=self._clock(),
+        )

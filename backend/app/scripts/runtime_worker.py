@@ -1,5 +1,6 @@
 import asyncio
 import os
+import socket
 from datetime import timedelta
 
 from app.core.config import get_settings
@@ -7,6 +8,13 @@ from app.infrastructure.database import Database
 from app.modules.agent_platform.composition import RuntimeCompositionFactory
 from app.modules.agent_platform.runtime_worker import RuntimeWorker, TraceRuntimeFailureHandler, RedisRuntimeWakeup
 from redis.asyncio import Redis
+
+
+def resolve_worker_id() -> str:
+    configured = os.getenv("AGENT_RUNTIME_WORKER_ID", "").strip()
+    if configured:
+        return configured[:100]
+    return f"{socket.gethostname()}:{os.getpid()}"[:100]
 
 
 async def main() -> None:
@@ -17,9 +25,10 @@ async def main() -> None:
     worker = RuntimeWorker(
         sessions=database.session,
         processor_factory=factory.command_processor,
-        worker_id=os.getenv("HOSTNAME", "campuspilot-runtime-worker"),
+        worker_id=resolve_worker_id(),
         claim_timeout=timedelta(seconds=settings.agent_runtime_claim_timeout_seconds),
         poll_interval=settings.agent_runtime_poll_seconds,
+        batch_size=settings.agent_runtime_batch_size,
         failures=TraceRuntimeFailureHandler(),
         wakeup=RedisRuntimeWakeup(redis),
     )

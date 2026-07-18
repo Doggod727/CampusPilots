@@ -36,6 +36,8 @@
 
 V0.3 P0 实现结论：M5 后端路由、目录、审批、可恢复运行、SSE、数据集、训练任务骨架、模型注册与评估任务骨架已闭环。M2 电费与 M4 治理为真实应用服务适配器；M1 知识与 M3 社区仍使用显式确定性 Mock，待对应模块完成后替换。MCP、Reranker、真实 LoRA/QLoRA、并行 Agent、前端和 Compose 不属于 P0 完成线。
 
+V0.4 真实环境验收结论：M1 知识、M2 校园服务/电费、M3 社区、M4 治理已全部接入真实 Tool Handler（Mock 仅兜底目录外未覆盖工具）。事务 Outbox 并发领取、Checkpoint 崩溃 60 秒租约恢复、用户/IP 双维度限流、DeepSeek Provider 故障矩阵已在真实 PostgreSQL/Redis/DeepSeek 下完成可重复验证（scripts/verify-runtime-*.ps1 与 verify-deepseek-provider-faults.ps1），跨模块冒烟 68/0 通过；Runtime 层不再保留未完成验证待办，仅保留审批到期协调与启动恢复保真两条显式边界。真实 LoRA/QLoRA 训练与生产评估执行仍为后续批次范围。
+
 ## 1.3 M4 已完成时的兼容结论
 
 现有 M4 无需推倒重来。下列能力可直接复用：JWT Claims、`require_permissions`、`RbacService`、`AuditService`、`ConfigService`、`idempotency_records`、Request-Id 和统一错误信封。
@@ -710,7 +712,7 @@ electricity:topup_request:create
 - 最小上下文：只向 DeepSeek 发送当前任务必要字段；房间授权、真实权限不由模型判断。
 - DeepSeek Gateway 固定只接受 `deepseek-v4-pro` 并显式关闭 Thinking；路由、ToolCall 和最终回答必须通过强类型结构校验，`reasoning_content` 一律拒绝且不持久化。
 - 流式生成只允许在首个内容片段前有限重试；开始输出后不做透明重试。超时使用 `504 AGENT_PROVIDER_TIMEOUT`，依赖或非法响应使用 `502 AGENT_PROVIDER_UNAVAILABLE`。
-- Runtime Composition Factory 是生产运行时的唯一装配入口，统一构造持久化 Catalog、Trace、Checkpoint、Approval、M4 治理、M2 电费、DeepSeek 和明确 Mock Handler。Worker 启动时才读取配置和连接外部依赖。
+- Runtime Composition Factory 是生产运行时的唯一装配入口，统一构造持久化 Catalog、Trace、Checkpoint、Approval、M4 治理、M2 电费、DeepSeek 以及 M1 知识/M2 服务/M3 社区的真实 Tool Handler（Mock 仅兜底目录外未覆盖工具）。Worker 启动时才读取配置和连接外部依赖。
 - Agent Run 与内部 Tool 采用用户/IP 双维度 Redis 限流，分别由环境变量配置；超限返回 `429 RATE_LIMITED` 与 `Retry-After`。Redis 不承担 Outbox 正确性，运行命令仍以 PostgreSQL 为事实源。
 - 写操作：确认、幂等、参数哈希、资源授权、审计缺一不可。
 - 敏感字段：电话、地址、匿名身份、Token、密钥、完整 Tool 参数默认不进轨迹。

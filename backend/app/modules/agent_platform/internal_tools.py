@@ -62,7 +62,11 @@ from app.modules.platform.repositories import (
     UserRepository,
 )
 from app.shared.responses import SuccessResponse
-from app.modules.agent_platform.rate_limit import RateLimitPort, RedisRateLimiter
+from app.modules.agent_platform.rate_limit import (
+    RateLimitPort,
+    RedisRateLimiter,
+    user_ip_rate_limit_subjects,
+)
 from redis.asyncio import Redis
 
 router = APIRouter(prefix="/internal/v1", tags=["InternalTools"])
@@ -303,8 +307,12 @@ class InternalToolService:
             call.duration_ms = result.duration_ms
             call.audit_id = result.audit_id
             call.finished_at = datetime.now(UTC)
-            scope.run.status = "running"
-            scope.step.status = "running"
+            # awaiting_approval 的 Run/Step 由运行时 resume 的 CAS 接管，此处不得覆盖，
+            # 否则 resume 的 awaiting_approval→running 校验永远冲突（真实环境冒烟发现）。
+            if scope.run.status != "awaiting_approval":
+                scope.run.status = "running"
+            if scope.step.status != "awaiting_approval":
+                scope.step.status = "running"
             return 200, ToolInvokeData(
                 tool_call_id=call.id, status="succeeded", result=call.result_summary
             )
@@ -360,7 +368,8 @@ async def get_internal_tool_service() -> AsyncIterator[InternalToolService]:
     try:
         async with database.session() as session:
             factory = RuntimeCompositionFactory(settings)
-            agents, tools = await factory.load_catalogs(session)
+            async with session.begin():
+                agents, tools = await factory.load_catalogs(session)
             executor, approval_service, _moderation = await factory.build_tool_executor(
                 session, (agents, tools)
             )
@@ -393,6 +402,24 @@ def get_internal_tool_rate_limit() -> int:
     return get_settings().internal_tool_rate_limit_per_minute
 
 
+async def enforce_internal_tool_rate_limit(
+    payload: ToolInvokeRequest,
+    request: Request,
+    principal: Annotated[
+        InternalServicePrincipal, Depends(get_internal_service_principal)
+    ],
+    limiter: Annotated[RateLimitPort, Depends(get_internal_tool_rate_limiter)],
+    rate_limit: Annotated[int, Depends(get_internal_tool_rate_limit)],
+) -> InternalServicePrincipal:
+    client_ip = request.client.host if request.client else "unknown"
+    await limiter.check(
+        scope="internal_tool",
+        subjects=user_ip_rate_limit_subjects(payload.user_id, client_ip),
+        limit=rate_limit,
+    )
+    return principal
+
+
 @router.post(
     "/tools/{tool_name}:invoke",
     operation_id="invokeInternalTool",
@@ -402,20 +429,14 @@ async def invoke_internal_tool(
     tool_name: str,
     payload: ToolInvokeRequest,
     request: Request,
-    _principal: Annotated[InternalServicePrincipal, Depends(get_internal_service_principal)],
+    _principal: Annotated[
+        InternalServicePrincipal, Depends(enforce_internal_tool_rate_limit)
+    ],
     service: Annotated[InternalToolService, Depends(get_internal_tool_service)],
-    limiter: Annotated[RateLimitPort, Depends(get_internal_tool_rate_limiter)],
-    rate_limit: Annotated[int, Depends(get_internal_tool_rate_limit)],
     idempotency_key: Annotated[
         str, Header(alias="Idempotency-Key", min_length=8, max_length=128)
     ],
 ) -> JSONResponse:
-    client_ip = request.client.host if request.client else "unknown"
-    await limiter.check(
-        scope="internal_tool",
-        subjects=(str(payload.user_id), client_ip),
-        limit=rate_limit,
-    )
     status, data = await service.invoke(
         tool_name=tool_name,
         payload=payload,

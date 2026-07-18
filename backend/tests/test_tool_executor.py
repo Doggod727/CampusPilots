@@ -56,7 +56,7 @@ def _samples(context: UserContext) -> dict[str, dict[str, object]]:
         },
         "work_order.get": {"work_order_id": owned_work_order_id(context)},
         "electricity.get_balance": {"room_id": ROOM_ID},
-        "electricity.create_topup_request": {"room_id": ROOM_ID, "amount": Decimal("20.00")},
+        "electricity.create_topup_request": {"room_id": ROOM_ID, "amount_cny": Decimal("20.00")},
         "event.search": {"query": "志愿"},
         "event.register": {"event_id": uuid4()},
         "lost_found.publish": {
