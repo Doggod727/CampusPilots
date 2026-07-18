@@ -71,6 +71,12 @@
   - 训练失败恢复：preparing/training/evaluating 超租约任务由 Worker 安全 requeue；并发加载修复——transformers 并发 `from_pretrained` 产生 meta 张量，加载段串行化并强制实体权重（真实双 Worker 并发暴露）。
   - 集成探针 `verify-modelops-integration.ps1` 全绿：数据集链、真实 LoRA 训练链、本地评估、激活原子切换、领取前取消不执行、敏感版本 409、过期任务恢复、双 Worker 并发各执行一次、探针数据精确清理。
   - 定向测试 73 项、全量测试 `793 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过；生产 Worker 静态检查无 Fake。
+- [x] [#198 后端：SCU 公开数据溯源审核与隐私扫描](https://github.com/Doggod727/CampusPilot/issues/198)（2026-07-18）
+  - 快照全量隐私扫描：手机号/座机/邮箱/身份证模式零命中（`028-00000000` 为明确占位号）；公开职务人名属官网公开报道，保留。
+  - `data/scu/README.md` 补齐溯源：文件清单、来源 URL、采集方法、12 篇知识文档计数修正与全部文件 SHA-256 内容哈希。
+  - 新增仓库级守护测试 `test_scu_snapshot.py`：个人敏感模式与缺失 `source_url` 文档入库即失败。
+  - 幂等实测：`seed_demo` 连续两次执行后用户/部门/指南/联系窗口/知识库/文档/话题数量完全一致。
+  - 定向测试 77 项、全量测试 `797 passed`；compileall 通过。
 
 ## 契约与设计差异
 
