@@ -50,6 +50,12 @@
   - `DeterministicFakeEvaluator`/`deterministic_fake_registry` 迁出生产模块至 `tests/fake_evaluators.py`，仅供测试装配；生产入口源码静态检查无 Fake 引用。
   - 真实环境实测：生产评估 Worker 领取探针任务后以 `EVALUATION_PROVIDER_UNAVAILABLE` 稳定失败、零指标写入，探针行精确清理。
   - 定向测试 40 项、全量测试 `770 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
+- [x] [#194 M5：真实 Training Worker 与最小真实 LoRA 训练](https://github.com/Doggod727/CampusPilot/issues/194)（2026-07-18）
+  - 新增 `training_worker`（模块与常驻 CLI）：SKIP LOCKED 领取、preparing→training→evaluating→succeeded/failed/cancelled 阶段推进、独立事务逐阶段提交 progress、后台看护线程处理取消与进度刷新；仅 `[modelops]` 可选依赖组（torch/transformers/peft/accelerate）惰性加载。
+  - LoRA 支持 CPU/CUDA 手动训练循环；QLoRA 仅在 CUDA+bitsandbytes 可用时执行，否则 `TRAINING_RESOURCE_UNAVAILABLE` 安全失败；基座模型经 hf-mirror 快照至 E 盘 `base-models/`，产物与 SHA-256 写入 E 盘 `artifacts/`。
+  - 真实环境实测：tiny-random-gpt2 + 8 条冻结文本样本完成最小真实 LoRA（steps=4，initial_loss≈6.915→final_loss≈6.902），产物 21720 字节且 SHA-256 与数据库一致；探针数据（任务/数据集/审计/幂等）全部精确清理。
+  - 顺带修复真实环境缺陷：数据集上传路由在事务外裸读 `detail` 导致 `A transaction is already begun` 500，检查移入 mutation 事务内（附回归测试）。
+  - 定向测试 48 项、全量测试 `778 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
 
 ## 契约与设计差异
 

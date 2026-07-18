@@ -43,8 +43,13 @@ class DatasetApiService:
   return status,body,request_id
  async def upload(self,actor,key,request_id,dataset_id,file):
   artifact=await self.store.store(file);dto=UploadDTO(**artifact.__dict__)
+  async def operation():
+   # 数据集存在性检查必须在 mutation 事务内执行：事务外裸读会占用会话事务，
+   # 导致 mutation 的 session.begin() 报"A transaction is already begun"（真实环境发现的缺陷）。
+   await self.core.detail(dataset_id)
+   return dto
   try:
-   result=await self.mutation(actor=actor,key=key,request_id=request_id,endpoint=f"POST /api/v1/datasets/{dataset_id}/uploads",request_body={"dataset_id":str(dataset_id),"sha256":artifact.artifact_sha256,"format":artifact.format},status=201,resource_type="dataset_upload",operation=lambda:_value(dto))
+   result=await self.mutation(actor=actor,key=key,request_id=request_id,endpoint=f"POST /api/v1/datasets/{dataset_id}/uploads",request_body={"dataset_id":str(dataset_id),"sha256":artifact.artifact_sha256,"format":artifact.format},status=201,resource_type="dataset_upload",operation=operation)
    if result[1].get("data",{}).get("artifact_key")!=artifact.artifact_key:await self.store.delete(artifact.artifact_key)
    return result
   except BaseException:
@@ -74,7 +79,7 @@ async def detail(dataset_id:UUID,request:Request,actor:Annotated[AuthenticatedUs
 async def delete(dataset_id:UUID,request:Request,actor:Annotated[AuthenticatedUser,Depends(require_permissions("dataset:write"))],service:Annotated[DatasetApiService,Depends(get_service)],key:Annotated[str,Header(alias="Idempotency-Key",min_length=1,max_length=128)]):return _json(await service.mutation(actor=actor,key=key,request_id=request.state.request_id,endpoint=f"DELETE /api/v1/datasets/{dataset_id}",request_body={"dataset_id":str(dataset_id)},status=200,resource_type="dataset",audit_action="dataset.delete",operation=lambda:_delete(service.core,dataset_id)))
 async def _delete(core,did):await core.delete(did);return {}
 @router.post("/{dataset_id}/uploads",operation_id="uploadDatasetArtifact",status_code=201,response_model=UploadResponse)
-async def upload(dataset_id:UUID,request:Request,file:Annotated[UploadFile,File()],actor:Annotated[AuthenticatedUser,Depends(require_permissions("dataset:write"))],service:Annotated[DatasetApiService,Depends(get_service)],key:Annotated[str,Header(alias="Idempotency-Key",min_length=1,max_length=128)]):await service.core.detail(dataset_id);return _json(await service.upload(actor,key,request.state.request_id,dataset_id,file))
+async def upload(dataset_id:UUID,request:Request,file:Annotated[UploadFile,File()],actor:Annotated[AuthenticatedUser,Depends(require_permissions("dataset:write"))],service:Annotated[DatasetApiService,Depends(get_service)],key:Annotated[str,Header(alias="Idempotency-Key",min_length=1,max_length=128)]):return _json(await service.upload(actor,key,request.state.request_id,dataset_id,file))
 @router.post("/{dataset_id}/versions",operation_id="createDatasetVersion",status_code=201,response_model=VersionResponse)
 async def version(dataset_id:UUID,payload:VersionCreateRequest,request:Request,actor:Annotated[AuthenticatedUser,Depends(require_permissions("dataset:write"))],service:Annotated[DatasetApiService,Depends(get_service)],key:Annotated[str,Header(alias="Idempotency-Key",min_length=1,max_length=128)]):return _json(await service.mutation(actor=actor,key=key,request_id=request.state.request_id,endpoint=f"POST /api/v1/datasets/{dataset_id}/versions",request_body={"dataset_id":str(dataset_id),**payload.model_dump(mode="json")},status=201,resource_type="dataset_version",operation=lambda:service.core.create_version(dataset_id=dataset_id,artifact_key=payload.artifact_key,artifact_sha256=payload.artifact_sha256,fmt=payload.format,claimed_count=payload.sample_count,split_config=payload.split_config,declared_sensitive=payload.contains_sensitive_data,actor_id=actor.user_id)))
 @router.post("/{dataset_id}/versions/{version}/freeze",operation_id="freezeDatasetVersion",response_model=VersionResponse)
