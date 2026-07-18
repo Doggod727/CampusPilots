@@ -14,7 +14,7 @@ import threading
 from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
@@ -86,6 +86,8 @@ def parse_training_samples(artifact: bytes, fmt: str) -> tuple[str, ...]:
 class LoraTrainingBackend:
     """最小真实 LoRA 后端：本地基座模型 + 手动训练循环（CPU/CUDA）。"""
 
+    _LOAD_LOCK = threading.Lock()
+
     def __init__(self, model_root: Path) -> None:
         self._model_root = model_root
 
@@ -103,10 +105,13 @@ class LoraTrainingBackend:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         base_dir = self._resolve_base_model(job.base_model)
-        tokenizer = AutoTokenizer.from_pretrained(base_dir)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(base_dir)
+        # transformers 加载非线程安全：并发 Worker 同时 from_pretrained 会得到
+        # meta 张量（Cannot copy out of meta tensor）——加载段串行化并强制实体权重。
+        with self._LOAD_LOCK:
+            tokenizer = AutoTokenizer.from_pretrained(base_dir)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            model = AutoModelForCausalLM.from_pretrained(base_dir, low_cpu_mem_usage=False)
         config = job.config or {}
         lora = LoraConfig(
             r=int(config.get("lora_r", 8)),
@@ -235,6 +240,7 @@ class TrainingWorker:
         artifact_root: Path,
         *,
         poll_interval: float = 5.0,
+        stale_after: timedelta = timedelta(minutes=10),
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._sessions = sessions
@@ -242,12 +248,17 @@ class TrainingWorker:
         self._datasets = dataset_store
         self._artifact_root = artifact_root
         self._poll_interval = poll_interval
+        self._stale_after = stale_after
         self._now = now or (lambda: datetime.now(UTC))
 
     async def run_once(self) -> UUID | None:
         async with self._sessions() as session:
             async with session.begin():
-                claimed = await TrainingRepository(session).claim(1)
+                repository = TrainingRepository(session)
+                # 崩溃/重启恢复：超过租约的执行中任务安全重回队列（Worker 进程曾被终止时，
+                # 任务可能永久卡在 preparing/training/evaluating——真实环境边界）。
+                await repository.requeue_stale(self._now() - self._stale_after, self._now())
+                claimed = await repository.claim(1)
                 if not claimed:
                     return None
                 job = claimed[0]

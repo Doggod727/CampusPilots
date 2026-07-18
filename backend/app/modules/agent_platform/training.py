@@ -52,6 +52,10 @@ class TrainingRepository:
   stmt=select(DatasetVersion).join(Dataset,Dataset.id==DatasetVersion.dataset_id).where(Dataset.id==dataset_id,Dataset.deleted_at.is_(None),DatasetVersion.version==version,DatasetVersion.frozen_at.is_not(None),DatasetVersion.validation_status=="valid",DatasetVersion.contains_sensitive_data.is_(False))
   return(await self.session.execute(stmt)).scalar_one_or_none()
  async def claim(self,limit=1):return tuple((await self.session.execute(select(TrainingJob).where(TrainingJob.status=="queued").order_by(TrainingJob.created_at,TrainingJob.id).limit(limit).with_for_update(skip_locked=True))).scalars().all())
+ async def requeue_stale(self,stale_before,now):
+  from sqlalchemy import update
+  result=await self.session.execute(update(TrainingJob).where(TrainingJob.status.in_(("preparing","training","evaluating")),TrainingJob.updated_at<stale_before).values(status="queued",updated_at=now))
+  return result.rowcount
  def add(self,x):self.session.add(x)
 
 def _dto(x):return TrainingDTO(id=x.id,base_model=x.base_model,method=x.method,status=x.status,progress=x.progress,metrics=redact(x.metrics)or{},error_code=x.error_code,error_message="训练任务失败" if x.status=="failed" else None,created_at=x.created_at,updated_at=x.updated_at,started_at=x.started_at,finished_at=x.finished_at)

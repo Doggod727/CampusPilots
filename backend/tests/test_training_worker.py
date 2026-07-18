@@ -68,6 +68,7 @@ def build_worker(tmp_path: Path, job: TrainingJob, backend, artifact: bytes = b'
     repository = MagicMock()
     repository.claim = AsyncMock(return_value=(job,))
     repository.get = AsyncMock(return_value=job)
+    repository.requeue_stale = AsyncMock(return_value=0)
     datasets = SimpleNamespace(read=AsyncMock(return_value=artifact))
     with patch("app.modules.agent_platform.training_worker.TrainingRepository", return_value=repository):
         worker = TrainingWorker(
@@ -145,3 +146,23 @@ def test_qlora_backend_fails_closed_without_cuda_or_bitsandbytes(tmp_path):
     backend = LoraTrainingBackend(tmp_path)
     with pytest.raises(TrainingResourceUnavailable):
         backend.execute_sync(job(method="qlora"), ("sample",), lambda _v: None, lambda: False)
+
+
+def test_worker_requeues_stale_active_jobs_before_claiming(tmp_path):
+    current = job()
+    _, _, repository = build_worker(tmp_path, current, SuccessBackend())
+    repository.requeue_stale.assert_awaited_once()
+    assert repository.requeue_stale.await_count == 1
+    repository.claim.assert_awaited_once()
+
+
+def test_local_model_evaluation_requires_loadable_artifact(tmp_path):
+    from app.modules.agent_platform.evaluation_providers import ModelEvaluationProvider
+
+    provider = ModelEvaluationProvider(
+        AsyncMock(return_value=SimpleNamespace(provider="local", base_model="missing/model", artifact_key="artifacts/none/adapter_model.safetensors")),
+        MagicMock(),
+        model_root=tmp_path,
+    )
+    with pytest.raises(LookupError):
+        asyncio.run(provider.evaluate(SimpleNamespace(id=uuid4(), target_type="model", target_id=uuid4(), config={}, created_by=uuid4())))

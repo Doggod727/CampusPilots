@@ -66,6 +66,11 @@
   - 修正训练产物 `artifact_key` 与磁盘布局不一致（`artifacts/{job_id}/...` 统一），使模型注册的磁盘重算哈希校验可真实命中。
   - 真实环境实测：归属注册 201、篡改哈希/孤儿任务/未完成任务 409、无评估激活 409、评估后激活原子切换且审计完整、complex_generation 本地激活 409 FALLBACK；种子 active 模型状态已恢复，探针数据精确清理。
   - 定向测试 65 项、全量测试 `791 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过。
+- [x] [#197 M5：ModelOps 真实集成验收](https://github.com/Doggod727/CampusPilot/issues/197)（2026-07-18）
+  - Local 模型评估落地：provider=local 的 LoRA 注册模型经 base+adapter 真实前向计算 `base_loss/lora_loss/loss_improvement`，产物缺失或不可加载稳定拒绝；训练→登记→评估→激活全链真实闭环。
+  - 训练失败恢复：preparing/training/evaluating 超租约任务由 Worker 安全 requeue；并发加载修复——transformers 并发 `from_pretrained` 产生 meta 张量，加载段串行化并强制实体权重（真实双 Worker 并发暴露）。
+  - 集成探针 `verify-modelops-integration.ps1` 全绿：数据集链、真实 LoRA 训练链、本地评估、激活原子切换、领取前取消不执行、敏感版本 409、过期任务恢复、双 Worker 并发各执行一次、探针数据精确清理。
+  - 定向测试 73 项、全量测试 `793 passed`；compileall、Alembic 唯一 Head 与 OpenAPI/Redocly 不变量保持通过；生产 Worker 静态检查无 Fake。
 
 ## 契约与设计差异
 

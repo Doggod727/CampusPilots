@@ -152,6 +152,7 @@ def test_local_registry_wires_all_five_real_providers():
         knowledge_embedding_model_path="/models/bge",
         knowledge_chroma_path="/data/chroma",
         knowledge_score_threshold=0.35,
+        model_artifact_root="/data/models",
     )
     registry = EvaluatorRegistry(providers.build_local_evaluators(settings, lambda: None))
     for target_type in ("agent", "tool", "model", "rag", "system"):

@@ -10,6 +10,7 @@ summary 只包含计数与稳定标记，不持久化样本正文、Prompt 或�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -166,15 +167,25 @@ class ToolEvaluationProvider:
 
 
 class ModelEvaluationProvider:
-    def __init__(self, model_lookup: Callable[[UUID], Any], gateway_factory: Callable[[], Any], prompts: Sequence[str] = MODEL_SANITY_PROMPTS) -> None:
+    def __init__(self, model_lookup: Callable[[UUID], Any], gateway_factory: Callable[[], Any], prompts: Sequence[str] = MODEL_SANITY_PROMPTS, model_root: Path | None = None) -> None:
         self._model_lookup = model_lookup
         self._gateway_factory = gateway_factory
         self._prompts = tuple(prompts)
+        self._model_root = model_root
 
     async def evaluate(self, evaluation) -> EvaluationOutcome:
         model = await self._model_lookup(evaluation.target_id)
-        if model is None or model.provider != "deepseek":
+        if model is None:
             raise LookupError("EVALUATION_PROVIDER_UNAVAILABLE")
+        if model.provider == "deepseek":
+            return await self._evaluate_deepseek()
+        if model.provider == "local":
+            if self._model_root is None:
+                raise LookupError("EVALUATION_PROVIDER_UNAVAILABLE")
+            return await asyncio.to_thread(self._evaluate_local, model)
+        raise LookupError("EVALUATION_PROVIDER_UNAVAILABLE")
+
+    async def _evaluate_deepseek(self) -> EvaluationOutcome:
         gateway = self._gateway_factory()
         succeeded = 0
         latencies: list[float] = []
@@ -197,6 +208,58 @@ class ModelEvaluationProvider:
                 _metric("cases", float(len(self._prompts))),
             ),
         )
+
+    def _evaluate_local(self, model) -> EvaluationOutcome:
+        """local LoRA 产物：base 与 adapter 在冻结样本上的真实前向损失对比。"""
+
+        if not model.artifact_key:
+            raise LookupError("EVALUATION_PROVIDER_UNAVAILABLE")
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        base_dir = self._model_root / "base-models" / str(model.base_model).replace("/", "--")
+        artifact_dir = self._model_root / str(model.artifact_key).rsplit("/", 1)[0]
+        if not (base_dir / "config.json").is_file() or not artifact_dir.is_dir():
+            raise LookupError("EVALUATION_PROVIDER_UNAVAILABLE")
+        tokenizer = AutoTokenizer.from_pretrained(base_dir)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        def mean_loss(net) -> float:
+            losses: list[float] = []
+            with torch.no_grad():
+                for text in LOCAL_EVAL_SAMPLES:
+                    tokens = tokenizer(text, truncation=True, max_length=256, return_tensors="pt")
+                    outputs = net(**tokens, labels=tokens["input_ids"])
+                    losses.append(float(outputs.loss.item()))
+            return sum(losses) / len(losses)
+
+        base = AutoModelForCausalLM.from_pretrained(base_dir)
+        base_loss = mean_loss(base)
+        try:
+            from peft import PeftModel
+
+            adapted = PeftModel.from_pretrained(base, str(artifact_dir))
+        except Exception as exc:
+            raise LookupError("EVALUATION_PROVIDER_UNAVAILABLE") from exc
+        lora_loss = mean_loss(adapted)
+        return EvaluationOutcome(
+            summary={"samples": len(LOCAL_EVAL_SAMPLES)},
+            metrics=(
+                _metric("base_loss", round(base_loss, 6)),
+                _metric("lora_loss", round(lora_loss, 6)),
+                _metric("loss_improvement", round(base_loss - lora_loss, 6)),
+                _metric("samples", float(len(LOCAL_EVAL_SAMPLES))),
+            ),
+        )
+
+
+LOCAL_EVAL_SAMPLES: tuple[str, ...] = (
+    "四川大学望江校区位于成都市武侯区，是主要教学区之一。",
+    "学生可在校园服务中心办理报修与在读证明。",
+    "图书馆工作日全天开放，凭校园卡入馆。",
+    "失物招领平台帮助同学找回遗失物品。",
+)
 
 
 class SystemEvaluationProvider:
@@ -299,6 +362,6 @@ def build_local_evaluators(settings, sessions) -> dict[str, Any]:
         "rag": RagEvaluationProvider(retrieval_factory, user_loader),
         "agent": AgentEvaluationProvider(lambda: DeepSeekSpecialistProvider(gateway)),
         "tool": ToolEvaluationProvider(tool_environment),
-        "model": ModelEvaluationProvider(model_lookup, lambda: gateway),
+        "model": ModelEvaluationProvider(model_lookup, lambda: gateway, model_root=Path(settings.model_artifact_root)),
         "system": SystemEvaluationProvider(retrieval_factory, user_loader, ping, db_probe),
     }
