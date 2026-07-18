@@ -86,6 +86,10 @@
   - AGENTS.md 同步真实状态：唯一 Composition 14/14 真实 Handler、ModelOps 真实能力（MODELOPS_EXECUTION_MODE、真实训练与五类评估）、本机环境与依赖钉版、迁移 0009、实测 808 passed/冒烟 68/0；移除“M3 Mock/Chroma 未配置/无真实环境”等过时表述。
   - todo.md 待办收敛：已完成的迁移/ready/M1 E2E/种子幂等待办归档，仅保留审批到期协调、启动恢复保真、Compose 代理、QLoRA/本地评估边界与前端批次。
   - 根目录 AGENTS.md 与 DESIGN.md 纳入版本控制。
+- [x] [#201 后端：PowerShell 启停与验证 Runbook](https://github.com/Doggod727/CampusPilot/issues/201)（2026-07-18）
+  - `start-dev.ps1` 加固：补齐 training worker 共 5 个组件，同名进程存在即跳过（幂等），输出全部重定向到 `logs/`（已加入 .gitignore，不回显密钥）；入库 Worker 按一次性排空设计以 15s 监督循环运行。
+  - 新增 `stop-dev.ps1`（幂等，仅停应用进程）与 `status-dev.ps1`（进程 + `/health/ready` 依赖视图）。
+  - 实测：全停→启动→重复启动零重复进程→status 与 ready 一致（postgres/redis/chroma 全 up）。
 
 ## 契约与设计差异
 

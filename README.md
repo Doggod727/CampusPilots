@@ -35,7 +35,9 @@ python -m app.scripts.seed_agent_platform
 ## 启动（API + 四个 Worker）
 
 ```powershell
-pwsh -File scripts\start-dev.ps1   # 一键：PostgreSQL + Redis + API + 全部 Worker
+pwsh -File scripts\start-dev.ps1   # 一键启动：PostgreSQL + Redis + API + 全部 Worker（幂等，日志在 logs/）
+pwsh -File scripts\status-dev.ps1  # 状态检查：进程 + /health/ready
+pwsh -File scripts\stop-dev.ps1    # 幂等停止应用进程（不动共享 PG/Redis）
 ```
 
 或手动（`backend/` 下）：

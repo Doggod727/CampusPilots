@@ -1,11 +1,13 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    启动 CampusPilot 本地全栈开发环境（API + 三个 Worker + PostgreSQL + Redis）。
+    启动 CampusPilot 本地全栈开发环境（幂等）。
 .DESCRIPTION
-    - PostgreSQL：E:\CampusPilotServices\PostgreSQL（pg_ctl 便携实例，已运行则跳过）
-    - Redis：优先使用本机 6379 已有服务（Memurai）；不可达时启动 E 盘便携实例
-    - API 与 runtime/evaluation/ingestion 三个 Worker 各自在新 pwsh 窗口运行，日志可见
+    - PostgreSQL：E:\CampusPilotServices\PostgreSQL（已运行则跳过）
+    - Redis：本机 6379 可达则复用，否则启动 E 盘便携实例
+    - API + runtime/ingestion/training/evaluation 四个 Worker：
+      已存在同名进程时跳过（重复启动不产生重复进程）
+    - 全部输出重定向到 logs/（本机忽略目录，不回显密钥）
 .EXAMPLE
     pwsh -File scripts/start-dev.ps1
 #>
@@ -16,15 +18,16 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Backend = Join-Path $RepoRoot 'backend'
+$LogDir = Join-Path $RepoRoot 'logs'
 $Python = 'D:\anaconda\envs\campuspilot\python.exe'
 $PgBin = 'E:\CampusPilotServices\PostgreSQL\pgsql\bin'
 $PgData = 'E:\CampusPilotServices\PostgreSQL\data'
-$PgLog = 'E:\CampusPilotServices\PostgreSQL\server.log'
 $RedisDir = 'E:\CampusPilotServices\Redis'
 
-if (-not (Test-Path $Python)) { throw "conda 环境不存在: $Python（先执行 conda create -n campuspilot python=3.12）" }
+if (-not (Test-Path $Python)) { throw "conda 环境不存在: $Python" }
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-# 1. PostgreSQL（以独立隐藏进程启动，避免随启动会话退出被终止）
+# 1. PostgreSQL（已在运行则跳过）
 & (Join-Path $PgBin 'pg_ctl.exe') -D $PgData status *> $null
 if ($LASTEXITCODE -eq 0) {
     Write-Host '[=] PostgreSQL 已在运行' -ForegroundColor DarkGray
@@ -32,35 +35,53 @@ if ($LASTEXITCODE -eq 0) {
     Start-Process -FilePath (Join-Path $PgBin 'postgres.exe') -ArgumentList '-D', $PgData -WindowStyle Hidden
     Start-Sleep -Seconds 4
     & (Join-Path $PgBin 'pg_ctl.exe') -D $PgData status *> $null
-    if ($LASTEXITCODE -ne 0) { throw "PostgreSQL 启动失败，日志见 $PgLog 与数据目录 log" }
+    if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL 启动失败，日志见数据目录 log' }
     Write-Host '[+] PostgreSQL 已启动' -ForegroundColor Green
 }
 
-# 2. Redis（6379 可达则复用本机服务，否则启动便携实例）
+# 2. Redis（6379 可达则复用，否则启动便携实例）
 $redisUp = Test-NetConnection -ComputerName 127.0.0.1 -Port 6379 -InformationLevel Quiet -WarningAction SilentlyContinue
 if ($redisUp) {
     Write-Host '[=] Redis 6379 已可达（复用本机服务）' -ForegroundColor DarkGray
 } else {
-    Start-Process -FilePath (Join-Path $RedisDir 'redis-server.exe') -ArgumentList '--port 6379' -WorkingDirectory $RedisDir -WindowStyle Minimized
+    Start-Process -FilePath (Join-Path $RedisDir 'redis-server.exe') -ArgumentList '--port 6379' -WorkingDirectory $RedisDir -WindowStyle Hidden
     Write-Host '[+] Redis 便携实例已启动' -ForegroundColor Green
 }
 
-# 3. API + Workers（各开新窗口，关闭窗口即停止对应进程）
-# 入库 Worker 为一次性排空设计：窗口内循环运行以覆盖后续上传
+# 3. API + Workers（幂等：同名进程存在则跳过；日志进 logs/）
 $processes = @(
-    @{ Name = 'api';               Command = "& '$Python' -m uvicorn app.main:app --host 127.0.0.1 --port 8000" },
-    @{ Name = 'runtime-worker';    Command = "& '$Python' -m app.scripts.runtime_worker" },
-    @{ Name = 'evaluation-worker'; Command = "& '$Python' -m app.scripts.evaluation_worker" },
-    @{ Name = 'ingestion-worker';  Command = "while (`$true) { & '$Python' -m app.scripts.ingestion_worker | Out-Host; Start-Sleep -Seconds 15 }" }
+    @{ Name = 'api';                Module = 'uvicorn';                    Args = @('app.main:app', '--host', '127.0.0.1', '--port', '8000') },
+    @{ Name = 'runtime-worker';     Module = 'app.scripts.runtime_worker' },
+    @{ Name = 'training-worker';    Module = 'app.scripts.training_worker' },
+    @{ Name = 'evaluation-worker';  Module = 'app.scripts.evaluation_worker' }
 )
 foreach ($p in $processes) {
-    $command = "Set-Location '$Backend'; $($p.Command)"
-    Start-Process -FilePath 'pwsh' -ArgumentList '-NoExit', '-Command', $command -WorkingDirectory $Backend
-    Write-Host "[+] $($p.Name) 已在新窗口启动" -ForegroundColor Green
+    $pattern = [regex]::Escape($p.Module)
+    $existing = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+        Where-Object { $_.CommandLine -match $pattern -and $_.CommandLine -match 'campuspilot|app\.main|app\.scripts' }
+    if ($existing) {
+        Write-Host "[=] $($p.Name) 已在运行（PID $($existing[0].ProcessId)），跳过" -ForegroundColor DarkGray
+        continue
+    }
+    $arguments = @('-u', '-m', $p.Module) + @($p.Args)
+    $outLog = Join-Path $LogDir "$($p.Name).log"
+    $errLog = Join-Path $LogDir "$($p.Name).err.log"
+    Start-Process -FilePath $Python -ArgumentList $arguments -WorkingDirectory $Backend `
+        -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    Write-Host "[+] $($p.Name) 已启动（日志 logs/$($p.Name).log）" -ForegroundColor Green
+}
+
+# 入库 Worker 为一次性排空设计：以监督循环周期执行（幂等匹配含循环进程）
+$ingestionExisting = Get-CimInstance Win32_Process |
+    Where-Object { $_.CommandLine -match 'ingestion_worker' -and $_.ProcessId -ne $PID }
+if ($ingestionExisting) {
+    Write-Host "[=] ingestion-worker 已在运行，跳过" -ForegroundColor DarkGray
+} else {
+    $ingestionLog = Join-Path $LogDir 'ingestion-worker.log'
+    $loop = "Set-Location '$Backend'; while (`$true) { & '$Python' -u -m app.scripts.ingestion_worker *>> '$ingestionLog'; Start-Sleep -Seconds 15 }"
+    Start-Process -FilePath 'pwsh' -ArgumentList '-NoProfile', '-WindowStyle', 'Hidden', '-Command', $loop -WindowStyle Hidden
+    Write-Host "[+] ingestion-worker 已启动（15s 监督循环，日志 logs/ingestion-worker.log）" -ForegroundColor Green
 }
 
 Write-Host ''
-Write-Host '全部进程已启动。健康检查：' -ForegroundColor Cyan
-Write-Host '  GET http://127.0.0.1:8000/health/live'
-Write-Host '  GET http://127.0.0.1:8000/health/ready'
-Write-Host '停止：关闭各进程窗口；PostgreSQL 用 pg_ctl -D ' $PgData ' stop'
+Write-Host '启动完成。验证：pwsh -File scripts/status-dev.ps1；停止：pwsh -File scripts/stop-dev.ps1' -ForegroundColor Cyan
