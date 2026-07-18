@@ -147,3 +147,50 @@ def test_stream_uses_http_stream_transport_without_buffered_post():
 def test_gateway_rejects_unapproved_model():
     with pytest.raises(ValueError):
         DeepSeekGateway(api_key="secret", model="deepseek-chat")
+
+
+def test_connect_error_maps_to_502_without_transport_details():
+    gateway = DeepSeekGateway(api_key="secret", client=FakeClient(httpx.ConnectError("dial 10.0.0.9:443 refused")))
+    with pytest.raises(DeepSeekUnavailable) as caught:
+        asyncio.run(gateway.json_completion(({"role": "user", "content": "test"},)))
+    assert caught.value.status_code == 502
+    assert "dial" not in str(caught.value) and caught.value.details == []
+
+
+def test_http_error_status_maps_to_502_without_upstream_body():
+    class StatusResponse(FakeResponse):
+        def raise_for_status(self):
+            request = httpx.Request("POST", "https://provider.example/chat/completions")
+            httpx.Response(self.status, request=request, json=self.body).raise_for_status()
+
+    leaky = StatusResponse(body={"error": {"message": "invalid api key sk-probe-leak"}}, status=401)
+    gateway = DeepSeekGateway(api_key="sk-probe-leak", client=FakeClient(leaky))
+    with pytest.raises(DeepSeekUnavailable) as caught:
+        asyncio.run(gateway.json_completion(({"role": "user", "content": "test"},)))
+    assert caught.value.status_code == 502
+    assert "sk-probe-leak" not in str(caught.value)
+    assert "invalid api key" not in str(caught.value)
+    assert caught.value.details == []
+
+
+def test_non_object_or_invalid_json_completion_maps_to_502():
+    for content in ("not json at all", "[1,2]"):
+        gateway = DeepSeekGateway(
+            api_key="secret",
+            client=FakeClient(FakeResponse({"choices": [{"message": {"content": content}}]})),
+        )
+        with pytest.raises(DeepSeekUnavailable):
+            asyncio.run(gateway.json_completion(({"role": "user", "content": "test"},)))
+
+
+def test_stream_timeout_before_first_content_maps_to_504():
+    client = FakeClient(httpx.ReadTimeout("slow upstream"), httpx.ReadTimeout("slow upstream"))
+    gateway = DeepSeekGateway(api_key="secret", client=client, max_pre_output_attempts=2)
+
+    async def collect():
+        return [chunk async for chunk in gateway.stream_text(({"role": "user", "content": "x"},))]
+
+    with pytest.raises(DeepSeekTimeout) as caught:
+        asyncio.run(collect())
+    assert caught.value.status_code == 504
+    assert "slow upstream" not in str(caught.value)

@@ -35,6 +35,11 @@
   - 新增 PowerShell 7 真实探针：仅信任 loopback 代理、以固定全局租约独占 Redis DB15 且只精确清理自身哈希键、内存签发真实种子用户 JWT，并对真实 PostgreSQL 执行 `createAgentRun` 和无副作用 `service.get_guide` R0 Tool；测试 Dispatcher 不创建可被 Worker 领取的 Outbox。
   - 实测 Run 成功 22 次、内部 Tool 成功 62 次；20/60 阈值、用户限制、IP 限制、独立主体、`RATE_LIMITED`/`Retry-After`、下一窗口恢复和精确数据库/Redis 清理全部通过。
   - 定向测试 29 项、全量测试 `750 passed`；compileall、Alembic 唯一/真实 Head `0009_agent_steps_status_length`、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
+- [x] [#191 M5：验证 DeepSeek Provider 故障矩阵](https://github.com/Doggod727/CampusPilot/issues/191)（2026-07-18）
+  - 新增可重复 PowerShell 7 探针（拒绝已有 Runtime Worker 与活动命令）：仅以子进程环境变量覆盖 `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`，不改父进程与本机 `.env`；标准输出、HTTP 错误、SSE 与数据库证据均不回显密钥、URL 查询参数或上游正文。
+  - 传输矩阵 12/12：真实 httpx 网关 ×（错误 Key/不可达地址/本地延迟服务）×（Router/Specialist/M1 RAG Answer/SSE 流），错误 Key 与不可达稳定映射 `502 AGENT_PROVIDER_UNAVAILABLE`，超时限稳定映射 `504 AGENT_PROVIDER_TIMEOUT`；Router 层故障按设计安全回落本地/clarify（补回归测试）。
+  - 公共边界：真实 API + PostgreSQL 下同步 Chat 返回 502 统一信封、Chat SSE 输出 `AGENT_PROVIDER_UNAVAILABLE` error 事件、Specialist 不可达时 Agent Run 经 Outbox 重试后收敛 failed 且命令/Run 错误码一致；Run 事件、消息、审计泄密扫描与探针数据精确清理全部通过。
+  - 定向测试 31 项、全量测试 `761 passed`；compileall、Alembic 唯一/真实 Head、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
 
 ## 契约与设计差异
 
@@ -742,6 +747,6 @@
 - [ ] 前端与 Docker Compose 不属于本次 M5 P0/M1 后端交付范围；M1/M3真实Handler在对应模块完成后替换M5显式Mock。
 - [ ] PostgreSQL 可用后，在真实空库执行 M2 `alembic upgrade head` 与从 `0002_campus_service_schema` 降级验证。
 - [ ] PostgreSQL 可用后，在真实数据库执行 `0004_platform_m5_compat` 与 `0005_agent_platform_schema` 升降级和重复种子验证；验证后重新登录演示账号刷新 JWT 权限 Claims。
-- [ ] 继续执行 M5 审批到期协调、SSE 重放和 Provider 故障集成验证；Outbox 并发、Checkpoint 崩溃恢复与用户/IP 双维度限流已分别由 #188/#189/#190 在真实 PostgreSQL/Redis 下完成。
+- [ ] M5 审批到期协调真实环境验证（过期审批的决策与恢复拒绝）；Outbox 并发、Checkpoint 崩溃恢复、用户/IP 双维度限流与 DeepSeek Provider 故障矩阵已分别由 #188/#189/#190/#191 在真实 PostgreSQL/Redis 下完成，SSE 重放由冒烟覆盖。
 - [ ] Compose/Nginx 收尾时显式配置 Uvicorn 可信代理来源；不得信任任意 `X-Forwarded-For`。Redis 不可用时限流当前落为通用 500，后续契约总审计决定并同步稳定 fail-closed 503 语义。
 - [ ] M5 最终验收前修复 Agent Run 启动恢复保真：当前 Worker 只取得 `input_summary[:1000]`，公开创建请求的 1001–4000 字输入以及 mode/context 尚未进入认证加密恢复状态。

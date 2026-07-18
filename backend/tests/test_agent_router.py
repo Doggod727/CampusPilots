@@ -110,6 +110,16 @@ def test_router_timeouts_fall_back_without_leaking_provider_details() -> None:
     assert local.calls == deepseek.calls == 1
 
 
+def test_deepseek_provider_faults_safely_fall_back_to_clarify() -> None:
+    from app.modules.agent_platform.deepseek import DeepSeekTimeout, DeepSeekUnavailable
+    for fault in (DeepSeekUnavailable(), DeepSeekTimeout()):
+        decision = asyncio.run(RouterService(
+            deepseek_router=FakeRouter(error=fault),
+        ).route("请帮我处理一下"))
+        assert decision.target_agent == "clarify"
+        assert decision.reason_code == "ROUTE_CLARIFICATION_REQUIRED"
+
+
 @pytest.mark.parametrize("text", ["", "   ", "x" * 4001])
 def test_router_rejects_invalid_input_safely(text: str) -> None:
     with pytest.raises(AppError) as error:
