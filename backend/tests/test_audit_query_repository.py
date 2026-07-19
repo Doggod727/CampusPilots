@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from ipaddress import IPv4Address
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -34,7 +35,8 @@ def _log() -> AuditLog:
         id=uuid4(), actor_user_id=uuid4(), actor_username="admin01",
         action="auth.login", resource_type="user", resource_id="id",
         result="success", request_id="request-id", before_data={"token": "secret"},
-        after_data={"nested": {"password": "secret"}}, created_at=NOW,
+        after_data={"nested": {"password": "secret"}}, ip_address=IPv4Address("127.0.0.1"),
+        created_at=NOW,
     )
 
 
@@ -64,4 +66,5 @@ def test_audit_dto_redacts_legacy_sensitive_snapshots() -> None:
     data = audit_log_data(_log())
     assert data.before_data == {"token": "***"}
     assert data.after_data == {"nested": {"password": "***"}}
+    assert data.ip_address == "127.0.0.1"
     assert "secret" not in repr(data)

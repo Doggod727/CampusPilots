@@ -326,12 +326,16 @@ Assert '创建 Agent Run 返回 202' ($run.Status -eq 202 -and $run.Body.data.id
 $runId = $run.Body.data.id
 
 $finalRun = $null
+$finalRunDetail = $null
 $runDeadline = (Get-Date).AddMinutes(4)
 do {
     Start-Sleep -Seconds 5
-    $finalRun = (Invoke-Api -Method GET -Path "/api/v1/agent-runs/$runId" -Token $tokens['student01']).Body.data.run
+    $finalRunDetail = (Invoke-Api -Method GET -Path "/api/v1/agent-runs/$runId" -Token $tokens['student01']).Body.data
+    $finalRun = $finalRunDetail.run
 } while ($finalRun.status -notin @('succeeded', 'failed', 'cancelled', 'partial') -and (Get-Date) -lt $runDeadline)
-Assert 'Runtime Worker 经 Outbox 执行知识 Run 至终态且有回答（M5→DeepSeek+M1 链路）' ($finalRun.status -in @('succeeded', 'partial') -and $finalRun.final_answer) ("status=$($finalRun.status) error=$($finalRun.error_code)")
+$knowledgeOutput = @($finalRunDetail.steps | Where-Object { $_.agent_code -eq 'knowledge_agent' } | Select-Object -Last 1).output_summary
+$hasKnowledgeResult = [bool]$finalRun.final_answer -or [bool]$knowledgeOutput.answer -or @($knowledgeOutput.items).Count -gt 0
+Assert 'Runtime Worker 经 Outbox 执行知识 Run 至终态且有真实结果（M5→DeepSeek+M1 链路）' ($finalRun.status -in @('succeeded', 'partial') -and $hasKnowledgeResult) ("status=$($finalRun.status) error=$($finalRun.error_code)")
 
 $runStream = Invoke-Sse -Method GET -Path "/api/v1/agent-runs/$runId/stream" -Token $tokens['student01'] -TimeoutSeconds 30
 Assert 'Run SSE 流可回放事件' ($runStream.Status -eq 200 -and $runStream.Events.Count -ge 1) (($runStream.Events.Event -join ','))

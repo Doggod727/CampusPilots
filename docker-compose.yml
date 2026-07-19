@@ -1,0 +1,177 @@
+name: campuspilot
+
+# 后端服务公共环境。密钥类变量通过 ${VAR:?} 从仓库根 .env（Compose 默认插值来源）或 shell 环境注入，不写入本文件。
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://campuspilot:campuspilot@db:5432/campuspilot
+  REDIS_URL: redis://redis:6379/0
+  FRONTEND_ORIGIN: http://localhost:${WEB_PORT:-8080}
+  JWT_SECRET: ${JWT_SECRET:?请在仓库根 .env 或 shell 环境提供 JWT_SECRET}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?请在仓库根 .env 提供 DEEPSEEK_API_KEY}
+  INTERNAL_TOOL_SECRET: ${INTERNAL_TOOL_SECRET:?请在仓库根 .env 提供 INTERNAL_TOOL_SECRET}
+  AGENT_CHECKPOINT_SECRET: ${AGENT_CHECKPOINT_SECRET:?请在仓库根 .env 提供 AGENT_CHECKPOINT_SECRET}
+  COMMUNITY_DATA_ENCRYPTION_KEY: ${COMMUNITY_DATA_ENCRYPTION_KEY:?请在仓库根 .env 提供 COMMUNITY_DATA_ENCRYPTION_KEY}
+  REFRESH_COOKIE_SECURE: "false"
+  USE_MOCK_CAMPUS_ADAPTERS: "true"
+  KNOWLEDGE_UPLOAD_ROOT: /data/knowledge
+  KNOWLEDGE_CHROMA_PATH: /data/chroma
+  KNOWLEDGE_EMBEDDING_MODEL_PATH: /models/bge-small-zh-v1.5
+  MODEL_ARTIFACT_ROOT: /data/models
+  DATASET_ARTIFACT_ROOT: /data/datasets
+  MODELOPS_EXECUTION_MODE: ${MODELOPS_EXECUTION_MODE:-local}
+  TRAINING_GPU_ENABLED: "false"
+  ANONYMIZED_TELEMETRY: "false"
+  DEMO_SEED_PASSWORD: ${DEMO_SEED_PASSWORD:-CampusPilot-Demo-2026!}
+
+# Chroma 与上传文件使用命名卷持久化；BGE 模型权重只从宿主挂载（镜像构建不下载模型）
+x-backend-volumes: &backend-volumes
+  - chroma-data:/data/chroma
+  - knowledge-data:/data/knowledge
+  - ${MODEL_HOST_DIR:-./deploy/models}:/models:ro
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: campuspilot
+      POSTGRES_PASSWORD: campuspilot
+      POSTGRES_DB: campuspilot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campuspilot -d campuspilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # 一次性任务：迁移 + 演示种子（幂等，可重复执行）
+  migrate:
+    build:
+      context: ./backend
+      target: base
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *backend-env
+    volumes: *backend-volumes
+    command: sh -c "python -m alembic upgrade head && python -m app.scripts.seed_demo && python -m app.scripts.seed_ai_knowledge && python -m app.scripts.seed_agent_platform"
+    restart: "no"
+
+  api:
+    build:
+      context: ./backend
+      target: base
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *backend-env
+    volumes: *backend-volumes
+    # 只信任 Compose 内固定 Nginx 地址转发的客户端 IP，避免伪造 X-Forwarded-For。
+    command: >-
+      python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --proxy-headers --forwarded-allow-ips 172.29.0.10
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  runtime-worker:
+    build:
+      context: ./backend
+      target: base
+    depends_on:
+      api:
+        condition: service_started
+    environment: *backend-env
+    volumes: *backend-volumes
+    command: python -m app.scripts.runtime_worker
+    restart: unless-stopped
+
+  ingestion-worker:
+    build:
+      context: ./backend
+      target: base
+    depends_on:
+      api:
+        condition: service_started
+    environment: *backend-env
+    volumes: *backend-volumes
+    # 入库命令采用“排空即退出”语义；容器内用监督循环周期执行，避免 restart 策略形成热重启。
+    command: sh -c "while true; do python -m app.scripts.ingestion_worker; sleep 15; done"
+    restart: unless-stopped
+
+  training-worker:
+    build:
+      context: ./backend
+      target: modelops
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      <<: *backend-env
+      HF_HOME: /data/hf
+    volumes:
+      - model-artifacts:/data/models
+      - dataset-artifacts:/data/datasets
+      - hf-cache:/data/hf
+    command: python -m app.scripts.training_worker
+    restart: unless-stopped
+
+  evaluation-worker:
+    build:
+      context: ./backend
+      target: modelops
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      <<: *backend-env
+      HF_HOME: /data/hf
+    volumes:
+      - model-artifacts:/data/models
+      - dataset-artifacts:/data/datasets
+      - hf-cache:/data/hf
+      - chroma-data:/data/chroma
+      - ${MODEL_HOST_DIR:-./deploy/models}:/models:ro
+    command: python -m app.scripts.evaluation_worker
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    networks:
+      default:
+        ipv4_address: 172.29.0.10
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+
+volumes:
+  pgdata:
+  chroma-data:
+  knowledge-data:
+  model-artifacts:
+  dataset-artifacts:
+  hf-cache:

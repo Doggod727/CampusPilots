@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 $checks = @(
     @{ Name = 'api';               Pattern = 'app\.main:app' },
     @{ Name = 'runtime-worker';    Pattern = 'app\.scripts\.runtime_worker' },
-    @{ Name = 'ingestion-worker';  Pattern = 'app\.scripts\.ingestion_worker' },
+    @{ Name = 'ingestion-worker';  Pattern = 'ingestion-worker-loop\.ps1' },
     @{ Name = 'training-worker';   Pattern = 'app\.scripts\.training_worker' },
     @{ Name = 'evaluation-worker'; Pattern = 'app\.scripts\.evaluation_worker' }
 )

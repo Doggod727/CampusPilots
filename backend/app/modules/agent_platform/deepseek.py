@@ -90,7 +90,18 @@ class DeepSeekGateway:
     async def json_completion(
         self, messages: Sequence[Mapping[str, str]]
     ) -> dict[str, Any]:
-        response = await self._post(messages, stream=False)
+        response = None
+        last_error: DeepSeekUnavailable | None = None
+        for attempt in range(self._attempts):
+            try:
+                response = await self._post(messages, stream=False)
+                break
+            except DeepSeekUnavailable as exc:
+                last_error = exc
+                if attempt + 1 >= self._attempts:
+                    raise
+        if response is None:
+            raise DeepSeekUnavailable() from last_error
         try:
             body = response.json()
             message = body["choices"][0]["message"]

@@ -1,0 +1,7 @@
+.pytest_cache
+tests
+*.egg-info
+__pycache__
+**/__pycache__
+Dockerfile
+.dockerignore

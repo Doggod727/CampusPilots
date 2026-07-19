@@ -798,9 +798,34 @@
 ## 待办
 
 - [ ] M5 审批到期协调真实环境验证（过期审批的决策与恢复拒绝）；Outbox 并发、Checkpoint 崩溃恢复、用户/IP 双维度限流与 DeepSeek Provider 故障矩阵已分别由 #188/#189/#190/#191 在真实 PostgreSQL/Redis 下完成，SSE 重放由冒烟覆盖。
-- [ ] Compose/Nginx 收尾时显式配置 Uvicorn 可信代理来源；不得信任任意 `X-Forwarded-For`。Redis 不可用时限流当前落为通用 500，后续契约总审计决定并同步稳定 fail-closed 503 语义。
+- [x] Compose/Nginx 使用固定 Nginx 容器地址作为 Uvicorn 唯一可信代理，并覆盖客户端自报 `X-Forwarded-For`；伪造地址不进入审计。
 - [ ] Agent Run 启动恢复保真：当前 Worker 只取得 `input_summary[:1000]`，公开创建请求的 1001–4000 字输入以及 mode/context 尚未进入认证加密恢复状态（在 M5 后续强化批次处理）。
-- [ ] 前端与 Docker Compose 后续批次（自合并后 main 建 `frontend` 分支）；M1/M3 真实 Handler 已替换 M5 显式 Mock（#192 验收确认 14/14 Tool 均为真实 Handler、目录零漂移）。
+- [x] 前端与 Docker Compose 已完成；M1/M3 真实 Handler 已替换 M5 显式 Mock（#192 验收确认 14/14 Tool 均为真实 Handler、目录零漂移）。
 - [ ] QLoRA 需 CUDA+bitsandbytes（本机仅 CPU，当前稳定拒绝）；本地模型评估当前仅 LoRA 产物前向损失对比。
 
 > 已完成并归档：真实空库迁移升→降→升、`/health/ready` 集成、M1 真实上传→入库→检索→REST/SSE→Tool 端到端、重复种子幂等、M1/M3 真实 Handler 替换 Mock（均由集成批次实测，见上文各 Issue 记录与冒烟/探针证据）。
+
+## 前端开发进度（integration 合并后自 main 建 frontend 分支，长期 Draft PR #204）
+
+- [x] 第四批 工程与设计系统基线（#203/#206 等，2026-07-18）：Vue3+TS strict+Vite+Pinia+Element Plus 骨架；tokens.css 设计令牌与 9 个基础组件；@hey-api/openapi-ts 生成 136 operationId SDK（check:api 零差异门禁）；统一 HTTP Client（single-flight Refresh+一次重放）；Chat/Agent SSE 客户端；ESLint 与运行时钩子双禁 Storage/IndexedDB。
+- [x] 第五批 认证与应用壳（#209-#213，2026-07-18）：登录/Refresh/并发 401/权限路由/AppShell/Dashboard；Playwright 真实库认证 E2E 曾 6/6 通过。
+- [x] 第六批 M5 Agent Workbench（#214-#218，2026-07-18）：目录/Run 创建（表单级固定幂等键）/列表/详情/SSE 时间线（信封解包+去重+重连）/审批一次性消费与取消。
+- [x] 第七至十二批（#219-#248）：ModelOps、M2 服务、M1 知识+Chat、M3 社区、M4 后台全部完成并进入真实库统一验收。
+- [x] 第十三批（#249-#253）：静态门禁、四档响应式/axe、真实库全栈 E2E、Compose/Nginx 与最终文档完成。
+- [x] 第七批 M5 Tool 与 ModelOps（#219-#223，2026-07-18）：Tool 目录启停（confirmed+reason+幂等键）、数据集全生命周期、训练任务七态与取消、模型/评估/2-5 项比较；modelops.spec.ts 4 例。
+- [x] 第八批 M2 校园服务（#224-#228，2026-07-18）：部门/指南/Checklist 浏览、工单创建/列表/详情/事件/流转/评价、电费余额与模拟充值、外部进度；services.spec.ts 12 例。已知契约边界：无校区字典与绑定房间列表端点（前端聚合 contacts 实现，建议后端后续补端点）。
+- [x] 第九批 M1 知识库与 Chat（#229-#233，2026-07-18）：知识库 CRUD/成员替换、文档批量上传/任务轮询/Chunk/发布停用、会话消息分页、同步+SSE Chat（帧序/getMessage 恢复/引用侧栏/反馈幂等）；chat-kb.spec.ts 4 例。
+- [x] 第十批 M3 话题帖子评论（#234-#238，2026-07-18）：话题运营、帖子列表/写入/匿名/审核态、评论/Reaction、举报、匿名反查（仅内存即离即清）；community-posts.spec.ts 8 例。
+- [x] 第十一批 M3 活动与失物（#239-#243，2026-07-18）：活动筛选/管理/报名/名单、失物 CRUD（仅 contact_hint）、结构化匹配、认领决策/联系方式（仅内存）/双方完成；community-events.spec.ts 6 例。
+- [x] 第十二批 M4 管理后台（#244-#248，2026-07-18）：用户/角色权限/敏感词/审核案件/审计 JSON 树/业务配置（仅 editable）；admin.spec.ts 10 例。
+- [x] [#249 静态门禁](https://github.com/Doggod727/CampusPilot/issues/249)（2026-07-18）：check:guards + ESLint no-restricted-globals + check:api 零差异，全绿。
+- [x] [#250 响应式/a11y 轻量验收](https://github.com/Doggod727/CampusPilot/issues/250)（2026-07-18）：按用户指令缩减非功能性测试；断点/viewport/语义/键盘/label 关联/无 hex 无阴影人工核对通过；axe 与四档截图回归未执行。
+- [x] #251 全栈真实库 E2E：认证 6/6、Agent 主链及学生/管理员跨模块导航通过；四档响应式、axe 严重/致命问题为零，浏览器持久化为空。
+- [x] #252 Compose/Nginx：全部镜像从当前源码构建；迁移/种子、API、四类 Worker、SPA 刷新、REST、SSE 与可信代理通过。
+- [x] #253 最终文档与 PR #204 收尾：后端 809、前端 98、OpenAPI 136 唯一、真实迁移升降升与 Compose 验收通过；PR 保持不自动合并。
+
+## 最终保留边界（非部署阻断）
+
+- QLoRA 需要 CUDA + bitsandbytes；当前 CPU 环境稳定拒绝，不伪造成功。
+- Agent Run 超过 1000 字的完整恢复状态与审批到期主动协调仍为后续可靠性增强项。
+- 外部校园事项进度与电费支付仍是明确 Mock；上线真实校园系统前需实现并审核对应 Adapter。

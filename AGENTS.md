@@ -5,13 +5,13 @@
 ## 项目概览
 
 - CampusPilot（学生生活一站式社区 AI 助手）：为学生提供校园服务、社区互助、知识库问答与多智能体能力的一站式平台。
-- 当前交付范围：**FastAPI 后端**（`backend/`）与**契约/设计文档**（`docx/deliverables/`）。前端与 Docker Compose 尚未创建。
+- 当前交付范围：FastAPI 后端、Vue 3 前端（`frontend/`）、Docker Compose/Nginx 部署栈与契约/设计文档。
 - 技术栈：Python ≥ 3.12、FastAPI、Pydantic v2 + pydantic-settings、SQLAlchemy 2.0 异步（asyncpg）+ Alembic、Redis、PyJWT、argon2-cffi、cryptography、httpx、pypdf；可选 `ai` 依赖组为 chromadb 与 sentence-transformers。
 - 文档、注释以中文为主；提交信息使用英文（如 `feat(m3): wire real community tool adapters`）。仓库托管于 GitHub（Doggod727/CampusPilot），默认分支 `main`。
 
 ## 仓库布局
 
-- `backend/` — 唯一可执行代码（Python 包 `campuspilot-backend`）
+- `backend/` — 后端可执行代码（Python 包 `campuspilot-backend`）
   - `app/main.py` — FastAPI 入口 `create_app()`，注册全部路由与中间件。
   - `app/core/` — `config.py`（Pydantic Settings，读取仓库根目录 `.env`）、`errors.py`（`AppError` 与统一异常处理）、`request_id.py`（`X-Request-Id` 中间件）。
   - `app/shared/responses.py` — 统一成功/错误信封模型。
@@ -23,7 +23,9 @@
 - `docx/deliverables/` — 需求分析、概要设计、详细设计（M1–M5 五个 Part）、`openapi.yaml`（**API 契约事实源**）、`redocly.yaml`（lint 配置）、`sql/` 设计 SQL、`00-M5重构-本地覆盖与迁移说明.md`。
 - `.env.example` — 配置模板，只含本地演示值；真实密钥只写本机 `.env`（已被 `.gitignore` 排除）。
 - `todo.md` — 任务看板：固定开发规则、契约与设计差异记录、各 Issue 完成记录与显式待办。
-- `DESIGN.md` — 面向未来前端的设计令牌分析（Cursor 风格），与后端无直接耦合。
+- `DESIGN.md` — 前端设计令牌与视觉规范来源（Cursor 风格），与后端无直接耦合。
+- `frontend/` — Vue 3 + TypeScript strict + Vite + Pinia + Element Plus；公开 API 由 OpenAPI 自动生成，浏览器持久化由静态与运行时门禁禁止。
+- `docker-compose.yml` — PostgreSQL、Redis、API、四类 Worker、迁移种子与 Nginx Web 的完整部署栈。
 
 ## 模块划分（`app/modules/`）
 
@@ -88,7 +90,7 @@ python -m app.scripts.seed_agent_platform   # M5 目录种子
 - 策略：FastAPI `TestClient` + dependency override + Stub/Fake/确定性内存端口，不依赖真实 PostgreSQL、Redis、DeepSeek 或 GPU；RAG 评测集冻结于 `tests/fixtures/`。
 - 验收惯例（见 `todo.md` 各 Issue 记录）：全量 pytest、`compileall`、OpenAPI lint、Alembic 唯一 Head 与离线升降级全部通过后才算完成。
 - 本机环境（2026-07 起稳定可用）：conda 环境 `campuspilot`（`D:\anaconda\envs\campuspilot`，Python 3.12，已装 `.[dev]`/`.[ai]`/`.[modelops]`）；PostgreSQL 17 便携实例 `E:\CampusPilotServices\PostgreSQL`；Redis 本机 6379；Chroma/BGE/模型与数据目录均在 `E:\CampusPilotServices\`。依赖钉版：`fastapi>=0.115,<0.137`（≥0.137 会破坏契约测试路由遍历，勿升级）；Windows 需 `tzdata`（已在依赖中声明）。
-- 当前全量测试 `808 passed`（2026-07-18）；跨模块冒烟 68/0；五个真实环境专项探针全部通过。
+- 当前后端全量测试 `809 passed`（2026-07-19）；前端单测 `98 passed`；跨模块冒烟 68/0；真实浏览器、Compose 与 M5 专项均已验证。
 
 ## 安全注意事项
 
@@ -103,4 +105,4 @@ python -m app.scripts.seed_agent_platform   # M5 目录种子
 
 - 真实环境验证已完成：真实空库迁移升→降→升、`/health/ready` 集成、M1 端到端（上传→入库→检索→REST/SSE→Tool）、M5 Outbox 并发/Checkpoint 恢复/限流/Provider 故障矩阵、M5 总验收与 ModelOps 全链（见 `todo.md` 各 Issue 记录与 `scripts/verify-*.ps1`）。
 - ModelOps 执行边界：QLoRA 需 CUDA+bitsandbytes（本机仅 CPU，稳定拒绝）；本地模型评估当前仅 LoRA 产物前向损失对比；Agent Run 启动恢复保真（>1000 字输入与 mode/context 未入恢复状态）与审批到期协调为显式待办。
-- 前端与 Docker Compose 未创建（后续批次）；`DESIGN.md` 为未来前端的设计参考。
+- 前端与 Docker Compose 已完成并通过真实 FastAPI/PostgreSQL 联调；`DESIGN.md` 已落实为前端令牌与组件规范。

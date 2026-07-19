@@ -9,3 +9,7 @@ dist/
 build/
 .env
 logs/
+
+# Compose 模型挂载目录：权重不入库
+deploy/models/*
+!deploy/models/README.md

@@ -1,0 +1,24 @@
+/* Element Plus 变量覆盖：贴合 DESIGN 令牌（主色/圆角/字体/去阴影） */
+:root {
+  --el-color-primary: var(--cp-primary);
+  --el-color-primary-dark-2: var(--cp-primary-active);
+  --el-color-primary-light-3: #ff8a4d;
+  --el-color-primary-light-5: #ffb287;
+  --el-color-primary-light-7: #ffd5bc;
+  --el-color-primary-light-8: #ffe4d4;
+  --el-color-primary-light-9: #fff3eb;
+  --el-border-radius-base: var(--cp-radius-button);
+  --el-border-radius-small: 6px;
+  --el-font-family: var(--cp-font-sans);
+  --el-font-size-base: 14px;
+  --el-text-color-primary: var(--cp-ink);
+  --el-text-color-regular: var(--cp-body);
+  --el-text-color-secondary: var(--cp-muted);
+  --el-border-color: var(--cp-hairline-strong);
+  --el-border-color-light: var(--cp-hairline);
+  --el-border-color-lighter: var(--cp-hairline-soft);
+  --el-box-shadow: none;
+  --el-box-shadow-light: none;
+  --el-box-shadow-lighter: none;
+  --el-box-shadow-dark: none;
+}

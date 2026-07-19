@@ -130,6 +130,23 @@ def test_stream_retries_only_before_first_content():
     assert len(client.requests) == 2
 
 
+def test_json_completion_retries_transient_unavailable_before_parsing():
+    client = FakeClient(
+        httpx.ConnectError("cold connection"),
+        _completion({"answer": "available after retry"}),
+    )
+    gateway = DeepSeekGateway(
+        api_key="secret", client=client, max_pre_output_attempts=2
+    )
+
+    result = asyncio.run(
+        gateway.json_completion(({"role": "user", "content": "test"},))
+    )
+
+    assert result == {"answer": "available after retry"}
+    assert len(client.requests) == 2
+
+
 def test_stream_uses_http_stream_transport_without_buffered_post():
     client = TrueStreamClient(FakeResponse(lines=(
         'data: {"choices":[{"delta":{"content":"实时"}}]}',

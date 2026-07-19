@@ -1,0 +1,60 @@
+:root {
+  /* 品牌与文本 */
+  --cp-primary: #c43e00;
+  --cp-primary-active: #a93600;
+  --cp-on-primary: #ffffff;
+  --cp-ink: #26251e;
+  --cp-body: #5a5852;
+  --cp-body-strong: #26251e;
+  --cp-muted: #68655d;
+  --cp-muted-soft: #706d63;
+
+  /* 背景与层次（无阴影，仅 hairline） */
+  --cp-canvas: #f7f7f4;
+  --cp-canvas-soft: #fafaf7;
+  --cp-surface-card: #ffffff;
+  --cp-surface-strong: #e6e5e0;
+  --cp-hairline: #e6e5e0;
+  --cp-hairline-soft: #efeee8;
+  --cp-hairline-strong: #cfcdc4;
+
+  /* 语义色（文字+图标并用，不单独依赖颜色） */
+  --cp-success: #1f8a65;
+  --cp-error: #cf2d56;
+  --cp-warning: #b7791f;
+  --cp-info: #2563a8;
+
+  /* Agent 时间线 pastel（仅限 M5 Timeline） */
+  --cp-timeline-thinking: #dfa88f;
+  --cp-timeline-grep: #9fc9a2;
+  --cp-timeline-read: #9fbbe0;
+  --cp-timeline-edit: #c0a8dd;
+  --cp-timeline-done: #c08532;
+
+  /* 字体 */
+  --cp-font-sans: 'Inter', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --cp-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 圆角与间距（4px 基线） */
+  --cp-radius-button: 8px;
+  --cp-radius-card: 12px;
+  --cp-radius-pill: 999px;
+  --cp-space-1: 4px;
+  --cp-space-2: 8px;
+  --cp-space-3: 12px;
+  --cp-space-4: 16px;
+  --cp-space-5: 24px;
+  --cp-space-6: 32px;
+  --cp-space-8: 48px;
+  --cp-space-10: 80px;
+
+  /* 控件尺寸（触控目标 ≥40px，关键按钮 ≥44px） */
+  --cp-control-sm: 32px;
+  --cp-control-md: 40px;
+  --cp-control-lg: 44px;
+
+  /* 断点（<640 / 640–1024 / 1024–1280 / >1280） */
+  --cp-breakpoint-sm: 640px;
+  --cp-breakpoint-md: 1024px;
+  --cp-breakpoint-lg: 1280px;
+}

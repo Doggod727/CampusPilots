@@ -73,13 +73,12 @@ foreach ($p in $processes) {
 
 # 入库 Worker 为一次性排空设计：以监督循环周期执行（幂等匹配含循环进程）
 $ingestionExisting = Get-CimInstance Win32_Process |
-    Where-Object { $_.CommandLine -match 'ingestion_worker' -and $_.ProcessId -ne $PID }
+    Where-Object { $_.CommandLine -match 'ingestion-worker-loop\.ps1' -and $_.ProcessId -ne $PID }
 if ($ingestionExisting) {
     Write-Host "[=] ingestion-worker 已在运行，跳过" -ForegroundColor DarkGray
 } else {
-    $ingestionLog = Join-Path $LogDir 'ingestion-worker.log'
-    $loop = "Set-Location '$Backend'; while (`$true) { & '$Python' -u -m app.scripts.ingestion_worker *>> '$ingestionLog'; Start-Sleep -Seconds 15 }"
-    Start-Process -FilePath 'pwsh' -ArgumentList '-NoProfile', '-WindowStyle', 'Hidden', '-Command', $loop -WindowStyle Hidden
+    $loopScript = Join-Path $PSScriptRoot 'ingestion-worker-loop.ps1'
+    Start-Process -FilePath 'pwsh' -ArgumentList '-NoProfile', '-File', $loopScript -WindowStyle Hidden
     Write-Host "[+] ingestion-worker 已启动（15s 监督循环，日志 logs/ingestion-worker.log）" -ForegroundColor Green
 }
 
