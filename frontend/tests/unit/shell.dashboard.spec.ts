@@ -32,7 +32,13 @@ function makeRouter() {
     routes: [
       { path: '/login', name: 'login', component: { template: '<p>login</p>' } },
       { path: '/', name: 'dashboard', component: DashboardView },
-      { path: '/chat', name: 'chat', component: { template: '<p>chat</p>' } },
+      {
+        path: '/chat',
+        name: 'chat',
+        component: { template: '<p>chat</p>' },
+        meta: { immersive: true },
+      },
+      { path: '/services', name: 'services', component: { template: '<p>services</p>' } },
       { path: '/admin/users', name: 'admin-users', component: { template: '<p>users</p>' } },
     ],
   })
@@ -43,23 +49,37 @@ describe('AppShell', () => {
     setActivePinia(createPinia())
   })
 
-  it('renders permitted nav groups and performs logout', async () => {
+  it('renders permitted nav groups and keeps logout in the Chat account menu', async () => {
     const store = useAuthStore()
     store.user = ADMIN as never
     store.status = 'authenticated'
-    store.logout = vi.fn().mockImplementation(async () => {
-      store.user = null
-      store.status = 'anonymous'
-    })
     const router = makeRouter()
     await router.push('/')
     const wrapper = mount(AppShell, { global: { plugins: [router] } })
     expect(wrapper.text()).toContain('概览')
     expect(wrapper.text()).toContain('管理')
     expect(wrapper.text()).toContain('管理员')
-    await wrapper.find('.shell__user .ui-button--text').trigger('click')
-    expect(store.logout).toHaveBeenCalled()
-    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
+    expect(wrapper.find('.shell__user').text()).not.toContain('退出')
+  })
+
+  it('gives immersive routes the full viewport without the generic navigation shell', async () => {
+    const router = makeRouter()
+    await router.push('/chat')
+    const wrapper = mount(AppShell, { global: { plugins: [router] } })
+
+    expect(wrapper.find('.shell--immersive').exists()).toBe(true)
+    expect(wrapper.find('.shell__content--immersive').exists()).toBe(true)
+    expect(wrapper.find('.shell__sidebar').exists()).toBe(false)
+    expect(wrapper.find('.shell__topbar').exists()).toBe(false)
+  })
+
+  it('uses Chat as the product home from every structured module', async () => {
+    const router = makeRouter()
+    await router.push('/services')
+    const wrapper = mount(AppShell, { global: { plugins: [router] } })
+
+    await wrapper.find('.shell__home').trigger('click')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('chat'))
   })
 })
 
@@ -119,8 +139,7 @@ describe('DashboardView', () => {
     const router = makeRouter()
     await router.push('/')
     const wrapper = mount(DashboardView, { global: { plugins: [router] } })
-    await vi.waitFor(() => expect(wrapper.text()).toContain('知识库')
-    )
+    await vi.waitFor(() => expect(wrapper.text()).toContain('校园服务'))
     expect(wrapper.text()).not.toContain('用户管理')
   })
 })

@@ -25,6 +25,7 @@ export interface ChatStreamHandlers {
 export interface ChatStreamRequest {
   question: string
   knowledge_base_ids: string[]
+  mode?: 'rag' | 'learn'
   conversation_id?: string | null
 }
 
@@ -38,7 +39,16 @@ async function streamRequest(path: string, init: RequestInit): Promise<Response>
   if (token) {
     headers.set('Authorization', `Bearer ${token}`)
   }
-  const response = await fetch(path, { ...init, headers })
+  let response: Response
+  try {
+    response = await fetch(path, { ...init, headers })
+  } catch (error) {
+    // Some embedded/test browsers expose an AbortSignal from a different realm.
+    // Retry without cancellation only for that constructor mismatch.
+    if (!(error instanceof TypeError) || !init.signal || !error.message.includes('signal')) throw error
+    const { signal: _signal, ...compatibleInit } = init
+    response = await fetch(path, { ...compatibleInit, headers })
+  }
   if (!response.ok || !response.body) {
     let body: unknown = null
     try {
@@ -62,6 +72,7 @@ export async function streamChatCompletion(
     body: JSON.stringify({
       question: request.question,
       knowledge_base_ids: request.knowledge_base_ids,
+      mode: request.mode ?? 'rag',
       conversation_id: request.conversation_id ?? null,
     }),
     signal,

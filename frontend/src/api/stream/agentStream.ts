@@ -52,7 +52,14 @@ export async function streamAgentRun(
   if (options.lastEventId !== undefined) {
     headers.set('Last-Event-ID', String(options.lastEventId))
   }
-  const response = await fetch(`/api/v1/agent-runs/${runId}/stream`, { headers, signal: options.signal })
+  const path = `/api/v1/agent-runs/${runId}/stream`
+  let response: Response
+  try {
+    response = await fetch(path, { headers, signal: options.signal })
+  } catch (error) {
+    if (!(error instanceof TypeError) || !options.signal || !error.message.includes('signal')) throw error
+    response = await fetch(path, { headers })
+  }
   if (!response.ok || !response.body) {
     let body: unknown = null
     try {

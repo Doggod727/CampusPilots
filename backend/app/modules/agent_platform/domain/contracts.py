@@ -203,6 +203,8 @@ class AgentCatalogItem(FrozenContract):
     version: str
     enabled: bool
     tool_allowlist: tuple[str, ...]
+    visibility: Literal["public", "restricted", "runtime_internal"] = "public"
+    required_permissions: tuple[str, ...] = ()
 
 
 class ToolDefinition(FrozenContract):

@@ -1054,6 +1054,10 @@ export type MessagePageResponse = ResponseMeta & {
 export type ChatRequest = {
   conversation_id?: string | null
   question: string
+  /**
+   * rag 要求知识库范围；learn 无资料时仅允许通用课程辅导，并明确标注无校内引用
+   */
+  mode?: 'rag' | 'learn'
   knowledge_base_ids?: Array<string>
 }
 
@@ -1431,9 +1435,17 @@ export type AgentRunCreateRequest = {
   conversation_id?: string | null
   mode?: 'auto' | 'knowledge' | 'service' | 'community' | 'governance' | 'modelops'
   /**
-   * 仅允许非敏感、可序列化上下文；服务端再次脱敏
+   * 仅允许非敏感、可序列化上下文；服务端再次脱敏。保留字段用于从公开目录显式限定 Agent 和 Tool。
    */
   context?: {
+    requested_agent_codes?: Array<
+      | 'knowledge_agent'
+      | 'service_agent'
+      | 'community_agent'
+      | 'governance_agent'
+      | 'modelops_agent'
+    >
+    requested_tool_names?: Array<string>
     [key: string]: unknown
   }
 }
@@ -1566,6 +1578,8 @@ export type AgentCatalogItem = {
   version: string
   enabled: boolean
   tool_allowlist: Array<string>
+  visibility: 'public' | 'restricted' | 'runtime_internal'
+  required_permissions: Array<string>
 }
 
 export type AgentCatalogData = {
@@ -6835,6 +6849,10 @@ export type ListAgentRunsData = {
     page?: number
     page_size?: number
     status?: AgentRunStatus
+    /**
+     * 仅返回归属于指定会话的 Agent 运行
+     */
+    conversation_id?: string
   }
   url: '/api/v1/agent-runs'
 }

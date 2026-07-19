@@ -1,11 +1,11 @@
 import json
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.config import get_settings
 from app.infrastructure.database import Database
@@ -28,13 +28,20 @@ class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     conversation_id: UUID | None = None
     question: str = Field(min_length=1, max_length=2000)
-    knowledge_base_ids: list[UUID] = Field(min_length=1, max_length=10)
+    mode: Literal["rag", "learn"] = "rag"
+    knowledge_base_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
     @field_validator("knowledge_base_ids")
     @classmethod
     def unique_ids(cls, value):
         if len(set(value)) != len(value): raise ValueError("knowledge_base_ids must be unique")
         return value
+
+    @model_validator(mode="after")
+    def require_rag_scope(self):
+        if self.mode == "rag" and not self.knowledge_base_ids:
+            raise ValueError("RAG mode requires at least one knowledge base")
+        return self
 
 
 async def chat_dependency():
@@ -59,7 +66,7 @@ async def complete_chat(body: ChatRequest, request: Request, user: Annotated[Aut
         if conversation is None:
             from app.modules.ai_knowledge.conversations import ConversationNotFound
             raise ConversationNotFound()
-        user_message, assistant, retrieval = await service.complete(user, conversation, body.question, body.knowledge_base_ids, request.state.request_id)
+        user_message, assistant, retrieval = await service.complete(user, conversation, body.question, body.knowledge_base_ids, request.state.request_id, mode=body.mode)
     citations = [{"citation_no": index + 1, "document_id": item.document_id, "document_title": item.document_title, "source_location": item.source_location, "page_number": item.page_number, "quote_excerpt": item.content[:500], "relevance_score": item.score} for index, item in enumerate(retrieval.citations)]
     return SuccessResponse(data={"conversation": conversation_data(conversation), "user_message": message_data(user_message), "assistant_message": message_data(assistant, citations)}, request_id=request.state.request_id, timestamp=datetime.now(UTC))
 
@@ -78,27 +85,32 @@ async def stream_chat(body: ChatRequest, request: Request, user: Annotated[Authe
             from app.modules.ai_knowledge.conversations import ConversationNotFound
             raise ConversationNotFound()
         user_message, assistant = await conversations.append_turn(conversation.id, user.user_id, body.question, request.state.request_id)
-        result = await service.retrieval.search(user, body.question, body.knowledge_base_ids)
+        result = await service.retrieve(user, body.question, body.knowledge_base_ids)
         if result.citations:
             append_citations(session, assistant.id, result.citations)
         await session.commit()
         yield sse("meta", {"conversation_id": conversation.id, "message_id": assistant.id, "request_id": request.state.request_id})
         citations = [{"citation_no": index + 1, "document_id": item.document_id, "document_title": item.document_title, "source_location": item.source_location, "page_number": item.page_number, "quote_excerpt": item.content[:500], "relevance_score": item.score} for index, item in enumerate(result.citations)]
-        if not result.citations:
+        if not result.citations and not service.can_use_general_learning(body.mode, body.question, body.knowledge_base_ids):
             assistant.status, assistant.content, assistant.finish_reason = "fallback", "未在已授权且已发布的校园知识中找到可靠答案。", "fallback"
             assistant.completed_at = datetime.now(UTC)
             await session.commit()
             yield sse("sources", {"citations": []})
             yield sse("done", {"finish_reason": "fallback", "usage": {"prompt_tokens": 0, "completion_tokens": 0}})
             return
-        source_text = [{"source": i + 1, "content": item.content[:1200], "title": item.document_title} for i, item in enumerate(result.citations)]
-        messages = ({"role": "system", "content": "仅依据sources回答，不输出思维链。"}, {"role": "user", "content": json.dumps({"question": body.question, "sources": source_text}, ensure_ascii=False)})
+        if result.citations:
+            source_text = [{"source": i + 1, "content": item.content[:1200], "title": item.document_title} for i, item in enumerate(result.citations)]
+            messages = ({"role": "system", "content": "仅依据sources回答，不输出思维链。"}, {"role": "user", "content": json.dumps({"question": body.question, "sources": source_text}, ensure_ascii=False)})
+            answer_prefix = ""
+        else:
+            messages = service.general_learning_messages(body.question)
+            answer_prefix = service.GENERAL_LEARNING_LABEL + "\n\n"
         assistant.status = "streaming"; parts = []; sequence = 0
         try:
             async for delta in service.gateway.stream_text(messages):
                 sequence += 1; parts.append(delta)
                 yield sse("delta", {"sequence": sequence, "content": delta})
-            conversations.complete(assistant, "".join(parts))
+            conversations.complete(assistant, answer_prefix + "".join(parts))
             await session.commit()
             yield sse("sources", {"citations": citations})
             yield sse("done", {"finish_reason": "stop", "usage": {"prompt_tokens": 0, "completion_tokens": 0}})

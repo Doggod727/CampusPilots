@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.modules.agent_platform.approvals import ApprovalRepository, ApprovalService, DatabaseApprovalVerifier
 from app.modules.agent_platform.catalog_persistence import CatalogRepository, PersistentCatalogLoader
-from app.modules.agent_platform.checkpointing import DatabaseRuntimeCheckpointStore, PersistentRuntimeEventSink
+from app.modules.agent_platform.checkpointing import DatabaseRuntimeCheckpointStore, PersistentRuntimeEventSink, RuntimeStartPayloadCodec
 from app.modules.agent_platform.deepseek import DeepSeekGateway, DeepSeekRouterAdapter, DeepSeekSpecialistProvider
 from app.modules.agent_platform.internal_auth import InternalUserContextLoader
 from app.modules.agent_platform.models import AgentRun
@@ -299,7 +299,11 @@ class _LazyCompositionCommandProcessor:
         if self._processor is None:
             runtime = await self._factory.build_graph_runtime(self._session)
             self._processor = GraphRuntimeCommandProcessor(
-                runtime, RuntimeStartContextLoader(self._session)
+                runtime,
+                RuntimeStartContextLoader(self._session),
+                RuntimeStartPayloadCodec(
+                    self._factory.settings.agent_checkpoint_secret.get_secret_value()
+                ) if self._factory.settings.agent_checkpoint_secret is not None else None,
             )
         await self._processor.process(command)
 

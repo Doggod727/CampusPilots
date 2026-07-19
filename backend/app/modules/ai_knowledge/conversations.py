@@ -53,7 +53,11 @@ class ConversationService:
         user_message = Message(id=uuid4(), conversation_id=conversation_id, sequence_no=sequence, role="user", status="completed", content=content, request_id=request_id, completed_at=datetime.now(UTC))
         assistant = Message(id=uuid4(), conversation_id=conversation_id, sequence_no=sequence + 1, role="assistant", status="pending", content="", reply_to_message_id=user_message.id, request_id=request_id)
         self.session.add_all([user_message, assistant])
-        conversation.last_message_at = datetime.now(UTC)
+        now = datetime.now(UTC)
+        conversation.last_message_at = now
+        conversation.updated_at = now
+        if conversation.title == "新对话":
+            conversation.title = content[:100]
         return user_message, assistant
 
     @staticmethod

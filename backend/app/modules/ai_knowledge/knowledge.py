@@ -52,6 +52,20 @@ class KnowledgeBaseConfigurationInvalid(AppError):
         )
 
 
+class KnowledgeBaseVisibilityForbidden(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=403,
+            code="KNOWLEDGE_BASE_VISIBILITY_FORBIDDEN",
+            message="当前用户只能管理私人知识库",
+        )
+
+
+def require_allowed_visibility(user: AuthenticatedUser, visibility: str) -> None:
+    if visibility != "private" and "knowledge:write_all" not in user.permissions:
+        raise KnowledgeBaseVisibilityForbidden()
+
+
 @dataclass(frozen=True)
 class KnowledgeBaseMemberData:
     user_id: UUID
@@ -498,6 +512,7 @@ class KnowledgeService:
         now = self._time()
         knowledge_base_id = uuid4()
         visibility = str(values.get("visibility", "private"))
+        require_allowed_visibility(user, visibility)
         owner_department = values.get("owner_department")
         if visibility == "department" and owner_department is None:
             owner_department = user.department
@@ -593,6 +608,7 @@ class KnowledgeService:
         chunk_size = int(values.get("chunk_size", item.chunk_size))
         chunk_overlap = int(values.get("chunk_overlap", item.chunk_overlap))
         self._validate_chunks(chunk_size, chunk_overlap)
+        require_allowed_visibility(user, str(values.get("visibility", item.visibility)))
         for key in (
             "name",
             "description",

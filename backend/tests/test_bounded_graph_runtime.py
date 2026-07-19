@@ -32,6 +32,16 @@ def test_runtime_routes_executes_and_finishes_with_monotonic_events() -> None:
     trace.finalize.assert_awaited_once_with(RUN,"succeeded",finish_reason="completed")
 
 
+def test_runtime_honors_explicit_agent_selection_without_calling_router() -> None:
+    router,planner,trace,events,specialist=components()
+    runtime=BoundedGraphRuntime(router=router,planner=planner,specialists={"service_agent":specialist},trace=trace,events=events)
+    run_id=uuid4()
+    asyncio.run(runtime.start(run_id,USER,"查询校园服务",{"requested_agent_codes":["service_agent"]}))
+    router.route.assert_not_awaited()
+    route=planner.plan.call_args.kwargs["route"]
+    assert route.target_agent=="service" and route.reason_code=="ROUTE_EXPLICIT_AGENT_SELECTION"
+
+
 def test_clarification_finishes_partial_without_specialist() -> None:
     router,planner,trace,events,_=components("clarify"); plan=MagicMock(status="needs_input",tasks=()); planner.plan.return_value=plan
     runtime=BoundedGraphRuntime(router=router,planner=planner,specialists={},trace=trace,events=events)
@@ -60,10 +70,11 @@ def test_required_approval_pauses_before_runtime_can_finish() -> None:
     specialist=MagicMock(); specialist.invoke=AsyncMock(return_value=SpecialistOutcome(AgentResult(task_id=planner.plan.return_value.tasks[0].task_id,agent_code="service_agent",status="succeeded",summary="prepared"),request))
     executor=MagicMock(); executor.prepare.return_value=MagicMock(arguments_hash="a"*64); executor.execute=AsyncMock(side_effect=ToolApprovalRequired())
     approvals=MagicMock(); approvals.create=AsyncMock(return_value=MagicMock(id=approval_id))
-    runtime=BoundedGraphRuntime(router=router,planner=planner,specialists={"service_agent":specialist},trace=trace,events=events,tool_executor=executor,approval_service=approvals,agent_allowlists={"service_agent":("electricity.create_topup_request",)})
-    asyncio.run(runtime.start(RUN,USER,"充值",{}))
+    runtime=BoundedGraphRuntime(router=router,planner=planner,specialists={"service_agent":specialist},trace=trace,events=events,tool_executor=executor,approval_service=approvals,agent_allowlists={"service_agent":("electricity.get_balance","electricity.create_topup_request")})
+    asyncio.run(runtime.start(RUN,USER,"充值",{"requested_tool_names":["electricity.create_topup_request"]}))
     assert events.list(RUN)[-1].event=="approval_required"
     approvals.create.assert_awaited_once(); trace.finalize.assert_not_awaited()
+    assert executor.execute.await_args.kwargs["agent_allowlist"]==("electricity.create_topup_request",)
 
 
 def test_another_runtime_instance_can_resume_from_checkpoint() -> None:

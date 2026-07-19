@@ -40,6 +40,19 @@ class ApprovalRepository:
         stmt=update(ApprovalRequestModel).where(ApprovalRequestModel.status == "pending", ApprovalRequestModel.expires_at <= now).values(status="expired")
         return (await self._session.execute(stmt)).rowcount
 
+    async def list_due_for_update(self, now: datetime):
+        stmt=(
+            select(ApprovalRequestModel, ToolCall, AgentRun)
+            .join(ToolCall, ToolCall.id == ApprovalRequestModel.tool_call_id)
+            .join(AgentRun, AgentRun.id == ApprovalRequestModel.run_id)
+            .where(
+                ApprovalRequestModel.status == "pending",
+                ApprovalRequestModel.expires_at <= now,
+            )
+            .with_for_update(skip_locked=True)
+        )
+        return tuple((await self._session.execute(stmt)).all())
+
 
 class ApprovalService:
     def __init__(self, repository: ApprovalRepository, *, ttl_seconds: int = 600, now: Callable[[], datetime] | None = None) -> None:

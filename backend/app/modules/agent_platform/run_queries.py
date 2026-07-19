@@ -114,11 +114,13 @@ class AgentRunQueryRepository:
 
     async def list_runs(
         self, *, user_id: UUID, can_read_all: bool, page: int, page_size: int,
-        status: str | None = None,
+        status: str | None = None, conversation_id: UUID | None = None,
     ) -> tuple[tuple[AgentRun, ...], int]:
         filters = [] if can_read_all else [AgentRun.user_id == user_id]
         if status is not None:
             filters.append(AgentRun.status == status)
+        if conversation_id is not None:
+            filters.append(AgentRun.conversation_id == conversation_id)
         count_stmt = select(func.count()).select_from(AgentRun).where(*filters)
         rows_stmt = (
             select(AgentRun).where(*filters)

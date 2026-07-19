@@ -28,10 +28,21 @@ def client(permissions):
 
 
 def test_agent_catalog_hides_prompt_and_returns_request_id() -> None:
-    response=client({"agent:catalog:read"}).get("/api/v1/agents",headers={"X-Request-Id":"catalog-request"})
+    response=client({"agent:catalog:read","chat:use","service:read","community:read"}).get("/api/v1/agents",headers={"X-Request-Id":"catalog-request"})
     assert response.status_code==200 and response.json()["request_id"]=="catalog-request"
-    assert len(response.json()["data"]["items"])==6
+    items=response.json()["data"]["items"]
+    assert {item["code"] for item in items}=={"knowledge_agent","service_agent","community_agent"}
+    assert all(item["visibility"]=="public" for item in items)
+    assert "supervisor" not in response.text and "governance_agent" not in response.text
+    assert "modelops_agent" not in response.text
     assert "system_prompt" not in response.text
+
+
+def test_agent_catalog_reveals_modelops_only_to_model_engineers() -> None:
+    response=client({"agent:catalog:read","model:read"}).get("/api/v1/agents")
+    assert response.status_code==200
+    assert {item["code"] for item in response.json()["data"]["items"]}=={"modelops_agent"}
+    assert response.json()["data"]["items"][0]["visibility"]=="restricted"
 
 
 def test_tool_catalog_filters_permissions_module_and_internal_tools() -> None:
