@@ -33,6 +33,7 @@ import AgentTimeline from '@/modules/agent-workbench/AgentTimeline.vue'
 import ApprovalCards from '@/modules/agent-workbench/ApprovalCards.vue'
 import { useAgentCatalogStore } from '@/modules/agent-workbench/stores/catalog'
 import { useAuthStore } from '@/modules/auth/stores/auth'
+import { renderMarkdown } from '@/shared/lib/markdown'
 import { EmptyState, ErrorState, StatusBadge, UiButton, UiCard, UiSkeleton } from '@/shared/ui'
 
 const CONV_PAGE_SIZE = 20
@@ -1403,9 +1404,11 @@ onUnmounted(() => {
                   aria-hidden="true"
                 >CP</span>
                 <div class="chat__bubble chat__bubble--agent">
-                  <p v-if="agentAnswer(entry.detail)" class="chat__bubble-text">
-                    {{ agentAnswer(entry.detail) }}
-                  </p>
+                  <div
+                    v-if="agentAnswer(entry.detail)"
+                    class="chat__bubble-text"
+                    v-html="renderMarkdown(agentAnswer(entry.detail)!)"
+                  ></div>
                   <p
                     v-else-if="entry.detail.run.id === activeAgentRunId && agentStreaming"
                     class="chat__bubble-text chat__bubble-text--pending"
@@ -1466,9 +1469,15 @@ onUnmounted(() => {
                     :label="MESSAGE_STATUS_LABELS[entry.message.status]"
                   />
                 </div>
-                <p v-if="entry.message.content" class="chat__bubble-text">
-                  {{ entry.message.content }}
-                </p>
+                <div
+                  v-if="entry.message.content"
+                  class="chat__bubble-text"
+                  v-html="
+                    entry.message.role === 'assistant'
+                      ? renderMarkdown(entry.message.content)
+                      : entry.message.content
+                  "
+                ></div>
                 <p
                   v-else-if="entry.message.status === 'streaming'"
                   class="chat__bubble-text chat__bubble-text--pending"
@@ -2380,6 +2389,99 @@ onUnmounted(() => {
 
 .chat__bubble-text--failed {
   color: var(--cp-error);
+}
+
+/* Markdown rendered content */
+.chat__bubble-text :deep(h1),
+.chat__bubble-text :deep(h2),
+.chat__bubble-text :deep(h3),
+.chat__bubble-text :deep(h4),
+.chat__bubble-text :deep(h5),
+.chat__bubble-text :deep(h6) {
+  margin: var(--cp-space-2) 0 var(--cp-space-1);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.chat__bubble-text :deep(h1) { font-size: 1.25em; }
+.chat__bubble-text :deep(h2) { font-size: 1.15em; }
+.chat__bubble-text :deep(h3) { font-size: 1.05em; }
+
+.chat__bubble-text :deep(p) {
+  margin: 0 0 var(--cp-space-1);
+}
+
+.chat__bubble-text :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.chat__bubble-text :deep(ul),
+.chat__bubble-text :deep(ol) {
+  margin: 0 0 var(--cp-space-1);
+  padding-left: 1.5em;
+}
+
+.chat__bubble-text :deep(li) {
+  margin-bottom: 2px;
+}
+
+.chat__bubble-text :deep(blockquote) {
+  margin: var(--cp-space-1) 0;
+  padding: var(--cp-space-1) var(--cp-space-2);
+  border-left: 3px solid var(--cp-primary);
+  background: var(--cp-canvas-soft);
+  border-radius: 0 var(--cp-radius-button) var(--cp-radius-button) 0;
+  color: var(--cp-muted);
+}
+
+.chat__bubble-text :deep(code) {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--cp-canvas-soft);
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+}
+
+.chat__bubble-text :deep(pre) {
+  margin: var(--cp-space-1) 0;
+  padding: var(--cp-space-2);
+  border-radius: var(--cp-radius-button);
+  background: var(--cp-canvas);
+  overflow-x: auto;
+}
+
+.chat__bubble-text :deep(pre code) {
+  padding: 0;
+  background: none;
+}
+
+.chat__bubble-text :deep(a) {
+  color: var(--cp-primary);
+  text-decoration: underline;
+}
+
+.chat__bubble-text :deep(hr) {
+  margin: var(--cp-space-2) 0;
+  border: none;
+  border-top: 1px solid var(--cp-hairline);
+}
+
+.chat__bubble-text :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--cp-space-1) 0;
+}
+
+.chat__bubble-text :deep(th),
+.chat__bubble-text :deep(td) {
+  padding: 6px var(--cp-space-2);
+  border: 1px solid var(--cp-hairline);
+  text-align: left;
+}
+
+.chat__bubble-text :deep(th) {
+  background: var(--cp-canvas-soft);
+  font-weight: 600;
 }
 
 .chat__bubble-actions {
