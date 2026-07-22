@@ -74,7 +74,7 @@ class AgentRunEventStreamService:
                     for item in items:
                         cursor = item.sequence
                         yield _encode_event(item, prepared.request_id)
-                        if item.event in {"done", "error"}:
+                        if item.event in {"done", "error", "input_required"}:
                             return
                     continue
                 await self._sleep(self._poll_seconds)

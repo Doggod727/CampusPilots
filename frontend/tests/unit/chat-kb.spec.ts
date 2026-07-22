@@ -514,6 +514,110 @@ describe('ChatView', () => {
     wrapper.unmount()
   })
 
+  it('recovers an awaiting approval run after SSE EOF and blocks a duplicate Enter submission', async () => {
+    let createCount = 0
+    const createdRun = { id: 'run-approval', status: 'created', route: null, input_summary: '帮我充电费', final_answer: null, error_code: null, created_at: NOW, updated_at: NOW, finished_at: null }
+    const awaitingRun = { ...createdRun, status: 'awaiting_approval' }
+    server.use(
+      http.get('/api/v1/conversations', () => HttpResponse.json(envelope(pageOf([CONVERSATION])))),
+      http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
+      http.get('/api/v1/conversations/conv-1/messages', () => HttpResponse.json(envelope(pageOf([])))),
+      http.get('/api/v1/agent-runs', () =>
+        HttpResponse.json(envelope(pageOf(createCount > 0 ? [awaitingRun] : []))),
+      ),
+      http.post('/api/v1/agent-runs', () => {
+        createCount += 1
+        return HttpResponse.json(envelope(createdRun), { status: 202 })
+      }),
+      http.get('/api/v1/agent-runs/run-approval', () =>
+        HttpResponse.json(envelope({ run: awaitingRun, steps: [], tool_calls: [], approvals: [] })),
+      ),
+      http.get('/api/v1/agent-runs/run-approval/stream', () =>
+        new Response(
+          sse('event: approval_required\ndata: {"sequence":1,"tool_name":"electricity.create_topup_request"}\n\n'),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+      ),
+    )
+    const auth = useAuthStore()
+    auth.user = { id: 'u1', username: 'student01', display_name: '张同学', status: 'active', roles: [{ id: 'r1', code: 'student', name: '普通学生' }], permissions: ['chat:use', 'agent:run', 'agent:run:read_own'], created_at: NOW, version: 1 } as never
+    auth.status = 'authenticated'
+
+    const wrapper = mountChat()
+    await vi.waitFor(() => expect(wrapper.find('.chat__conversation').exists()).toBe(true))
+    await wrapper.find('.chat__conversation').trigger('click')
+    await vi.waitFor(() => expect(wrapper.find('textarea.chat__input').exists()).toBe(true))
+    const firstInput = wrapper.find('textarea.chat__input')
+    await firstInput.setValue('帮我充电费')
+    await firstInput.trigger('keydown', { key: 'Enter' })
+    await vi.waitFor(() => expect(createCount).toBe(1))
+    await vi.waitFor(() => expect(wrapper.find('textarea.chat__input').attributes('disabled')).toBeDefined())
+    expect(wrapper.text()).not.toContain('运行事件连接中断')
+
+    const input = wrapper.find('textarea.chat__input')
+    await input.setValue('帮我充电费')
+    await input.trigger('keydown', { key: 'Enter' })
+    await vi.waitFor(() => expect(createCount).toBe(1))
+    wrapper.unmount()
+  })
+
+  it('continues an input-required run from its last SSE event without replaying the old prompt', async () => {
+    let postCount = 0
+    let continuationCursor: string | null = null
+    const baseRun = { id: 'run-continuation', status: 'created', route: 'service', input_summary: '帮我充电费', final_answer: null, error_code: null, created_at: NOW, updated_at: NOW, finished_at: null }
+    const firstStep = { id: 'step-1', sequence: 1, agent_code: 'service_agent', step_type: 'generate', status: 'partial', input_summary: {}, output_summary: { answer: '请提供充值金额。', missing_slots: ['amount_cny'] }, error_code: null, started_at: NOW, finished_at: NOW }
+    const continuationStep = { id: 'step-2', sequence: 2, agent_code: 'service_agent', step_type: 'generate', status: 'awaiting_approval', input_summary: { continuation_input: '充50元' }, output_summary: {}, error_code: null, started_at: NOW, finished_at: null }
+    const currentRun = () => ({ ...baseRun, status: postCount >= 2 ? 'awaiting_approval' : 'awaiting_input' })
+    const currentDetail = () => ({ run: currentRun(), steps: postCount >= 2 ? [firstStep, continuationStep] : [firstStep], tool_calls: [], approvals: [] })
+    server.use(
+      http.get('/api/v1/conversations', () => HttpResponse.json(envelope(pageOf([CONVERSATION])))),
+      http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
+      http.get('/api/v1/conversations/conv-1/messages', () => HttpResponse.json(envelope(pageOf([])))),
+      http.get('/api/v1/agent-runs', () => HttpResponse.json(envelope(pageOf(postCount ? [currentRun()] : [])))),
+      http.post('/api/v1/agent-runs', () => {
+        postCount += 1
+        return HttpResponse.json(envelope(postCount === 1 ? baseRun : { ...baseRun, status: 'awaiting_input' }), { status: 202 })
+      }),
+      http.get('/api/v1/agent-runs/run-continuation', () => HttpResponse.json(envelope(currentDetail()))),
+      http.get('/api/v1/agent-runs/run-continuation/stream', ({ request }) => {
+        const cursor = request.headers.get('Last-Event-ID')
+        if (cursor) {
+          continuationCursor = cursor
+          return new Response(
+            sse('id: 3\nevent: approval_required\ndata: {"sequence":3,"tool_name":"electricity.create_topup_request"}\n\n'),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          )
+        }
+        return new Response(
+          sse('id: 1\nevent: route\ndata: {"sequence":1,"target_agent":"service"}\n\nid: 2\nevent: input_required\ndata: {"sequence":2,"status":"awaiting_input"}\n\n'),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        )
+      }),
+    )
+    const auth = useAuthStore()
+    auth.user = { id: 'u1', username: 'student01', display_name: '张同学', status: 'active', roles: [{ id: 'r1', code: 'student', name: '普通学生' }], permissions: ['chat:use', 'agent:run', 'agent:run:read_own'], created_at: NOW, version: 1 } as never
+    auth.status = 'authenticated'
+
+    const wrapper = mountChat()
+    await vi.waitFor(() => expect(wrapper.find('.chat__conversation').exists()).toBe(true))
+    await wrapper.find('.chat__conversation').trigger('click')
+    let input = wrapper.find('textarea.chat__input')
+    await input.setValue('帮我充电费')
+    await input.trigger('keydown', { key: 'Enter' })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('请提供充值金额。'))
+    await vi.waitFor(() => expect(wrapper.find('textarea.chat__input').attributes('disabled')).toBeUndefined())
+
+    input = wrapper.find('textarea.chat__input')
+    await input.setValue('充50元')
+    await clickButton(wrapper, '发送')
+    await vi.waitFor(() => expect(continuationCursor).toBe('2'))
+    await vi.waitFor(() => expect(wrapper.find('textarea.chat__input').attributes('disabled')).toBeDefined())
+    expect(postCount).toBe(2)
+    expect(wrapper.text()).toContain('请提供充值金额。')
+    expect(wrapper.text()).toContain('充50元')
+    wrapper.unmount()
+  })
+
   it('uses /learn without sources and sends the real learn contract mode', async () => {
     let requestBody: Record<string, unknown> = {}
     const message=makeMessage({id:'learn-1',content:'通用模型回答，无校内资料引用\n\n导数描述函数的瞬时变化率。',citations:[]})

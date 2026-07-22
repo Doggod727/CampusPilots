@@ -35,7 +35,7 @@ def tool_rows():
 
 def test_repository_queries_are_stable_and_session_owned() -> None:
     session=MagicMock(); session.execute=AsyncMock(side_effect=[Result(agent_rows()), Result(tool_rows())]); repo=CatalogRepository(session)
-    assert len(asyncio.run(repo.list_active_agents())) == 6; assert len(asyncio.run(repo.list_active_tools())) == 14
+    assert len(asyncio.run(repo.list_active_agents())) == 6; assert len(asyncio.run(repo.list_active_tools())) == 17
     sql=str(session.execute.await_args_list[1].args[0].compile(dialect=postgresql.dialect()))
     assert "enabled IS true" not in sql and "status =" in sql and "ORDER BY" in sql
     session.commit.assert_not_called(); session.close.assert_not_called()

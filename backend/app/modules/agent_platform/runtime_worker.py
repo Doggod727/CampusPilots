@@ -76,6 +76,12 @@ class OutboxRuntimeDispatcher(RuntimeDispatcherPort):
     async def resume(self, run_id: UUID, approval_id: UUID) -> None:
         self._add(run_id, "resume", approval_id=approval_id)
 
+    async def continue_input(self, run_id: UUID, user_input: str) -> None:
+        payload = {}
+        if self._start_codec is not None:
+            payload.update(self._start_codec.encode(user_input, {}))
+        self._add(run_id, "input", payload=payload)
+
     async def cancel(self, run_id: UUID) -> None:
         self._add(run_id, "cancel")
 
@@ -113,6 +119,9 @@ class GraphRuntimeCommandProcessor:
             await self._runtime.start(command.run_id, user, objective, context)
         elif command.action == "resume" and command.approval_id is not None:
             await self._runtime.resume(command.run_id, command.approval_id)
+        elif command.action == "input" and self._start_codec is not None:
+            user_input, _ = self._start_codec.decode(command.payload)
+            await self._runtime.continue_input(command.run_id, user_input)
         elif command.action == "cancel":
             try:
                 await self._runtime.cancel(command.run_id)

@@ -27,8 +27,9 @@ from app.modules.agent_platform.tool_gateway.campus_service_adapters import (
     WorkOrderGetToolHandler,
 )
 from app.modules.agent_platform.tool_gateway.community_adapters import (
-    EventRegisterToolHandler, EventSearchToolHandler, LostFoundMatchesToolHandler,
-    LostFoundPublishToolHandler,
+    CommunityPostPublishToolHandler, CommunityTopicSummaryToolHandler,
+    EventCreateToolHandler, EventRegisterToolHandler, EventSearchToolHandler,
+    LostFoundMatchesToolHandler, LostFoundPublishToolHandler,
 )
 from app.modules.agent_platform.tool_gateway.executor import ToolExecutor
 from app.modules.agent_platform.tool_gateway.governance_adapters import (
@@ -49,12 +50,16 @@ from app.modules.campus_service.repositories import (
 from app.modules.campus_service.work_order_access import WorkOrderScopeRepository
 from app.modules.campus_service.work_orders import WorkOrderService
 from app.modules.community.encryption import CommunityCipher, CommunityEncryptionUnavailable
-from app.modules.community.events import EventQueryService
+from app.modules.community.events import EventQueryService, EventService
 from app.modules.community.lost_found import LostFoundQueryService, LostFoundService
 from app.modules.community.matcher import LostFoundMatcherService
 from app.modules.community.profiles import PlatformPublicUserProfileAdapter
+from app.modules.community.posts import PostQueryService, PostService
 from app.modules.community.registrations import EventRegistrationService
-from app.modules.community.repositories import EventRepository, LostFoundRepository
+from app.modules.community.repositories import (
+    EventRepository, LostFoundRepository, PostRepository, TopicRepository,
+)
+from app.modules.community.topics import TopicService
 from app.modules.platform.idempotency import IdempotencyService
 from app.modules.platform.audit import AuditService, redact
 from app.modules.platform.moderation import ModerationService
@@ -151,10 +156,28 @@ class RuntimeCompositionFactory:
         profiles = PlatformPublicUserProfileAdapter(session)
         event_repository = EventRepository(session)
         event_queries = EventQueryService(event_repository, profiles)
+        community_idempotency = IdempotencyService(
+            session=session, repository=IdempotencyRecordRepository(session)
+        )
+        events = EventService(
+            session=session, repository=event_repository, queries=event_queries,
+            moderation=moderation, idempotency=community_idempotency, audit=audit,
+        )
         event_registrations = EventRegistrationService(
             session=session, repository=event_repository, profiles=profiles,
             idempotency=IdempotencyService(session=session,
                 repository=IdempotencyRecordRepository(session)), audit=audit,
+        )
+        topic_repository = TopicRepository(session)
+        topics = TopicService(
+            session=session, repository=topic_repository,
+            idempotency=community_idempotency, audit=audit,
+        )
+        post_repository = PostRepository(session)
+        post_queries = PostQueryService(post_repository, profiles)
+        posts = PostService(
+            session=session, repository=post_repository, queries=post_queries,
+            moderation=moderation, idempotency=community_idempotency, audit=audit,
         )
         lost_repository = LostFoundRepository(session)
         lost_queries = LostFoundQueryService(lost_repository, profiles)
@@ -190,6 +213,9 @@ class RuntimeCompositionFactory:
             "electricity.create_topup_request": ElectricityTopupToolHandler(electricity),
             "event.search": EventSearchToolHandler(event_queries),
             "event.register": EventRegisterToolHandler(event_registrations),
+            "event.create": EventCreateToolHandler(events),
+            "community.post.publish": CommunityPostPublishToolHandler(posts, topics),
+            "community.topic.summarize": CommunityTopicSummaryToolHandler(post_queries),
             "lost_found.publish": LostFoundPublishToolHandler(lost_found),
             "lost_found.search_matches": LostFoundMatchesToolHandler(matcher),
             "governance.check_content": GovernanceCheckContentHandler(moderation),
@@ -301,7 +327,7 @@ class _LazyCompositionCommandProcessor:
             self._processor = GraphRuntimeCommandProcessor(
                 runtime,
                 RuntimeStartContextLoader(self._session),
-                RuntimeStartPayloadCodec(
+                start_codec=RuntimeStartPayloadCodec(
                     self._factory.settings.agent_checkpoint_secret.get_secret_value()
                 ) if self._factory.settings.agent_checkpoint_secret is not None else None,
             )

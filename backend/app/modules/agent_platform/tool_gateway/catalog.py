@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.agent_platform.domain.contracts import ToolDefinition
 
@@ -78,10 +78,46 @@ class ServiceGuideOutput(ToolModel):
 
 class WorkOrderCreateInput(ToolModel):
     room_id: UUID
-    fault_type: str = Field(min_length=1, max_length=100)
-    description: str = Field(min_length=10, max_length=2000)
+    fault_type: Literal["electric", "plumbing", "network", "furniture", "door_window", "other"]
+    description: str = Field(min_length=10, max_length=1000)
     available_time: str | None = Field(default=None, max_length=200)
-    attachments: tuple[str, ...] = Field(default=(), max_length=5)
+    attachments: tuple[str, ...] = Field(default=(), max_length=0)
+
+    @field_validator("fault_type", mode="before")
+    @classmethod
+    def normalize_fault_type(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip().lower()
+        aliases = {
+            "electricity": "electric", "power": "electric", "电路": "electric", "电气": "electric",
+            "water": "plumbing", "水暖": "plumbing", "水管": "plumbing", "漏水": "plumbing",
+            "door": "door_window", "window": "door_window", "门": "door_window", "窗": "door_window",
+            "网络": "network", "家具": "furniture", "其他": "other",
+        }
+        if normalized in aliases:
+            return aliases[normalized]
+        if any(word in normalized for word in ("水龙头", "漏水", "水管")):
+            return "plumbing"
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_available_time(self) -> "WorkOrderCreateInput":
+        if self.available_time is None:
+            return self
+        parts = self.available_time.split("/")
+        if len(parts) != 2:
+            raise ValueError("可上门时间须为‘开始时间/结束时间’，例如 2026-07-23T14:00:00+08:00/2026-07-23T16:00:00+08:00")
+        try:
+            start = datetime.fromisoformat(parts[0].replace("Z", "+00:00"))
+            end = datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("可上门时间包含无效日期") from None
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("可上门时间必须包含时区")
+        if end <= start:
+            raise ValueError("可上门结束时间必须晚于开始时间")
+        return self
 
 
 class WorkOrderCreateOutput(ToolModel):
@@ -166,13 +202,69 @@ class EventRegisterOutput(ToolModel):
     status: Literal["registered"] = "registered"
 
 
+class EventCreateInput(ToolModel):
+    title: str = Field(min_length=2, max_length=120)
+    description: str = Field(min_length=1, max_length=5000)
+    category: Literal["lecture", "club", "sports", "arts", "volunteer", "competition", "career", "other"]
+    location: str = Field(min_length=2, max_length=200)
+    starts_at: datetime
+    ends_at: datetime
+    registration_deadline: datetime
+    capacity: int = Field(ge=1, le=10000)
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "EventCreateInput":
+        if self.ends_at <= self.starts_at:
+            raise ValueError("结束时间必须晚于开始时间")
+        if self.registration_deadline > self.starts_at:
+            raise ValueError("报名截止时间不能晚于开始时间")
+        return self
+
+
+class EventCreateOutput(ToolModel):
+    event_id: UUID
+    status: str
+
+
+class CommunityPostPublishInput(ToolModel):
+    topic: Literal["campus-life", "mutual-help", "tree-hole"]
+    title: str = Field(min_length=2, max_length=120)
+    content: str = Field(min_length=1, max_length=5000)
+    is_anonymous: bool = False
+
+
+class CommunityPostPublishOutput(ToolModel):
+    post_id: UUID
+    status: str
+
+
+class CommunityTopicSummaryInput(ToolModel):
+    query: str | None = Field(default=None, max_length=200)
+    limit: int = Field(default=10, ge=1, le=20)
+
+
+class CommunityTopicSummaryItem(ToolModel):
+    post_id: UUID
+    topic: str
+    title: str
+    excerpt: str = Field(max_length=300)
+    like_count: int = Field(ge=0)
+    comment_count: int = Field(ge=0)
+
+
+class CommunityTopicSummaryOutput(ToolModel):
+    summary: str = Field(max_length=2000)
+    items: tuple[CommunityTopicSummaryItem, ...]
+    total: int = Field(ge=0)
+
+
 class LostFoundPublishInput(ToolModel):
     item_type: Literal["lost", "found"]
     title: str = Field(min_length=1, max_length=100)
     category: str = Field(min_length=1, max_length=50)
     location: str = Field(min_length=1, max_length=200)
     occurred_at: datetime
-    description: str = Field(min_length=1, max_length=2000)
+    description: str = Field(min_length=5, max_length=2000)
     contact_preference: Literal["in_app"] = "in_app"
 
 
@@ -284,6 +376,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         _contract(name="electricity.create_topup_request", module="m2", description="创建模拟电费充值申请", input_model=ElectricityTopupInput, output_model=ElectricityTopupOutput, permissions=("electricity:topup_request:create",), risk="r2", timeout_ms=10000, approval=True),
         _contract(name="event.search", module="m3", description="搜索可报名校园活动", input_model=EventSearchInput, output_model=EventSearchOutput, permissions=("community:read",), risk="r0", timeout_ms=3000),
         _contract(name="event.register", module="m3", description="报名校园活动", input_model=EventRegisterInput, output_model=EventRegisterOutput, permissions=("community:write",), risk="r2", timeout_ms=10000, approval=True),
+        _contract(name="event.create", module="m3", description="创建校园活动并进入审核", input_model=EventCreateInput, output_model=EventCreateOutput, permissions=("community:write",), risk="r2", timeout_ms=10000, approval=True),
+        _contract(name="community.post.publish", module="m3", description="在现有社区话题下发布帖子", input_model=CommunityPostPublishInput, output_model=CommunityPostPublishOutput, permissions=("community:write",), risk="r2", timeout_ms=10000, approval=True),
+        _contract(name="community.topic.summarize", module="m3", description="查询并总结当前社区帖子", input_model=CommunityTopicSummaryInput, output_model=CommunityTopicSummaryOutput, permissions=("community:read",), risk="r0", timeout_ms=5000),
         _contract(name="lost_found.publish", module="m3", description="发布失物或拾物信息", input_model=LostFoundPublishInput, output_model=LostFoundPublishOutput, permissions=("community:write",), risk="r2", timeout_ms=10000, approval=True),
         _contract(name="lost_found.search_matches", module="m3", description="检索失物招领候选", input_model=LostFoundMatchesInput, output_model=LostFoundMatchesOutput, permissions=("community:read",), risk="r1", timeout_ms=5000),
         _contract(name="governance.check_content", module="m4", description="执行输入输出内容治理", input_model=GovernanceCheckInput, output_model=GovernanceCheckOutput, permissions=("moderation:execute",), risk="r1", timeout_ms=2000, visibility="runtime_internal"),
@@ -292,4 +387,4 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     )
 }
 
-assert len(TOOL_CONTRACTS) == 14
+assert len(TOOL_CONTRACTS) == 17

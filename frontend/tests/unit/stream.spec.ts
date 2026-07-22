@@ -117,6 +117,46 @@ describe('chat SSE', () => {
 })
 
 describe('agent run SSE', () => {
+  it('treats a silent EOF as a disconnect that requires state recovery', async () => {
+    server.use(
+      http.get(
+        '/api/v1/agent-runs/run-eof/stream',
+        () =>
+          new Response(
+            sse('event: approval_required\ndata: {"sequence":1,"tool_name":"electricity.create_topup_request"}\n\n'),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+      ),
+    )
+
+    const error = await streamAgentRun('run-eof', {}).catch((value: unknown) => value)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toContain('before a terminal event')
+  })
+
+  it('releases the stream when the agent asks for continuation input', async () => {
+    server.use(
+      http.get(
+        '/api/v1/agent-runs/run-input/stream',
+        () =>
+          new Response(
+            sse(
+              'event: route\ndata: {"sequence":1,"target_agent":"community"}\n\n' +
+                'event: input_required\ndata: {"sequence":2,"status":"awaiting_input","message":"请补充地点和分类"}\n\n',
+            ),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+      ),
+    )
+    const seen: AgentRunEvent[] = []
+    const done = vi.fn()
+    await streamAgentRun('run-input', { onEvent: (event) => seen.push(event), onDone: done })
+    expect(seen.map((event) => event.event)).toEqual(['route'])
+    expect(done).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'input_required', sequence: 2 }),
+    )
+  })
+
   it('sends Last-Event-ID and skips replayed sequences', async () => {
     let lastEventId: string | null = null
     server.use(

@@ -36,6 +36,21 @@ const EVENT_STATUS_LABELS: Record<CampusEventStatus, string> = {
   deleted: '已删除',
 }
 
+const EVENT_CATEGORY_OPTIONS = [
+  { value: 'lecture', label: '讲座' },
+  { value: 'club', label: '社团活动' },
+  { value: 'sports', label: '体育活动' },
+  { value: 'arts', label: '文艺活动' },
+  { value: 'volunteer', label: '志愿服务' },
+  { value: 'competition', label: '竞赛' },
+  { value: 'career', label: '就业招聘' },
+  { value: 'other', label: '其他' },
+] as const
+
+function eventCategoryLabel(value: string): string {
+  return EVENT_CATEGORY_OPTIONS.find((option) => option.value === value)?.label ?? value
+}
+
 const auth = useAuthStore()
 const canWrite = computed(() => auth.hasPermission('community:write'))
 const canModerate = computed(() => auth.hasPermission('community:moderate'))
@@ -124,7 +139,10 @@ function describeEventError(error: unknown, fallback: string): { title: string; 
       case 'EVENT_CAPACITY_INVALID':
         return { title: '容量无效', message: '容量不能低于已报名人数。' }
       case 'EVENT_TIME_INVALID':
-        return { title: '时间无效', message: '结束时间必须晚于开始时间，且报名截止不能晚于开始时间。' }
+        return {
+          title: '时间无效',
+          message: '开始时间必须晚于当前时间；结束时间必须晚于开始时间；报名截止不能晚于开始时间。',
+        }
       case 'EVENT_NOT_FOUND':
         return { title: '活动不存在', message: '活动不存在或当前不可见。' }
       case 'RESOURCE_VERSION_CONFLICT':
@@ -259,6 +277,32 @@ const editorForm = reactive({
   description: '',
 })
 
+const startsAtError = computed(() => {
+  if (!editorForm.startsAt) return undefined
+  return new Date(editorForm.startsAt).getTime() <= Date.now() ? '开始时间必须晚于当前时间' : undefined
+})
+
+const endsAtError = computed(() => {
+  if (!editorForm.startsAt || !editorForm.endsAt) return undefined
+  return new Date(editorForm.endsAt).getTime() <= new Date(editorForm.startsAt).getTime()
+    ? '结束时间必须晚于开始时间'
+    : undefined
+})
+
+const deadlineError = computed(() => {
+  if (!editorForm.startsAt || !editorForm.deadline) return undefined
+  return new Date(editorForm.deadline).getTime() > new Date(editorForm.startsAt).getTime()
+    ? '报名截止不能晚于开始时间'
+    : undefined
+})
+
+const editorHasLegacyCategory = computed(
+  () =>
+    editorMode.value === 'edit' &&
+    !!editorForm.category &&
+    !EVENT_CATEGORY_OPTIONS.some((option) => option.value === editorForm.category),
+)
+
 const editorValid = computed(
   () =>
     editorForm.title.trim().length >= 2 &&
@@ -268,6 +312,9 @@ const editorValid = computed(
     editorForm.startsAt !== '' &&
     editorForm.endsAt !== '' &&
     editorForm.deadline !== '' &&
+    !startsAtError.value &&
+    !endsAtError.value &&
+    !deadlineError.value &&
     editorForm.capacity >= 1 &&
     editorForm.capacity <= 10000,
 )
@@ -443,13 +490,12 @@ async function changeRegsPage(next: number) {
     <UiCard padding="md">
       <div class="events__filters">
         <UiField label="类别" input-id="event-filter-category">
-          <input
-            id="event-filter-category"
-            v-model="filters.category"
-            class="events__input"
-            type="text"
-            placeholder="如：讲座、社团、体育"
-          />
+          <select id="event-filter-category" v-model="filters.category" class="events__input">
+            <option value="">全部类别</option>
+            <option v-for="option in EVENT_CATEGORY_OPTIONS" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
         </UiField>
         <UiField label="开始时间从" input-id="event-filter-from">
           <input id="event-filter-from" v-model="filters.startsFrom" class="events__input" type="date" />
@@ -480,7 +526,7 @@ async function changeRegsPage(next: number) {
         <UiCard v-for="event in events" :key="event.id" class="events__item" padding="md" @click="openDetail(event.id)">
           <div class="events__item-head">
             <StatusBadge :status="event.status" :label="EVENT_STATUS_LABELS[event.status]" />
-            <span class="events__category">{{ event.category }}</span>
+            <span class="events__category">{{ eventCategoryLabel(event.category) }}</span>
             <span v-if="isFull(event)" class="events__full">名额已满</span>
             <span v-if="event.my_registration_status === 'registered'" class="events__mine">已报名</span>
             <time class="events__time">{{ formatTime(event.starts_at) }}</time>
@@ -504,7 +550,7 @@ async function changeRegsPage(next: number) {
       <template v-else-if="detail">
         <div class="events__detail-head">
           <StatusBadge :status="detail.status" :label="EVENT_STATUS_LABELS[detail.status]" />
-          <span class="events__category">{{ detail.category }}</span>
+          <span class="events__category">{{ eventCategoryLabel(detail.category) }}</span>
           <span v-if="detail.my_registration_status === 'registered'" class="events__mine">已报名</span>
           <span v-else-if="detail.my_registration_status === 'cancelled'" class="events__muted-tag">报名已取消</span>
         </div>
@@ -569,7 +615,15 @@ async function changeRegsPage(next: number) {
         </UiField>
         <div class="events__form-row">
           <UiField label="类别" input-id="event-form-category" required>
-            <input id="event-form-category" v-model="editorForm.category" class="events__input" type="text" maxlength="50" />
+            <select id="event-form-category" v-model="editorForm.category" class="events__input">
+              <option disabled value="">请选择活动类别</option>
+              <option v-if="editorHasLegacyCategory" :value="editorForm.category">
+                {{ editorForm.category }}（现有类别）
+              </option>
+              <option v-for="option in EVENT_CATEGORY_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
           </UiField>
           <UiField label="名额" input-id="event-form-capacity" required>
             <input id="event-form-capacity" v-model.number="editorForm.capacity" class="events__input" type="number" min="1" max="10000" />
@@ -579,14 +633,26 @@ async function changeRegsPage(next: number) {
           <input id="event-form-location" v-model="editorForm.location" class="events__input" type="text" maxlength="200" />
         </UiField>
         <div class="events__form-row">
-          <UiField label="开始时间" input-id="event-form-starts" required>
+          <UiField
+            label="开始时间"
+            input-id="event-form-starts"
+            required
+            hint="必须晚于当前时间"
+            :error="startsAtError"
+          >
             <input id="event-form-starts" v-model="editorForm.startsAt" class="events__input" type="datetime-local" />
           </UiField>
-          <UiField label="结束时间" input-id="event-form-ends" required>
+          <UiField label="结束时间" input-id="event-form-ends" required :error="endsAtError">
             <input id="event-form-ends" v-model="editorForm.endsAt" class="events__input" type="datetime-local" />
           </UiField>
         </div>
-        <UiField label="报名截止" input-id="event-form-deadline" required hint="不能晚于活动开始时间">
+        <UiField
+          label="报名截止"
+          input-id="event-form-deadline"
+          required
+          hint="不能晚于活动开始时间"
+          :error="deadlineError"
+        >
           <input id="event-form-deadline" v-model="editorForm.deadline" class="events__input" type="datetime-local" />
         </UiField>
         <UiField label="活动描述" input-id="event-form-description" required>

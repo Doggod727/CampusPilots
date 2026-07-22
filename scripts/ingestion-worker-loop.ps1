@@ -1,12 +1,19 @@
-#Requires -Version 7.0
 [CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Continue'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Backend = Join-Path $RepoRoot 'backend'
-$Python = 'D:\anaconda\envs\campuspilot\python.exe'
 $Log = Join-Path $RepoRoot 'logs\ingestion-worker.log'
+
+$condaInfo = conda info --json 2>$null | ConvertFrom-Json
+$envDirs = $condaInfo.envs_dirs
+$Python = $null
+foreach ($base in $envDirs) {
+    $candidate = Join-Path $base 'campuspilot\python.exe'
+    if (Test-Path $candidate) { $Python = $candidate; break }
+}
+if (-not $Python) { throw "conda 环境 campuspilot 未找到" }
 
 Set-Location $Backend
 while ($true) {

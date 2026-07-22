@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     幂等停止 CampusPilot 应用进程（API + 四个 Worker）。
@@ -6,7 +5,7 @@
     只停止 app.main / app.scripts.*worker 进程；不触碰共享的 PostgreSQL 与 Redis。
     重复执行安全（无匹配进程时直接报告）。
 .EXAMPLE
-    pwsh -File scripts/stop-dev.ps1
+    powershell -File scripts/stop-dev.ps1
 #>
 [CmdletBinding()]
 param()

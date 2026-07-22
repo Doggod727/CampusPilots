@@ -26,7 +26,7 @@ import type {
   Message,
   ToolCatalogItem,
 } from '@/api/generated'
-import { streamAgentRun, type AgentRunEvent } from '@/api/stream/agentStream'
+import { lastSequenceOf, streamAgentRun, type AgentRunEvent } from '@/api/stream/agentStream'
 import { streamChatCompletion } from '@/api/stream/chatStream'
 import { filteredNav } from '@/app/router/navigation'
 import AgentTimeline from '@/modules/agent-workbench/AgentTimeline.vue'
@@ -408,6 +408,10 @@ const selectionNotice = ref('')
 const activeAgentRunId = ref<string | null>(null)
 const agentDetails = ref<AgentRunDetailData[]>([])
 const agentEvents = ref<AgentRunEvent[]>([])
+const agentSubmissionBlocked = computed(() => {
+  const active = agentDetails.value.find((detail) => detail.run.id === activeAgentRunId.value)
+  return !!active && ['created', 'routing', 'running', 'awaiting_approval'].includes(active.run.status)
+})
 const agentStreaming = ref(false)
 const agentError = ref('')
 let agentController: AbortController | null = null
@@ -444,7 +448,64 @@ function agentAnswer(detail: AgentRunDetailData): string | null {
     .find((step) => step.status === 'succeeded' || step.status === 'partial')
   if (!completed?.output_summary || Object.keys(completed.output_summary).length === 0) return null
   const direct = completed.output_summary.answer ?? completed.output_summary.final_answer
-  return typeof direct === 'string' ? direct : JSON.stringify(completed.output_summary, null, 2)
+  if (typeof direct === 'string' && direct.trim()) return direct
+  const missingSlots = completed.output_summary.missing_slots
+  if (Array.isArray(missingSlots) && missingSlots.length > 0) {
+    const labels: Record<string, string> = {
+      item_type: '发布类型（失物或拾物）',
+      title: '物品名称',
+      category: '物品分类',
+      location: '地点',
+      occurred_at: '发生时间',
+      description: '详细描述',
+      room_id: '房间号',
+    }
+    return `请继续补充必要信息：${missingSlots.map((slot) => labels[String(slot)] ?? String(slot)).join('、')}`
+  }
+  return null
+}
+
+type AgentConversationTurn = {
+  key: string
+  user: string | null
+  answer: string | null
+  isLast: boolean
+}
+
+function agentConversationTurns(detail: AgentRunDetailData): AgentConversationTurn[] {
+  const relevantSteps = detail.steps.filter((step) => {
+    const value = step.output_summary?.answer ?? step.output_summary?.final_answer
+    return (
+      (typeof value === 'string' && value.trim().length > 0) ||
+      typeof step.input_summary?.continuation_input === 'string'
+    )
+  })
+  const hasContinuation = relevantSteps.some(
+    (step) => typeof step.input_summary?.continuation_input === 'string',
+  )
+  if (!hasContinuation) {
+    return [{
+      key: `${detail.run.id}:aggregate`,
+      user: detail.run.input_summary,
+      answer: agentAnswer(detail),
+      isLast: true,
+    }]
+  }
+  return relevantSteps.map((step, index) => {
+    const output = step.output_summary ?? {}
+    const value = output.answer ?? output.final_answer
+    const continuation = step.input_summary?.continuation_input
+    return {
+      key: `${detail.run.id}:${step.id}`,
+      user: index === 0
+        ? detail.run.input_summary
+        : typeof continuation === 'string' && continuation.trim()
+          ? continuation
+          : null,
+      answer: typeof value === 'string' ? value : null,
+      isLast: index === relevantSteps.length - 1,
+    }
+  })
 }
 
 type ConversationTimelineEntry =
@@ -595,14 +656,14 @@ async function loadAgentDetail(runId: string): Promise<AgentRunDetailData> {
   return response.data
 }
 
-function pushAgentEvent(event: AgentRunEvent) {
-  if (agentEvents.value.some((item) => item.sequence === event.sequence)) {
+function pushAgentEvent(runId: string, event: AgentRunEvent) {
+  if (activeAgentRunId.value === runId && !agentEvents.value.some((item) => item.sequence === event.sequence)) {
+    agentEvents.value = [...agentEvents.value, event].sort((a, b) => a.sequence - b.sequence)
+  }
+  if (event.event !== 'approval_required') {
     return
   }
-  agentEvents.value = [...agentEvents.value, event].sort((a, b) => a.sequence - b.sequence)
-  if (event.event === 'approval_required' && activeAgentRunId.value) {
-    void loadAgentDetail(activeAgentRunId.value)
-  }
+  void loadAgentDetail(runId)
 }
 
 async function cancelActiveAgentRun() {
@@ -623,36 +684,49 @@ async function cancelActiveAgentRun() {
   }
 }
 
-async function followAgentRun(runId: string) {
+async function followAgentRun(runId: string, lastEventId?: number) {
   stopAgentStream()
-  agentController = new AbortController()
+  const streamController = new AbortController()
+  agentController = streamController
   agentStreaming.value = true
+  let streamInterrupted = false
   try {
     await streamAgentRun(
       runId,
       {
-        onEvent: pushAgentEvent,
-        onDone: pushAgentEvent,
-        onError: pushAgentEvent,
+        onEvent: (event) => pushAgentEvent(runId, event),
+        onDone: (event) => pushAgentEvent(runId, event),
+        onError: (event) => pushAgentEvent(runId, event),
       },
-      { signal: agentController.signal },
+      { signal: streamController.signal, lastEventId },
     )
   } catch {
-    if (!agentController?.signal.aborted) {
-      agentError.value = '运行事件连接中断，已从数据库恢复最新状态。'
-    }
+    streamInterrupted = !streamController.signal.aborted
   } finally {
+    let recovered: AgentRunDetailData | null = null
     if (activeAgentRunId.value === runId) {
       try {
-        await loadAgentDetail(runId)
+        recovered = await loadAgentDetail(runId)
       } catch {
-        agentError.value = 'Agent 运行详情加载失败。'
+        if (agentController === streamController) {
+          agentError.value = 'Agent 运行详情加载失败。'
+        }
       }
     }
+    // A newer stream has replaced this one.  The old stream must not clear or
+    // report errors for the new stream.
+    if (agentController !== streamController) return
     agentController = null
     agentStreaming.value = false
     if (activeId.value) await loadConversationAgentRuns(activeId.value)
     await scrollToBottom()
+    if (
+      streamInterrupted &&
+      recovered &&
+      ['created', 'routing', 'running'].includes(recovered.run.status)
+    ) {
+      void pollAgentRun(runId)
+    }
   }
 }
 
@@ -728,7 +802,8 @@ const canSend = computed(
     (answerMode.value !== 'library' || selectedKbIds.value.length > 0) &&
     !sending.value &&
     !streaming.value &&
-    !agentStreaming.value,
+    !agentStreaming.value &&
+    !agentSubmissionBlocked.value,
 )
 
 watch(draft, () => {
@@ -854,6 +929,10 @@ async function sendAgent(question: string) {
   agentError.value = ''
   try {
     const conversationId = await ensureActiveConversation()
+    const continuationRunId = agentDetails.value.find(
+      (detail) => detail.run.id === activeAgentRunId.value && String(detail.run.status) === 'awaiting_input',
+    )?.run.id
+    const continuationCursor = continuationRunId ? lastSequenceOf(agentEvents.value) : undefined
     const firstAgent = selectedAgentCodes.value[0]
     const response = await callApi(() =>
       createAgentRun({
@@ -874,20 +953,27 @@ async function sendAgent(question: string) {
     draft.value = ''
     draftKey.value = crypto.randomUUID()
     activeAgentRunId.value = response.data.id
-    agentDetails.value = [
-      ...agentDetails.value,
-      {
-        run: response.data,
-        steps: [],
-        tool_calls: [],
-        approvals: [],
-      },
-    ]
-    agentEvents.value = []
+    const isContinuation = continuationRunId === response.data.id
+    if (isContinuation) {
+      agentDetails.value = agentDetails.value.map((detail) =>
+        detail.run.id === response.data.id ? { ...detail, run: response.data } : detail,
+      )
+    } else {
+      agentDetails.value = [
+        ...agentDetails.value,
+        {
+          run: response.data,
+          steps: [],
+          tool_calls: [],
+          approvals: [],
+        },
+      ]
+      agentEvents.value = []
+    }
     selectionPanel.value = null
     await loadConversations()
     if (mode.value === 'stream') {
-      void followAgentRun(response.data.id)
+      void followAgentRun(response.data.id, isContinuation ? continuationCursor : undefined)
     } else {
       void pollAgentRun(response.data.id)
     }
@@ -1390,49 +1476,57 @@ onUnmounted(() => {
           />
           <template v-for="entry in conversationTimeline" :key="entry.key">
             <template v-if="entry.kind === 'agent'">
-              <article class="chat__message chat__message--user">
-                <div class="chat__bubble">
-                  <p class="chat__bubble-text">{{ entry.detail.run.input_summary }}</p>
-                </div>
-                <span class="chat__message-avatar chat__message-avatar--user" aria-hidden="true">
-                  {{ userInitials }}
-                </span>
-              </article>
-              <article class="chat__message chat__message--assistant">
-                <span
-                  class="chat__message-avatar chat__message-avatar--assistant"
-                  aria-hidden="true"
-                >CP</span>
-                <div class="chat__bubble chat__bubble--agent">
-                  <div
-                    v-if="agentAnswer(entry.detail)"
-                    class="chat__bubble-text"
-                    v-html="renderMarkdown(agentAnswer(entry.detail)!)"
-                  ></div>
-                  <p
-                    v-else-if="entry.detail.run.id === activeAgentRunId && agentStreaming"
-                    class="chat__bubble-text chat__bubble-text--pending"
-                  >
-                    Agent 正在执行任务…
-                  </p>
-                  <p v-else class="chat__bubble-text chat__bubble-text--failed">
-                    {{ entry.detail.run.error_code || '该运行暂无最终回答。' }}
-                  </p>
-                  <details class="chat__agent-details">
-                    <summary>执行详情 · {{ entry.detail.run.status }}</summary>
-                    <AgentTimeline
-                      v-if="entry.detail.run.id === activeAgentRunId"
-                      :events="agentEvents"
-                      :live="agentStreaming"
-                    />
-                    <ol v-else class="chat__agent-steps">
-                      <li v-for="step in entry.detail.steps" :key="step.id">
-                        {{ step.agent_code }} · {{ step.status }}
-                      </li>
-                    </ol>
-                  </details>
-                </div>
-              </article>
+              <template v-for="turn in agentConversationTurns(entry.detail)" :key="turn.key">
+                <article v-if="turn.user" class="chat__message chat__message--user">
+                  <div class="chat__bubble">
+                    <p class="chat__bubble-text">{{ turn.user }}</p>
+                  </div>
+                  <span class="chat__message-avatar chat__message-avatar--user" aria-hidden="true">
+                    {{ userInitials }}
+                  </span>
+                </article>
+                <article class="chat__message chat__message--assistant">
+                  <span
+                    class="chat__message-avatar chat__message-avatar--assistant"
+                    aria-hidden="true"
+                  >CP</span>
+                  <div class="chat__bubble chat__bubble--agent">
+                    <div
+                      v-if="turn.answer"
+                      class="chat__bubble-text"
+                      v-html="renderMarkdown(turn.answer)"
+                    ></div>
+                    <p
+                      v-else-if="entry.detail.run.id === activeAgentRunId && agentStreaming"
+                      class="chat__bubble-text chat__bubble-text--pending"
+                    >
+                      Agent 正在执行任务…
+                    </p>
+                    <p
+                      v-else-if="String(entry.detail.run.status) === 'awaiting_approval'"
+                      class="chat__bubble-text chat__bubble-text--pending"
+                    >
+                      等待您确认后继续执行。
+                    </p>
+                    <p v-else class="chat__bubble-text chat__bubble-text--failed">
+                      {{ entry.detail.run.error_code || '该运行暂无最终回答。' }}
+                    </p>
+                    <details v-if="turn.isLast" class="chat__agent-details">
+                      <summary>执行详情 · {{ entry.detail.run.status }}</summary>
+                      <AgentTimeline
+                        v-if="entry.detail.run.id === activeAgentRunId"
+                        :events="agentEvents"
+                        :live="agentStreaming"
+                      />
+                      <ol v-else class="chat__agent-steps">
+                        <li v-for="step in entry.detail.steps" :key="step.id">
+                          {{ step.agent_code }} · {{ step.status }}
+                        </li>
+                      </ol>
+                    </details>
+                  </div>
+                </article>
+              </template>
               <ApprovalCards
                 v-if="entry.detail.approvals.length"
                 :data-pending-approval="
@@ -1668,7 +1762,7 @@ onUnmounted(() => {
               rows="1"
               :maxlength="answerMode === 'auto' || agentSelectionActive ? 4000 : 2000"
               placeholder="输入问题，或输入 / 查看命令"
-              :disabled="streaming || agentStreaming"
+              :disabled="sending || streaming || agentStreaming || agentSubmissionBlocked"
               aria-label="问题输入"
               @keydown="handleComposerKeydown"
             />

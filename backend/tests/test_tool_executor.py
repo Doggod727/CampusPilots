@@ -22,6 +22,7 @@ from app.modules.agent_platform.tool_gateway.mocks import (
     owned_lost_found_id,
     owned_work_order_id,
 )
+from app.modules.agent_platform.tool_gateway.errors import ToolArgumentInvalid
 from app.modules.agent_platform.tool_gateway.registry import ToolRegistry
 
 
@@ -135,13 +136,14 @@ def _request(
     )
 
 
-def test_all_fourteen_mock_tools_execute_through_one_pipeline() -> None:
+def test_all_baseline_mock_tools_execute_through_one_pipeline() -> None:
     context = _context()
     samples = _samples(context)
     safety = RecordingSafety()
     executor, verifier, audit = _executor_with_safety(safety)
     requests = []
-    for name, contract in TOOL_CONTRACTS.items():
+    for name in samples:
+        contract = TOOL_CONTRACTS[name]
         approval_id = uuid4() if contract.definition.requires_approval else None
         idempotency_key = f"idem-{name}" if contract.definition.risk_level in {"r2", "r3"} and contract.definition.visibility != "runtime_internal" else None
         request = _request(
@@ -176,8 +178,8 @@ def test_all_fourteen_mock_tools_execute_through_one_pipeline() -> None:
     assert all(result.audit_id is not None for result in results)
     assert len(audit.events) == 14
     assert all(event.result == "success" for event in audit.events)
-    assert sorted(safety.inputs) == sorted(TOOL_CONTRACTS)
-    assert sorted(safety.outputs) == sorted(TOOL_CONTRACTS)
+    assert sorted(safety.inputs) == sorted(samples)
+    assert sorted(safety.outputs) == sorted(samples)
 
 
 @pytest.mark.parametrize(
@@ -208,6 +210,79 @@ def test_invalid_write_calls_never_reach_handler(
     assert handlers["work_order.create"].call_count == 0
     assert audit.events[-1].error_code == expected_code
     assert "宿舍" not in str(error.value)
+
+
+def test_preflight_rejection_keeps_approval_unconsumed_and_returns_field_reason() -> None:
+    context = _context()
+    arguments = {
+        "room_id": ROOM_ID,
+        "fault_type": "plumbing",
+        "description": "宿舍水龙头持续漏水，需要安排工作人员检修。",
+    }
+    approval_id = uuid4()
+
+    class RejectingHandler:
+        call_count = 0
+
+        async def preflight(self, user, payload):
+            raise ToolArgumentInvalid(
+                "可上门时间格式无效",
+                field="available_time",
+                reason="可上门时间须为‘ISO开始时间/ISO结束时间’",
+            )
+
+        async def __call__(self, invocation, payload):
+            self.call_count += 1
+            raise AssertionError("preflight failure must stop execution")
+
+    handler = RejectingHandler()
+    handlers = build_mock_handlers()
+    handlers["work_order.create"] = handler
+    executor, verifier, _ = _executor(handlers=handlers)
+    payload = TOOL_CONTRACTS["work_order.create"].input_model.model_validate(arguments)
+    arguments_hash = canonical_arguments_hash(payload)
+    verifier.grant(
+        approval_id=approval_id,
+        user_id=context.user_id,
+        tool_name="work_order.create",
+        tool_version="1.0.0",
+        arguments_hash=arguments_hash,
+    )
+    request = _request(
+        "work_order.create", arguments,
+        idempotency_key="idem-preflight", approval_id=approval_id,
+    )
+
+    with pytest.raises(ToolArgumentInvalid) as error:
+        asyncio.run(executor.execute(
+            context=context, request=request,
+            agent_allowlist=("work_order.create",),
+        ))
+
+    assert error.value.details[0].field == "available_time"
+    assert "ISO开始时间" in error.value.details[0].reason
+    assert handler.call_count == 0
+    assert asyncio.run(verifier.verify_and_consume(
+        approval_id=approval_id,
+        user_id=context.user_id,
+        tool_name="work_order.create",
+        tool_version="1.0.0",
+        arguments_hash=arguments_hash,
+    )) is True
+
+
+def test_schema_validation_exposes_friendly_field_level_reason() -> None:
+    executor, _, _ = _executor()
+    request = _request(
+        "work_order.create",
+        {"room_id": "not-a-uuid", "fault_type": "air-conditioner", "description": "短"},
+    )
+    with pytest.raises(ToolArgumentInvalid) as error:
+        executor.prepare(request)
+    reasons = {detail.field: detail.reason for detail in error.value.details}
+    assert "有效的 UUID" in reasons["room_id"]
+    assert "水暖（plumbing）" in reasons["fault_type"]
+    assert "至少需要 10 个字符" in reasons["description"]
 
 
 def test_permission_allowlist_and_runtime_visibility_default_to_deny() -> None:

@@ -41,7 +41,7 @@
   - 公共边界：真实 API + PostgreSQL 下同步 Chat 返回 502 统一信封、Chat SSE 输出 `AGENT_PROVIDER_UNAVAILABLE` error 事件、Specialist 不可达时 Agent Run 经 Outbox 重试后收敛 failed 且命令/Run 错误码一致；Run 事件、消息、审计泄密扫描与探针数据精确清理全部通过。
   - 定向测试 31 项、全量测试 `761 passed`；compileall、Alembic 唯一/真实 Head、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
 - [x] [#192 M5：真实环境总验收（目录/契约/装配/专项证据汇总）](https://github.com/Doggod727/CampusPilot/issues/192)（2026-07-18）
-  - 新增 `m5_acceptance_probe` 静态核对：M5 31 个 operationId 与 FastAPI 路由按方法+路径逐一对应且全局唯一；14 个 Tool 冻结契约经真实 PostgreSQL 目录零漂移加载并输出确定性 SHA-256 指纹；唯一 Composition 装配下 14/14 Tool 均为真实 Handler、无 Mock 残留。
+  - 新增 `m5_acceptance_probe` 静态核对：M5 31 个 operationId 与 FastAPI 路由按方法+路径逐一对应且全局唯一；17 个 Tool 冻结契约经真实 PostgreSQL 目录零漂移加载并输出确定性 SHA-256 指纹；唯一 Composition 装配下 17/17 Tool 均为真实 Handler、无 Mock 残留。
   - 新增 `verify-m5-runtime-acceptance.ps1` 汇总入口：启动时拒绝已有 Worker，串行复跑 Outbox 并发、Checkpoint 60 秒恢复、双维度限流、Provider 故障四个真实探针并拉起 Worker 执行完整冒烟，任一环节失败即按稳定错误码中止。
   - 实测汇总报告：`contract_operations=31`、`catalog_tools=14`、`catalog_zero_drift=true`、`real_handlers=14`、四个探针与冒烟全部 `true`；M5 详细设计升级 V0.4 结论，todo.md 移除已完成的 Runtime 待办（保留审批到期协调与启动恢复保真两条边界）。
   - 定向测试 35 项、全量测试 `765 passed`；compileall、Alembic 唯一/真实 Head、离线完整升降级、136 个 OpenAPI operationId 唯一性与 Redocly lint 全部通过。
@@ -794,13 +794,13 @@
 - [ ] 在具备PostgreSQL、Chroma、本地BGE模型及DeepSeek密钥的环境执行M1真实上传→入库→检索→REST/SSE→Tool端到端验证。
 
 - [ ] Docker/PostgreSQL/Redis/Chroma 可用后执行真实空库迁移、种子和 `/health/ready` 集成验证；当前不得宣称已完成。
-- [ ] 前端与 Docker Compose 转入后续批次；M1/M3 真实 Handler 已替换 M5 显式 Mock（#192 验收确认 14/14 Tool 均为真实 Handler、目录零漂移）。
+- [ ] 前端与 Docker Compose 转入后续批次；M1/M3 真实 Handler 已替换 M5 显式 Mock（当前验收确认 17/17 Tool 均为真实 Handler、目录零漂移）。
 ## 待办
 
 - [ ] M5 审批到期协调真实环境验证（过期审批的决策与恢复拒绝）；Outbox 并发、Checkpoint 崩溃恢复、用户/IP 双维度限流与 DeepSeek Provider 故障矩阵已分别由 #188/#189/#190/#191 在真实 PostgreSQL/Redis 下完成，SSE 重放由冒烟覆盖。
 - [x] Compose/Nginx 使用固定 Nginx 容器地址作为 Uvicorn 唯一可信代理，并覆盖客户端自报 `X-Forwarded-For`；伪造地址不进入审计。
 - [ ] Agent Run 启动恢复保真：当前 Worker 只取得 `input_summary[:1000]`，公开创建请求的 1001–4000 字输入以及 mode/context 尚未进入认证加密恢复状态（在 M5 后续强化批次处理）。
-- [x] 前端与 Docker Compose 已完成；M1/M3 真实 Handler 已替换 M5 显式 Mock（#192 验收确认 14/14 Tool 均为真实 Handler、目录零漂移）。
+- [x] 前端与 Docker Compose 已完成；M1/M3 真实 Handler 已替换 M5 显式 Mock（当前验收确认 17/17 Tool 均为真实 Handler、目录零漂移）。
 - [ ] QLoRA 需 CUDA+bitsandbytes（本机仅 CPU，当前稳定拒绝）；本地模型评估当前仅 LoRA 产物前向损失对比。
 
 > 已完成并归档：真实空库迁移升→降→升、`/health/ready` 集成、M1 真实上传→入库→检索→REST/SSE→Tool 端到端、重复种子幂等、M1/M3 真实 Handler 替换 Mock（均由集成批次实测，见上文各 Issue 记录与冒烟/探针证据）。

@@ -1,15 +1,13 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     启动 CampusPilot 本地全栈开发环境（幂等）。
 .DESCRIPTION
-    - PostgreSQL：E:\CampusPilotServices\PostgreSQL（已运行则跳过）
-    - Redis：本机 6379 可达则复用，否则启动 E 盘便携实例
+    - PostgreSQL + Redis：通过 Docker Compose 启动（已运行则跳过）
     - API + runtime/ingestion/training/evaluation 四个 Worker：
       已存在同名进程时跳过（重复启动不产生重复进程）
     - 全部输出重定向到 logs/（本机忽略目录，不回显密钥）
 .EXAMPLE
-    pwsh -File scripts/start-dev.ps1
+    powershell -File scripts/start-dev.ps1
 #>
 [CmdletBinding()]
 param()
@@ -19,34 +17,29 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Backend = Join-Path $RepoRoot 'backend'
 $LogDir = Join-Path $RepoRoot 'logs'
-$Python = 'D:\anaconda\envs\campuspilot\python.exe'
-$PgBin = 'E:\CampusPilotServices\PostgreSQL\pgsql\bin'
-$PgData = 'E:\CampusPilotServices\PostgreSQL\data'
-$RedisDir = 'E:\CampusPilotServices\Redis'
+
+# 自动探测 conda Python 路径
+$condaInfo = conda info --json 2>$null | ConvertFrom-Json
+$envDirs = $condaInfo.envs_dirs
+$Python = $null
+foreach ($base in $envDirs) {
+    $candidate = Join-Path $base 'campuspilot\python.exe'
+    if (Test-Path $candidate) { $Python = $candidate; break }
+}
+if (-not $Python) { throw "conda 环境 campuspilot 未找到（已扫描 envs_dirs）" }
+Write-Host "[=] Python: $Python" -ForegroundColor DarkGray
 
 if (-not (Test-Path $Python)) { throw "conda 环境不存在: $Python" }
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-# 1. PostgreSQL（已在运行则跳过）
-& (Join-Path $PgBin 'pg_ctl.exe') -D $PgData status *> $null
-if ($LASTEXITCODE -eq 0) {
-    Write-Host '[=] PostgreSQL 已在运行' -ForegroundColor DarkGray
-} else {
-    Start-Process -FilePath (Join-Path $PgBin 'postgres.exe') -ArgumentList '-D', $PgData -WindowStyle Hidden
-    Start-Sleep -Seconds 4
-    & (Join-Path $PgBin 'pg_ctl.exe') -D $PgData status *> $null
-    if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL 启动失败，日志见数据目录 log' }
-    Write-Host '[+] PostgreSQL 已启动' -ForegroundColor Green
-}
-
-# 2. Redis（6379 可达则复用，否则启动便携实例）
-$redisUp = Test-NetConnection -ComputerName 127.0.0.1 -Port 6379 -InformationLevel Quiet -WarningAction SilentlyContinue
-if ($redisUp) {
-    Write-Host '[=] Redis 6379 已可达（复用本机服务）' -ForegroundColor DarkGray
-} else {
-    Start-Process -FilePath (Join-Path $RedisDir 'redis-server.exe') -ArgumentList '--port 6379' -WorkingDirectory $RedisDir -WindowStyle Hidden
-    Write-Host '[+] Redis 便携实例已启动' -ForegroundColor Green
-}
+# 1. PostgreSQL + Redis（Docker Compose，幂等）
+Write-Host '[ ] 检查 PostgreSQL 与 Redis (Docker Compose)...' -ForegroundColor DarkGray
+docker compose up -d db redis 2>&1 | Out-Null
+Start-Sleep -Seconds 3
+$pgOk = Test-NetConnection -ComputerName 127.0.0.1 -Port 5432 -InformationLevel Quiet -WarningAction SilentlyContinue
+$redisOk = Test-NetConnection -ComputerName 127.0.0.1 -Port 6379 -InformationLevel Quiet -WarningAction SilentlyContinue
+if ($pgOk) { Write-Host '[+] PostgreSQL 5432 已就绪' -ForegroundColor Green } else { throw 'PostgreSQL 5432 未就绪' }
+if ($redisOk) { Write-Host '[+] Redis 6379 已就绪' -ForegroundColor Green } else { throw 'Redis 6379 未就绪' }
 
 # 3. API + Workers（幂等：同名进程存在则跳过；日志进 logs/）
 $processes = @(
@@ -83,4 +76,4 @@ if ($ingestionExisting) {
 }
 
 Write-Host ''
-Write-Host '启动完成。验证：pwsh -File scripts/status-dev.ps1；停止：pwsh -File scripts/stop-dev.ps1' -ForegroundColor Cyan
+Write-Host '启动完成。验证：powershell -File scripts/status-dev.ps1；停止：powershell -File scripts/stop-dev.ps1' -ForegroundColor Cyan

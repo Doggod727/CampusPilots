@@ -134,7 +134,7 @@ async def create_run(payload:AgentRunCreateRequest,request:Request,actor:Annotat
 
 
 @router.get("",operation_id="listAgentRuns",response_model=RunListResponse)
-async def list_runs(request:Request,actor:Annotated[AuthenticatedUser,Depends(require_any_permission("agent:run:read_own","agent:run:read_all"))],service:Annotated[AgentRunService,Depends(get_run_service)],page:Annotated[int,Query(ge=1)]=1,page_size:Annotated[int,Query(ge=1,le=100)]=20,status:Literal["created","routing","running","awaiting_approval","succeeded","partial","failed","cancelled"]|None=None,conversation_id:UUID|None=None) -> RunListResponse:
+async def list_runs(request:Request,actor:Annotated[AuthenticatedUser,Depends(require_any_permission("agent:run:read_own","agent:run:read_all"))],service:Annotated[AgentRunService,Depends(get_run_service)],page:Annotated[int,Query(ge=1)]=1,page_size:Annotated[int,Query(ge=1,le=100)]=20,status:Literal["created","routing","running","awaiting_input","awaiting_approval","succeeded","partial","failed","cancelled"]|None=None,conversation_id:UUID|None=None) -> RunListResponse:
     data=await service.list(actor=actor,page=page,page_size=page_size,status=status,conversation_id=conversation_id)
     return SuccessResponse(data=data,request_id=request.state.request_id,timestamp=datetime.now(UTC))
 

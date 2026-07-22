@@ -38,7 +38,7 @@
 - **`campus_service`**（M2 校园服务中心）：部门、服务指南与材料清单、工单状态机（含乐观锁版本号）、电费查询/充值、办事进度。
 - **`community`**（M3 校园社区与互助）：话题/帖子/评论/反应/举报、匿名身份（发布与反查）、活动与报名、失物招领与认领交接、联系方式加密（`encryption.py`，基于 `COMMUNITY_DATA_ENCRYPTION_KEY`）。
 - **`ai_knowledge`**（M1 AI 与知识库）：知识库/文档生命周期、异步入库（`ingestion.py`：解析、确定性切分、向量索引）、授权 RAG 检索（`retrieval.py` + `rag.py`，bge-small-zh-v1.5 本地嵌入）、会话与消息、同步 Chat + SSE 流式、引用与反馈。
-- **`agent_platform`**（M5 智能体与模型工程）：Agent/Tool 目录（`catalog_*`）、Run 编排（`orchestration/`：Router/Supervisor/Runtime）、Tool 网关（`tool_gateway/`：目录、执行器与 14 个真实业务适配器——覆盖 M1 知识、M2 校园服务/电费、M3 社区、M4 治理）、审批（`approvals.py` + `approval_decision.py` + `approval_expiry.py`）、Checkpoint（`checkpointing.py`，CAS 乐观锁 + HMAC 签名）、Run 事件 SSE（`event_stream.py`，支持 `Last-Event-ID` 重放）、内部 Tool 端点（`internal_tools.py` + `internal_auth.py`）、数据集（`datasets.py`）、真实训练 Worker（`training_worker.py`，LoRA/QLoRA CPU/CUDA）、模型注册（`model_registry.py`）、五类真实评估 Provider（`evaluation_providers.py`，RAG/Agent/Tool/Model/System）与评估 Worker（`evaluation_worker.py`）。
+- **`agent_platform`**（M5 智能体与模型工程）：Agent/Tool 目录（`catalog_*`）、Run 编排（`orchestration/`：Router/Supervisor/Runtime）、Tool 网关（`tool_gateway/`：目录、执行器与 17 个真实业务适配器——覆盖 M1 知识、M2 校园服务/电费、M3 社区、M4 治理）、审批（`approvals.py` + `approval_decision.py` + `approval_expiry.py`）、Checkpoint（`checkpointing.py`，CAS 乐观锁 + HMAC 签名）、Run 事件 SSE（`event_stream.py`，支持 `Last-Event-ID` 重放）、内部 Tool 端点（`internal_tools.py` + `internal_auth.py`）、数据集（`datasets.py`）、真实训练 Worker（`training_worker.py`，LoRA/QLoRA CPU/CUDA）、模型注册（`model_registry.py`）、五类真实评估 Provider（`evaluation_providers.py`，RAG/Agent/Tool/Model/System）与评估 Worker（`evaluation_worker.py`）。
 
 ## 运行时架构要点
 
@@ -46,7 +46,7 @@
 - DeepSeek API 是唯一外部 LLM，仅接受 `deepseek-v4-pro` 且显式关闭 Thinking；结构化路由、ToolCall 与最终回答均做严格 Schema 校验。
 - Agent Run 的启动/恢复/取消使用 PostgreSQL 事务 Outbox；事件经 `GET /api/v1/agent-runs/{run_id}/stream` SSE 下行，支持 `Last-Event-ID` 重放。
 - 惰性启动纪律：导入应用与调用 `/health/live` 不读取配置、不连接数据库/Redis/外部服务；配置只在显式调用 `get_settings()` 或启动 Worker 进程时读取。
-- 持久化运行时装配（`agent_platform/composition.py`）已为全部业务模块接入 14 个真实 Tool Handler（Mock 仅兜底目录外未覆盖工具）。
+- 持久化运行时装配（`agent_platform/composition.py`）已为全部业务模块接入 17 个真实 Tool Handler（Mock 仅兜底目录外未覆盖工具）。
 - ModelOps 真实执行：`MODELOPS_EXECUTION_MODE=local` 时 `training_worker` 执行真实 LoRA（CPU/CUDA，产物与 SHA-256 落 `MODEL_ARTIFACT_ROOT`）、`evaluation_worker` 执行五类真实 Provider（指标来自真实执行）；`disabled`（默认）时评估任务稳定 `EVALUATION_PROVIDER_UNAVAILABLE` 失败，不产生伪造指标；Fake Evaluator 仅存于 `tests/fake_evaluators.py`。
 
 ## 常用命令

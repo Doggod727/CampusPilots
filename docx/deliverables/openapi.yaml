@@ -5651,7 +5651,7 @@ components:
 
     AgentRunStatus:
       type: string
-      enum: [created, routing, running, awaiting_approval, succeeded, partial, failed, cancelled]
+      enum: [created, routing, running, awaiting_input, awaiting_approval, succeeded, partial, failed, cancelled]
     AgentRunCreateRequest:
       type: object
       required: [input]
@@ -5797,7 +5797,7 @@ components:
         sequence: {type: integer, minimum: 1}
         event:
           type: string
-          enum: [meta, route, agent_step, tool_call, approval_required, handoff, delta, sources, done, error]
+          enum: [meta, route, agent_step, tool_call, approval_required, input_required, handoff, delta, sources, done, error]
         occurred_at: {type: string, format: date-time}
         data: {type: object, additionalProperties: true}
 

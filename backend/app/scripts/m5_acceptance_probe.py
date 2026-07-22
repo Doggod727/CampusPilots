@@ -2,9 +2,9 @@
 
 三项自动核对，全部只读真实 PostgreSQL 与应用装配，不产生业务数据：
 1. M5 31 个 OpenAPI operationId 与 FastAPI 路由逐一对应（方法+路径一致、全局唯一）。
-2. 14 个 Tool 冻结契约与数据库目录一致（PersistentCatalogLoader 零漂移加载），
+2. 17 个 Tool 冻结契约与数据库目录一致（PersistentCatalogLoader 零漂移加载），
    并计算每个 Tool 的确定性契约指纹（canonical JSON 的 SHA-256）。
-3. RuntimeCompositionFactory 在真实数据库上装配：14 个 Tool 全部使用真实 Handler
+3. RuntimeCompositionFactory 在真实数据库上装配：17 个 Tool 全部使用真实 Handler
    （无 Mock 残留），事件/检查点均为持久化实现。
 
 输出为公开摘要 JSON，不包含连接串、密钥或业务数据。
@@ -141,7 +141,7 @@ async def verify_catalog_and_composition() -> dict[str, Any]:
             # 冻结契约零漂移：加载器对任一不一致都会抛 CatalogContractMismatch
             await PersistentCatalogLoader(CatalogRepository(session)).load()
             fingerprints = {name: tool_fingerprint(name) for name in sorted(TOOL_CONTRACTS)}
-            if len(fingerprints) != 14:
+            if len(fingerprints) != 17:
                 raise ProbeFailure("M5_ACCEPTANCE_TOOL_COUNT")
             factory = RuntimeCompositionFactory(settings)
             catalogs = await factory.load_catalogs(session)
