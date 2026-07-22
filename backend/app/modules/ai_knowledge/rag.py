@@ -60,7 +60,9 @@ class RagChatService:
             messages.append({"role": "user", "content": json.dumps({"question": question, "sources": context}, ensure_ascii=False)})
             answer_prefix = ""
         else:
-            messages = list(self.general_learning_messages(question))
+            messages = [{"role": "system", "content": "你是课程学习辅导助手。回答通用学科知识，明确不代表校内制度或事实，不生成引用，不输出思维链。"}]
+            messages.extend({"role": item.role, "content": item.content[:2000]} for item in reversed(history))
+            messages.append({"role": "user", "content": question})
             answer_prefix = self.GENERAL_LEARNING_LABEL + "\n\n"
         call = LlmCall(message_id=assistant.id, attempt=1, provider="deepseek", model="deepseek-v4-pro", thinking_enabled=False, status="started")
         if self.session is not None:

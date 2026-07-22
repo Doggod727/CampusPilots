@@ -10,10 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.agent_platform.deepseek import DeepSeekGateway
+from sqlalchemy import select
+
 from app.modules.ai_knowledge.conversation_routes import conversation_data, message_data
 from app.modules.ai_knowledge.citations import append_citations
 from app.modules.ai_knowledge.conversations import ConversationRepository, ConversationService
 from app.modules.ai_knowledge.knowledge import KnowledgeRepository, KnowledgeService
+from app.modules.ai_knowledge.models import Message
 from app.modules.ai_knowledge.rag import RagChatService
 from app.modules.ai_knowledge.retrieval import RetrievalService
 from app.modules.ai_knowledge.vectors import BgeSmallZhEmbeddingProvider, ChromaVectorStore
@@ -98,12 +101,22 @@ async def stream_chat(body: ChatRequest, request: Request, user: Annotated[Authe
             yield sse("sources", {"citations": []})
             yield sse("done", {"finish_reason": "fallback", "usage": {"prompt_tokens": 0, "completion_tokens": 0}})
             return
+        history = (await session.execute(
+            select(Message).where(
+                Message.conversation_id == conversation.id,
+                Message.status.in_(("completed", "fallback")),
+            ).order_by(Message.sequence_no.desc()).limit(service.history_rounds * 2)
+        )).scalars().all()
         if result.citations:
             source_text = [{"source": i + 1, "content": item.content[:1200], "title": item.document_title} for i, item in enumerate(result.citations)]
-            messages = ({"role": "system", "content": "仅依据sources回答，不输出思维链。"}, {"role": "user", "content": json.dumps({"question": body.question, "sources": source_text}, ensure_ascii=False)})
+            messages = [{"role": "system", "content": "仅依据sources回答，不输出思维链。"}]
+            messages.extend({"role": item.role, "content": item.content[:2000]} for item in reversed(history))
+            messages.append({"role": "user", "content": json.dumps({"question": body.question, "sources": source_text}, ensure_ascii=False)})
             answer_prefix = ""
         else:
-            messages = service.general_learning_messages(body.question)
+            messages = [{"role": "system", "content": "你是课程学习辅导助手。回答通用学科知识，明确不代表校内制度或事实，不生成引用，不输出思维链。"}]
+            messages.extend({"role": item.role, "content": item.content[:2000]} for item in reversed(history))
+            messages.append({"role": "user", "content": body.question})
             answer_prefix = service.GENERAL_LEARNING_LABEL + "\n\n"
         assistant.status = "streaming"; parts = []; sequence = 0
         try:
