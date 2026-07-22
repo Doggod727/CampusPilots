@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Callable
@@ -146,10 +147,11 @@ class EventService:
         request_body: object, title: str, description_markdown: str, category: str,
         location: str, starts_at: datetime, ends_at: datetime,
         registration_deadline: datetime, capacity: int,
+        manage_transaction: bool = True,
     ) -> EventMutationResult:
         now = self._time()
         self._validate_times(starts_at, ends_at, registration_deadline, now=now)
-        async with self._session.begin():
+        async with _transaction(self._session, manage_transaction):
             decision = await self._idempotency.begin(
                 user_id=actor.user_id, endpoint="POST /api/v1/events",
                 idempotency_key=idempotency_key, request_body=request_body,
@@ -318,3 +320,12 @@ def event_payload(item: EventData) -> dict[str, object]:
 def event_response_body(item: EventData, *, request_id: str, timestamp: datetime) -> dict[str, object]:
     return {"code": "OK", "message": "success", "data": event_payload(item),
             "request_id": request_id, "timestamp": timestamp.isoformat()}
+
+
+@asynccontextmanager
+async def _transaction(session: AsyncSession, manage: bool):
+    if manage:
+        async with session.begin():
+            yield
+    else:
+        yield

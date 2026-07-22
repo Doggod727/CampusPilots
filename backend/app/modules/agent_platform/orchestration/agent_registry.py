@@ -156,8 +156,8 @@ AGENT_REGISTRATIONS: tuple[AgentRegistration, ...] = (
         ("service.get_guide", "work_order.create", "work_order.get", "electricity.get_balance", "electricity.create_topup_request", "governance.authorize_tool", "governance.write_audit"),
     ),
     _registration(
-        "community_agent", "社区互助 Agent", "活动、报名、失物发布与匹配",
-        ("event.search", "event.register", "lost_found.publish", "lost_found.search_matches", "governance.authorize_tool", "governance.write_audit"),
+        "community_agent", "社区互助 Agent", "社区帖子、话题摘要、活动、报名、失物发布与匹配",
+        ("event.search", "event.register", "event.create", "community.post.publish", "community.topic.summarize", "lost_found.publish", "lost_found.search_matches", "governance.authorize_tool", "governance.write_audit"),
     ),
     _registration(
         "governance_agent", "治理 Agent", "内容审核、权限判定、确认与审计",

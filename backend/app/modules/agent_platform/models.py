@@ -113,7 +113,7 @@ class EvaluationMetric(Base):
 
 class AgentRun(Base):
     __tablename__ = "agent_runs"
-    __table_args__ = (UniqueConstraint("user_id", "client_request_id"), CheckConstraint("status IN ('created', 'routing', 'running', 'awaiting_approval', 'succeeded', 'partial', 'failed', 'cancelled')", name="ck_agent_run_status"), CheckConstraint("route_decision IS NULL OR jsonb_typeof(route_decision) = 'object'", name="ck_agent_run_route"), CheckConstraint("step_count BETWEEN 0 AND 6", name="ck_agent_run_steps"), CheckConstraint("specialist_count BETWEEN 0 AND 3", name="ck_agent_run_specialists"), Index("ix_agent_runs_user_created", "user_id", text("created_at DESC")), Index("ix_agent_runs_status_created", "status", text("created_at DESC")), {"schema": SCHEMA})
+    __table_args__ = (UniqueConstraint("user_id", "client_request_id"), CheckConstraint("status IN ('created', 'routing', 'running', 'awaiting_input', 'awaiting_approval', 'succeeded', 'partial', 'failed', 'cancelled')", name="ck_agent_run_status"), CheckConstraint("route_decision IS NULL OR jsonb_typeof(route_decision) = 'object'", name="ck_agent_run_route"), CheckConstraint("step_count BETWEEN 0 AND 6", name="ck_agent_run_steps"), CheckConstraint("specialist_count BETWEEN 0 AND 3", name="ck_agent_run_specialists"), Index("ix_agent_runs_user_created", "user_id", text("created_at DESC")), Index("ix_agent_runs_status_created", "status", text("created_at DESC")), {"schema": SCHEMA})
     id: Mapped[UUID] = _uuid_pk(); user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True)); conversation_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True)); client_request_id: Mapped[str] = mapped_column(String(64)); input_summary: Mapped[str] = mapped_column(String(1000)); status: Mapped[str] = mapped_column(String(24), server_default=text("'created'")); route_decision: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True)); model_name: Mapped[str | None] = mapped_column(String(100)); model_version_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey(f"{SCHEMA}.model_versions.id", ondelete="SET NULL")); step_count: Mapped[int] = mapped_column(SmallInteger, server_default=text("0")); specialist_count: Mapped[int] = mapped_column(SmallInteger, server_default=text("0")); finish_reason: Mapped[str | None] = mapped_column(String(50)); error_code: Mapped[str | None] = mapped_column(String(100)); started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True)); finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True)); created_at: Mapped[datetime] = _timestamp(); updated_at: Mapped[datetime] = _timestamp()
 
 
@@ -144,7 +144,7 @@ class AgentHandoff(Base):
 class AgentRuntimeCommand(Base):
     __tablename__ = "agent_runtime_commands"
     __table_args__ = (
-        CheckConstraint("action IN ('start', 'resume', 'cancel')", name="ck_runtime_command_action"),
+        CheckConstraint("action IN ('start', 'resume', 'input', 'cancel')", name="ck_runtime_command_action"),
         CheckConstraint("(action = 'resume' AND approval_id IS NOT NULL) OR (action <> 'resume' AND approval_id IS NULL)", name="ck_runtime_command_approval"),
         CheckConstraint("jsonb_typeof(payload) = 'object'", name="ck_runtime_command_payload"),
         CheckConstraint("status IN ('pending', 'processing', 'succeeded', 'failed')", name="ck_runtime_command_status"),
@@ -182,7 +182,7 @@ class AgentRunEvent(Base):
     __table_args__ = (
         UniqueConstraint("run_id", "sequence", name="uq_agent_run_event_sequence"),
         CheckConstraint("sequence > 0", name="ck_agent_run_event_sequence"),
-        CheckConstraint("event IN ('meta', 'route', 'agent_step', 'tool_call', 'approval_required', 'handoff', 'delta', 'sources', 'done', 'error')", name="ck_agent_run_event_type"),
+        CheckConstraint("event IN ('meta', 'route', 'agent_step', 'tool_call', 'approval_required', 'input_required', 'handoff', 'delta', 'sources', 'done', 'error')", name="ck_agent_run_event_type"),
         CheckConstraint("jsonb_typeof(data) = 'object'", name="ck_agent_run_event_data"),
         Index("ix_agent_run_events_replay", "run_id", "sequence"), {"schema": SCHEMA},
     )

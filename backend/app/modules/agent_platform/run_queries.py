@@ -22,7 +22,7 @@ from app.modules.platform.audit import redact
 from app.modules.platform.user_schemas import PageMetaData
 
 RunStatus = Literal[
-    "created", "routing", "running", "awaiting_approval",
+    "created", "routing", "running", "awaiting_input", "awaiting_approval",
     "succeeded", "partial", "failed", "cancelled",
 ]
 RouteName = Literal[

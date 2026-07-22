@@ -27,7 +27,7 @@ _KEYWORDS = {
         "service", "repair",
     ),
     "community": (
-        "活动", "报名", "失物", "拾物", "丢失", "招领", "event", "lost",
+        "社区", "话题", "帖子", "树洞", "活动", "报名", "失物", "拾物", "丢失", "招领", "event", "lost",
     ),
     "governance": (
         "审核", "敏感词", "权限", "审计", "安全策略", "governance",
@@ -63,21 +63,28 @@ class RouterService:
         if not normalized or len(normalized) > 4000:
             raise InvalidAgentInput()
 
-        rule = self.route_by_rule(normalized)
-        if rule.target_agent != "clarify" and rule.confidence >= self._threshold:
-            return rule
+        # Natural-language routing is model-first. Keyword rules cannot understand
+        # negation, context or the primary intent of a multi-domain sentence, so they
+        # are retained only as a deterministic provider-outage fallback.
+        remote = await self._route_with_port(
+            self._deepseek_router, normalized, "deepseek", self._deepseek_timeout
+        )
+        if remote is not None:
+            return remote.model_copy(update={"candidate_agents": ()}) if remote.confidence >= self._threshold else self._clarify()
 
         local = await self._route_with_port(
             self._local_router, normalized, "local_model", self._local_timeout
         )
-        if local is not None and local.confidence >= self._threshold:
-            return local
+        if local is not None:
+            return local if local.confidence >= self._threshold else self._clarify()
 
-        remote = await self._route_with_port(
-            self._deepseek_router, normalized, "deepseek", self._deepseek_timeout
-        )
-        if remote is not None and remote.confidence >= self._threshold:
-            return remote
+        rule = self.route_by_rule(normalized)
+        if rule.target_agent != "clarify" and rule.confidence >= self._threshold:
+            return rule
+        return self._clarify()
+
+    @staticmethod
+    def _clarify() -> RouteDecision:
         return RouteDecision(
             target_agent="clarify",
             confidence=Decimal("0"),

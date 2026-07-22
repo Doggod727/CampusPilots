@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
+
 from app.core.config import Settings
 from app.infrastructure.database import Database
 from app.modules.agent_platform.domain.contracts import UserContext
@@ -18,6 +20,7 @@ from app.modules.agent_platform.runtime_persistence import RuntimeCheckpointRepo
 from app.modules.agent_platform.runtime_worker import OutboxRuntimeDispatcher
 from app.modules.agent_platform.runtime_worker import RedisRuntimeWakeup
 from app.modules.ai_knowledge.conversations import ConversationNotFound, ConversationRepository
+from app.modules.agent_platform.models import AgentRun, AgentStep
 from redis.asyncio import Redis
 from app.modules.platform.audit import redact
 from app.modules.platform.auth import AuthenticatedUser
@@ -85,12 +88,66 @@ class AgentRunService:
                 conversation.updated_at = now
                 if conversation.title == "新对话":
                     conversation.title = input_text[:100]
-            run=self._trace.create_run(user_id=actor.user_id,client_request_id=request_id,input_summary=input_text[:1000],conversation_id=conversation_id)
-            await self._dispatcher.start(run.id,_user_context(actor,request_id),input_text,runtime_context)
-            data=run_dto(run,())
-            response=SuccessResponse(data=data,request_id=request_id,timestamp=self._utc()).model_dump(mode="json")
-            if not await self._idempotency.complete(record_id=decision.record_id,response_status=202,response_body=response,resource_type="agent_run",resource_id=str(run.id)):
-                raise AgentRunStateConflict()
+            pending = None
+            if conversation_id is not None:
+                pending = (await self._session.execute(
+                    select(AgentRun).where(
+                        AgentRun.conversation_id == conversation_id,
+                        AgentRun.user_id == actor.user_id,
+                        AgentRun.status == "awaiting_input",
+                    ).order_by(AgentRun.updated_at.desc(), AgentRun.id.desc())
+                    .limit(1).with_for_update()
+                )).scalar_one_or_none()
+            if pending is not None:
+                await self._dispatcher.continue_input(pending.id, input_text)
+                data=run_dto(pending,())
+                response=SuccessResponse(data=data,request_id=request_id,timestamp=self._utc()).model_dump(mode="json")
+                if not await self._idempotency.complete(record_id=decision.record_id,response_status=202,response_body=response,resource_type="agent_run",resource_id=str(pending.id)):
+                    raise AgentRunStateConflict()
+                run = pending
+            else:
+                runtime_objective = input_text
+                if conversation_id is not None:
+                    recent_runs = tuple((await self._session.execute(
+                        select(AgentRun).where(
+                            AgentRun.conversation_id == conversation_id,
+                            AgentRun.user_id == actor.user_id,
+                            # Failed execution does not erase what the user said.
+                            # Keep its input as conversational context while only
+                            # accepting succeeded/partial step answers below.
+                            AgentRun.status.in_(("succeeded", "partial", "failed")),
+                        ).order_by(AgentRun.updated_at.desc(), AgentRun.id.desc()).limit(4)
+                    )).scalars().all())
+                    if recent_runs:
+                        run_ids = [item.id for item in recent_runs]
+                        steps = tuple((await self._session.execute(
+                            select(AgentStep).where(
+                                AgentStep.run_id.in_(run_ids),
+                                AgentStep.status.in_(("succeeded", "partial")),
+                            ).order_by(AgentStep.created_at.desc())
+                        )).scalars().all())
+                        answers: dict[UUID, str] = {}
+                        for step in steps:
+                            value = (step.output_summary or {}).get("answer") or (step.output_summary or {}).get("final_answer")
+                            if step.run_id not in answers and isinstance(value, str):
+                                answers[step.run_id] = value[:1000]
+                        history: list[str] = []
+                        for item in reversed(recent_runs):
+                            history.append(f"用户：{item.input_summary}")
+                            if item.id in answers:
+                                history.append(f"助手：{answers[item.id]}")
+                        runtime_objective = (
+                            "以下是同一会话的最近上下文，仅用于理解指代和延续意图；"
+                            "请以当前用户消息为准。\n"
+                            + "\n".join(history)
+                            + f"\n当前用户消息：{input_text}"
+                        )
+                run=self._trace.create_run(user_id=actor.user_id,client_request_id=request_id,input_summary=input_text[:1000],conversation_id=conversation_id)
+                await self._dispatcher.start(run.id,_user_context(actor,request_id),runtime_objective,runtime_context)
+                data=run_dto(run,())
+                response=SuccessResponse(data=data,request_id=request_id,timestamp=self._utc()).model_dump(mode="json")
+                if not await self._idempotency.complete(record_id=decision.record_id,response_status=202,response_body=response,resource_type="agent_run",resource_id=str(run.id)):
+                    raise AgentRunStateConflict()
         if isinstance(self._dispatcher, OutboxRuntimeDispatcher):
             await self._dispatcher.notify_best_effort()
         return RunMutationResult(202,request_id,response)

@@ -15,6 +15,13 @@ installNoPersistenceGuard()
 configureHttpClient()
 installSessionExpiryGuard()
 
+// A tab left open across a deployment may still reference old hashed chunks.
+// Vite emits this event when a lazy route chunk can no longer be fetched.
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+  window.location.reload()
+})
+
 void mountWithReadinessGate(() => {
   const app = createApp(App)
   app.use(createPinia())

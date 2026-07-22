@@ -71,7 +71,7 @@ def _samples(context: UserContext, room_id: UUID) -> dict[str, dict[str, object]
     }
 
 
-def test_all_fourteen_mock_handlers_return_frozen_output_models() -> None:
+def test_all_baseline_mock_handlers_return_frozen_output_models() -> None:
     room_id = UUID("20000000-0000-4000-8000-000000000001")
     context = _context(room_id)
     handlers = build_mock_handlers()
@@ -79,14 +79,15 @@ def test_all_fourteen_mock_handlers_return_frozen_output_models() -> None:
 
     async def run_all():
         results = {}
-        for name, contract in TOOL_CONTRACTS.items():
+        for name in handlers:
+            contract = TOOL_CONTRACTS[name]
             payload = contract.input_model.model_validate(samples[name])
             output = await handlers[name](_invocation(context), payload)
             results[name] = contract.output_model.model_validate(output)
         return results
 
     outputs = asyncio.run(run_all())
-    assert set(outputs) == set(TOOL_CONTRACTS)
+    assert set(outputs) == set(handlers)
     assert outputs["electricity.get_balance"].currency == "CNY"
     assert outputs["electricity.get_balance"].source == "mock"
     assert outputs["electricity.get_balance"].is_simulated is True

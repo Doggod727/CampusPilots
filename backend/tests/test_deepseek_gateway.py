@@ -117,6 +117,88 @@ def test_specialist_prompt_requires_an_explicitly_selected_tool():
     ))
     system_prompt = client.requests[0][1]["json"]["messages"][0]["content"]
     assert "tool_call 不得为 null" in system_prompt and "service.get_guide" in system_prompt
+    assert "每次响应最多只能发起一个 tool_call" in system_prompt
+    assert "不得编造多个对象ID" in system_prompt
+
+
+def test_specialist_rejects_unsupported_event_publish_without_asking_for_input():
+    run_id, task_id = uuid4(), uuid4()
+    client = FakeClient()
+    provider = DeepSeekSpecialistProvider(
+        DeepSeekGateway(api_key="secret", client=client),
+        tools=(
+            {"name": "event.search", "version": "1.0.0"},
+            {"name": "event.register", "version": "1.0.0"},
+        ),
+    )
+
+    outcome = asyncio.run(provider.invoke(
+        AgentTask(
+            task_id=task_id,
+            agent_run_id=run_id,
+            target_agent="community_agent",
+            objective="帮我发布校园活动",
+        ),
+        UserContext(user_id=uuid4(), username="student01", request_id="request-1234"),
+    ))
+
+    assert outcome.result.status == "partial"
+    assert "暂不支持发布或创建校园活动" in outcome.result.structured_output["answer"]
+    assert outcome.result.structured_output["unsupported_operation"] == "event.publish"
+    assert outcome.tool_request is None
+    assert client.requests == []
+
+
+def test_specialist_uses_event_create_when_catalog_supports_it():
+    run_id, task_id = uuid4(), uuid4()
+    client = FakeClient(_completion({
+        "status": "needs_input", "summary": "请补充活动信息",
+        "structured_output": {"answer": "请提供活动标题、时间、地点和名额。", "missing_slots": ["title"]},
+        "tool_call": None,
+    }))
+    provider = DeepSeekSpecialistProvider(
+        DeepSeekGateway(api_key="secret", client=client),
+        tools=({"name": "event.create", "version": "1.0.0", "input_schema": {}},),
+    )
+    outcome = asyncio.run(provider.invoke(
+        AgentTask(task_id=task_id, agent_run_id=run_id,
+                  target_agent="community_agent", objective="帮我创建校园活动"),
+        UserContext(user_id=uuid4(), username="student01", request_id="request-1234"),
+    ))
+    assert outcome.result.status == "needs_input"
+    assert len(client.requests) == 1
+
+
+def test_specialist_never_invents_a_missing_electricity_topup_amount():
+    run_id, task_id, room_id = uuid4(), uuid4(), uuid4()
+    client = FakeClient()
+    provider = DeepSeekSpecialistProvider(
+        DeepSeekGateway(api_key="secret", client=client),
+        tools=({"name": "electricity.create_topup_request", "version": "1.0.0"},),
+    )
+
+    outcome = asyncio.run(provider.invoke(
+        AgentTask(
+            task_id=task_id,
+            agent_run_id=run_id,
+            target_agent="service_agent",
+            objective="帮我充电费",
+        ),
+        UserContext(
+            user_id=uuid4(),
+            username="student01",
+            request_id="request-1234",
+            room_ids=(room_id,),
+        ),
+    ))
+
+    assert outcome.result.status == "needs_input"
+    assert outcome.result.structured_output == {
+        "answer": "请提供充值金额。",
+        "missing_slots": ["amount_cny"],
+    }
+    assert outcome.tool_request is None
+    assert client.requests == []
 
 
 def test_reasoning_or_invalid_shape_is_safely_rejected():

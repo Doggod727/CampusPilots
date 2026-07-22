@@ -24,7 +24,7 @@ class InvalidRuntimeCheckpoint(AppError):
 
 
 class RuntimeStartPayloadCodec:
-    """Encrypt the full start input carried by the transactional outbox."""
+    """Encrypt user-provided runtime command payloads stored in the outbox."""
 
     def __init__(self, secret: str) -> None:
         if not secret:

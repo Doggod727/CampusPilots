@@ -47,6 +47,16 @@ def test_graph_processor_restores_full_input_mode_and_context_from_outbox() -> N
     runtime.start.assert_awaited_once_with(RUN,user,objective,context)
 
 
+def test_graph_processor_dispatches_encrypted_user_input_continuation() -> None:
+    from app.modules.agent_platform.checkpointing import RuntimeStartPayloadCodec
+    codec = RuntimeStartPayloadCodec("test-secret")
+    runtime = MagicMock(); runtime.continue_input = AsyncMock()
+    processor = GraphRuntimeCommandProcessor(runtime, MagicMock(), start_codec=codec)
+    command = AgentRuntimeCommand(run_id=RUN, action="input", payload=codec.encode("room-1", {}), status="processing")
+    asyncio.run(processor.process(command))
+    runtime.continue_input.assert_awaited_once_with(RUN, "room-1")
+
+
 class Tx:
     async def __aenter__(self): return self
     async def __aexit__(self, *args): return False

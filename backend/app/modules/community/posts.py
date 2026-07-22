@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Callable
@@ -181,8 +182,9 @@ class PostService:
         idempotency_key: str,
         request_id: str,
         request_body: object,
+        manage_transaction: bool = True,
     ) -> PostMutationResult:
-        async with self._session.begin():
+        async with _transaction(self._session, manage_transaction):
             decision = await self._idempotency.begin(
                 user_id=actor.user_id,
                 endpoint="POST /api/v1/posts",
@@ -381,3 +383,12 @@ def post_response_body(
         "code": "OK", "message": "success", "data": post_payload(item),
         "request_id": request_id, "timestamp": timestamp.isoformat(),
     }
+
+
+@asynccontextmanager
+async def _transaction(session: AsyncSession, manage: bool):
+    if manage:
+        async with session.begin():
+            yield
+    else:
+        yield

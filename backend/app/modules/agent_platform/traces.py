@@ -43,7 +43,7 @@ class TraceRepository:
 
 
 class TraceService:
-    ACTIVE={"created","routing","running","awaiting_approval"}; TERMINAL={"succeeded","partial","failed","cancelled"}
+    ACTIVE={"created","routing","running","awaiting_input","awaiting_approval"}; TERMINAL={"succeeded","partial","failed","cancelled"}
     def __init__(self, repository: TraceRepository, now: Callable[[],datetime]|None=None): self._repo=repository; self._now=now or (lambda:datetime.now(UTC))
     def create_run(self, *, user_id:UUID, client_request_id:str, input_summary:str, conversation_id:UUID|None=None):
         run=AgentRun(id=uuid4(),user_id=user_id,conversation_id=conversation_id,client_request_id=client_request_id,input_summary=input_summary[:1000],status="created",step_count=0,specialist_count=0,created_at=self._utc(),updated_at=self._utc()); self._repo.add(run); return run

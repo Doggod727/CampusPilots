@@ -41,6 +41,14 @@ def test_iterate_replays_redacted_events_and_closes_on_terminal() -> None:
     assert "id: 1" in payload and "event: done" in payload and '"token":"***"' in payload and "raw" not in payload
 
 
+def test_iterate_closes_when_user_input_is_required() -> None:
+    events=MagicMock(); events.replay=AsyncMock(return_value=(event(event_type="input_required"),))
+    service=AgentRunEventStreamService(access=MagicMock(),events=events)
+    async def collect(): return [item async for item in service.iterate(PreparedEventStream(RUN,0,"request-123"))]
+    chunks=asyncio.run(collect())
+    assert len(chunks) == 1 and "event: input_required" in chunks[0]
+
+
 def test_iterate_sends_heartbeat_before_later_terminal_event() -> None:
     events=MagicMock(); events.replay=AsyncMock(side_effect=[(),(event(),)])
     service=AgentRunEventStreamService(access=MagicMock(),events=events,poll_seconds=1,heartbeat_seconds=1,sleep=AsyncMock())

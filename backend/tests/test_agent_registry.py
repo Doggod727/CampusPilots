@@ -14,7 +14,7 @@ EXPECTED_ALLOWLISTS = {
     "supervisor": ("governance.authorize_tool", "governance.check_content", "governance.write_audit"),
     "knowledge_agent": ("governance.check_content", "governance.write_audit", "knowledge.answer", "knowledge.search"),
     "service_agent": ("electricity.create_topup_request", "electricity.get_balance", "governance.authorize_tool", "governance.write_audit", "service.get_guide", "work_order.create", "work_order.get"),
-    "community_agent": ("event.register", "event.search", "governance.authorize_tool", "governance.write_audit", "lost_found.publish", "lost_found.search_matches"),
+    "community_agent": ("community.post.publish", "community.topic.summarize", "event.create", "event.register", "event.search", "governance.authorize_tool", "governance.write_audit", "lost_found.publish", "lost_found.search_matches"),
     "governance_agent": ("governance.authorize_tool", "governance.check_content", "governance.write_audit"),
     "modelops_agent": (),
 }

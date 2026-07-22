@@ -131,7 +131,7 @@ def run_alembic(*arguments: str) -> str:
 def test_migration_has_single_head() -> None:
     output = run_alembic("heads")
 
-    assert "0010_unified_chat_permissions (head)" in output
+    assert "0011_agent_input_continuation (head)" in output
 
 
 def test_offline_upgrade_contains_complete_platform_schema() -> None:

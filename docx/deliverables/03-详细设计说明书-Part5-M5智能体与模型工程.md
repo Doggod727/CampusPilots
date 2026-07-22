@@ -755,7 +755,7 @@ M5 Trace 保存运行调试事实；M4 Audit 保存安全/管理事实。以下�
 
 ## 15.3 契约测试
 
-- 14 个 Tool 输入输出 JSON Schema 由 Pydantic 导出并冻结快照。
+- 17 个 Tool 输入输出 JSON Schema 由 Pydantic 导出并冻结快照。
 - OpenAPI 与 FastAPI 导出无破坏性差异。
 - REST/Tool/MCP 对同一领域命令返回等价业务结果和错误码。
 - SSE 示例可按 sequence 重放；未知 event 前端安全忽略并记录。
@@ -825,7 +825,7 @@ TRAINING_GPU_ENABLED=false
 5. 执行 `012_agent_platform_schema.sql`。
 6. 执行 `013_agent_platform_seed.sql`。
 7. 运行 Python `seed_demo`，把实际演示学生 UUID 绑定到 Mock 电费房间。
-8. 让旧登录会话刷新 Access Token，确保新权限进入 JWT；随后执行 OpenAPI 契约测试和 14 个 Tool 冒烟测试。
+8. 让旧登录会话刷新 Access Token，确保新权限进入 JWT；随后执行 OpenAPI 契约测试和 17 个 Tool 冒烟测试。
 
 若只完成了 M4，步骤 2 会替换两个 CHECK 约束但保留全部旧枚举值和数据，因此不会破坏现有 M4；未执行步骤 2 时，新 Tool scope/agent target 写入会因旧 CHECK 失败。
 
@@ -833,7 +833,7 @@ TRAINING_GPU_ENABLED=false
 
 - `openapi.yaml` V0.5.0 lint 为 0 error/0 warning，100 个路径、136 个唯一 operationId。
 - 009～013 在空库增量安装成功，种子脚本可重复执行；`seed_demo` 完成用户逻辑引用绑定。
-- 6 个 Agent、14 个 Tool 可查询，写 Tool 必须先产生并消费有效 Approval。
+- 6 个 Agent、17 个 Tool 可查询，写 Tool 必须先产生并消费有效 Approval。
 - DeepSeek API Key 只来自环境变量；复杂问答路由到 `deepseek-v4-pro`；本地不运行超过 3B 的模型。
 - 路由、Tool、确认、轨迹、数据集、模型版本和评估的 P0 测试通过；P1 未完成不阻断 P0 演示。
 

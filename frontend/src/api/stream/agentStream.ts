@@ -10,6 +10,7 @@ export const AGENT_RUN_EVENTS = [
   'agent_step',
   'tool_call',
   'approval_required',
+  'input_required',
   'handoff',
   'delta',
   'sources',
@@ -90,7 +91,7 @@ export async function streamAgentRun(
       event: frame.event as AgentRunEventName,
       data: payload,
     }
-    if (frame.event === 'done') {
+    if (frame.event === 'done' || frame.event === 'input_required') {
       handlers.onDone?.(event)
       return
     }
@@ -100,6 +101,9 @@ export async function streamAgentRun(
     }
     handlers.onEvent?.(event)
   }
+  // A run stream is only complete after a terminal/input event.  Treat a
+  // silent EOF as a disconnect so the caller can recover from persisted state.
+  throw new Error('Agent run stream ended before a terminal event')
 }
 
 /** 当前已接收的最大 sequence，用于断线后重连。 */

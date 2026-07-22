@@ -75,7 +75,11 @@ class EventNotFound(AppError):
 
 class EventTimeInvalid(AppError):
     def __init__(self) -> None:
-        super().__init__(status_code=422, code="EVENT_TIME_INVALID", message="活动时间范围无效")
+        super().__init__(
+            status_code=422,
+            code="EVENT_TIME_INVALID",
+            message="开始时间必须晚于当前时间，结束时间必须晚于开始时间，且报名截止不能晚于开始时间",
+        )
 
 
 class EventStateInvalid(AppError):

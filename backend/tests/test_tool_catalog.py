@@ -13,19 +13,22 @@ from app.modules.agent_platform.tool_gateway.catalog import (
 )
 
 EXPECTED_SCHEMA_HASHES = {
+    "community.post.publish": "d64c2c8051bf3ec9f6d3b3ada9bfbd4724f7ad4f7ef66c6ef433620f48f509b3",
+    "community.topic.summarize": "8776c97473d2ba2daf975049eb96ddf545e621046001e3ef80a245ea9f4ee7e7",
     "electricity.create_topup_request": "f005ecdcae0db0b7f78649afb38677845b40c1b42b4d0a966bf4bf7f3abf9c5d",
     "electricity.get_balance": "4ea8a62594670530e1179dc02181b78167de5350e0b8c12cb093521aaeea1aeb",
     "event.register": "e7991304a0533c447f1b0ab7a265733eb0402c78f97fa7932054d97eadb4c20b",
+    "event.create": "a4b01e0711ed7a305e1acf45737c0dc103262b6b566cfa6834d6ad04db049868",
     "event.search": "434ebc5d31bd9dbd8322a0a2361db9733575feb6d34295691b7fae1aab4dd2ca",
     "governance.authorize_tool": "850db309cd0f0d544a9f44e4109fd295f92b559984586fe175135426e01d7feb",
     "governance.check_content": "e821d3a140729c97a46785003d058e8ed8f6fcd277641240d2127feabc25f474",
     "governance.write_audit": "cd80fe88fb0eecc4985452b5ad225487ebc07e712195038060d4eab41a8e7466",
     "knowledge.answer": "e0a152895f4be8310bf2335e5ec03a57176b3af0ee28d0d818d8905ca0594e7d",
     "knowledge.search": "6c0493ffcc3b1dab3e7bcd68018a260e1584afb7ab11e4e79ec08e335ceecab3",
-    "lost_found.publish": "674a8a41eb9a222a3bc8cce1a93086953c045fb3a56e43db64f5b92c2a833da3",
+    "lost_found.publish": "9c669d7605411c9775031fc0cf447119f00ccf40d53bbc3e5ffa98308a2c5230",
     "lost_found.search_matches": "d6c7d15943f52419fd45c85a4737ccd05d3409f481a85a09e6adb913a6f05f88",
     "service.get_guide": "dd09e1741bd7bf51ca88af93795f9dd994530b65d4b6752c31b80470179f036b",
-    "work_order.create": "fd358a2fd74c374fab83c11714bbf20826af5fb450951d3142dd3a6e06e1ed2b",
+    "work_order.create": "c24fae2c045ccbc31dc04a348201709fbe04c5f5fbf1d15d53dcd020d6cbc993",
     "work_order.get": "dfdaa2328b73a6adb15876e3503f6787741833fe20f7ab6314e8efe59443b208",
 }
 
@@ -40,7 +43,7 @@ def _schema_hash(name: str) -> str:
 
 
 def test_all_initial_tool_contracts_are_frozen() -> None:
-    assert len(TOOL_CONTRACTS) == 14
+    assert len(TOOL_CONTRACTS) == 17
     assert {name: _schema_hash(name) for name in sorted(TOOL_CONTRACTS)} == EXPECTED_SCHEMA_HASHES
 
 
@@ -51,6 +54,8 @@ def test_catalog_metadata_matches_detailed_design() -> None:
         "work_order.get": 3000, "electricity.get_balance": 5000,
         "electricity.create_topup_request": 10000, "event.search": 3000,
         "event.register": 10000, "lost_found.publish": 10000,
+        "event.create": 10000, "community.post.publish": 10000,
+        "community.topic.summarize": 5000,
         "lost_found.search_matches": 5000, "governance.check_content": 2000,
         "governance.authorize_tool": 1000, "governance.write_audit": 2000,
     }
@@ -64,7 +69,7 @@ def test_catalog_metadata_matches_detailed_design() -> None:
         if contract.definition.requires_approval
     } == {
         "work_order.create", "electricity.create_topup_request",
-        "event.register", "lost_found.publish",
+        "event.register", "event.create", "community.post.publish", "lost_found.publish",
     }
     audit = TOOL_CONTRACTS["governance.write_audit"].definition
     assert audit.risk_level == "r2"

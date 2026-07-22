@@ -1,6 +1,6 @@
 BEGIN;
 
--- M5 演示基线：6 个 Agent、14 个 Tool、固定模型路由。
+-- M5 演示基线：6 个 Agent、17 个 Tool、固定模型路由。
 -- 所有 UPSERT 均可重复执行；生产密钥不得写入数据库或本脚本。
 
 INSERT INTO agent_platform.agent_definitions (code, name, description, enabled)
@@ -8,7 +8,7 @@ VALUES
     ('supervisor', '编排主管 Agent', '意图识别、任务拆分、路由、并行汇总与失败降级', true),
     ('knowledge_agent', '知识问答 Agent', '知识检索、RAG 重排、引用约束与复杂问答', true),
     ('service_agent', '校园服务 Agent', '办事指南、报修、电费余额与模拟充值申请', true),
-    ('community_agent', '社区互助 Agent', '活动、报名、失物招领发布与匹配', true),
+    ('community_agent', '社区互助 Agent', '社区帖子、话题摘要、活动、报名、失物招领发布与匹配', true),
     ('governance_agent', '治理 Agent', '内容审核、权限判定、人工确认与审计', true),
     ('modelops_agent', '模型工程 Agent', '数据集、微调、评估与模型版本生命周期', true)
 ON CONFLICT (code) DO UPDATE
@@ -29,6 +29,9 @@ VALUES
     ('electricity.create_topup_request', 'm2', '创建模拟电费充值申请，不接真实支付', 'r2', 'agent', true),
     ('event.search', 'm3', '搜索可见校园活动', 'r0', 'agent', true),
     ('event.register', 'm3', '报名校园活动并处理名额并发', 'r2', 'agent', true),
+    ('event.create', 'm3', '创建校园活动并进入审核', 'r2', 'agent', true),
+    ('community.post.publish', 'm3', '在现有社区话题下发布帖子', 'r2', 'agent', true),
+    ('community.topic.summarize', 'm3', '查询并总结当前社区帖子', 'r0', 'agent', true),
     ('lost_found.publish', 'm3', '发布脱敏后的失物或拾物信息', 'r2', 'agent', true),
     ('lost_found.search_matches', 'm3', '检索失物招领候选匹配', 'r1', 'agent', true),
     ('governance.check_content', 'm4', '对 Agent 输入输出执行敏感词与安全策略检查', 'r1', 'runtime_internal', true),
@@ -80,6 +83,18 @@ WITH specs(name, input_schema, output_schema, permissions, timeout_ms, idempoten
      '{"type":"object","required":["event_id"],"properties":{"event_id":{"type":"string","format":"uuid"}}}'::jsonb,
      '{"type":"object","required":["registration_id","status"],"properties":{"registration_id":{"type":"string","format":"uuid"},"status":{"type":"string"}}}'::jsonb,
      '["community:write"]'::jsonb, 10000, true, true, 'app.modules.m3.tools:event_register'),
+    ('event.create',
+     '{"type":"object","required":["title","description","category","location","starts_at","ends_at","registration_deadline","capacity"],"properties":{"title":{"type":"string"},"description":{"type":"string"},"category":{"enum":["lecture","club","sports","arts","volunteer","competition","career","other"]},"location":{"type":"string"},"starts_at":{"type":"string","format":"date-time"},"ends_at":{"type":"string","format":"date-time"},"registration_deadline":{"type":"string","format":"date-time"},"capacity":{"type":"integer"}},"additionalProperties":false}'::jsonb,
+     '{"type":"object","required":["event_id","status"],"properties":{"event_id":{"type":"string","format":"uuid"},"status":{"type":"string"}},"additionalProperties":false}'::jsonb,
+     '["community:write"]'::jsonb, 10000, true, true, 'app.modules.m3.tools:event_create'),
+    ('community.post.publish',
+     '{"type":"object","required":["topic","title","content"],"properties":{"topic":{"enum":["campus-life","mutual-help","tree-hole"]},"title":{"type":"string"},"content":{"type":"string"},"is_anonymous":{"type":"boolean","default":false}},"additionalProperties":false}'::jsonb,
+     '{"type":"object","required":["post_id","status"],"properties":{"post_id":{"type":"string","format":"uuid"},"status":{"type":"string"}},"additionalProperties":false}'::jsonb,
+     '["community:write"]'::jsonb, 10000, true, true, 'app.modules.m3.tools:community_post_publish'),
+    ('community.topic.summarize',
+     '{"type":"object","properties":{"query":{"type":["string","null"]},"limit":{"type":"integer","default":10}},"additionalProperties":false}'::jsonb,
+     '{"type":"object","required":["summary","items","total"],"properties":{"summary":{"type":"string"},"items":{"type":"array"},"total":{"type":"integer"}},"additionalProperties":false}'::jsonb,
+     '["community:read"]'::jsonb, 5000, true, false, 'app.modules.m3.tools:community_topic_summarize'),
     ('lost_found.publish',
      '{"type":"object","required":["item_type","title","category","location","occurred_at","description"],"properties":{"item_type":{"enum":["lost","found"]},"title":{"type":"string","minLength":1,"maxLength":100},"category":{"type":"string","minLength":1,"maxLength":50},"location":{"type":"string","minLength":1,"maxLength":200},"occurred_at":{"type":"string","format":"date-time"},"description":{"type":"string","minLength":1,"maxLength":2000},"contact_preference":{"const":"in_app","default":"in_app"}},"additionalProperties":false}'::jsonb,
      '{"type":"object","required":["item_id","status"],"properties":{"item_id":{"type":"string","format":"uuid"},"status":{"type":"string"}}}'::jsonb,
@@ -123,7 +138,7 @@ WITH specs(code, tools) AS (
     ('supervisor', '["governance.check_content","governance.authorize_tool","governance.write_audit"]'::jsonb),
     ('knowledge_agent', '["knowledge.search","knowledge.answer","governance.check_content","governance.write_audit"]'::jsonb),
     ('service_agent', '["service.get_guide","work_order.create","work_order.get","electricity.get_balance","electricity.create_topup_request","governance.authorize_tool","governance.write_audit"]'::jsonb),
-    ('community_agent', '["event.search","event.register","lost_found.publish","lost_found.search_matches","governance.authorize_tool","governance.write_audit"]'::jsonb),
+    ('community_agent', '["event.search","event.register","event.create","community.post.publish","community.topic.summarize","lost_found.publish","lost_found.search_matches","governance.authorize_tool","governance.write_audit"]'::jsonb),
     ('governance_agent', '["governance.check_content","governance.authorize_tool","governance.write_audit"]'::jsonb),
     ('modelops_agent', '[]'::jsonb)
 )

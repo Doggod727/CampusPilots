@@ -41,6 +41,8 @@ describe('ApprovalCards', () => {
       }),
     )
     const wrapper = mount(ApprovalCards, { props: { runId: RUN_ID, approvals: [APPROVAL] } })
+    expect(wrapper.text()).toContain('是否允许 CampusPilot 为您提交电费充值申请？')
+    expect(wrapper.text()).toContain('查看技术信息')
     await wrapper.get('button').trigger('click')
     await vi.waitFor(() => expect(seen.decision).toBe('approve'))
     expect(seen.hash).toBe('a'.repeat(64))

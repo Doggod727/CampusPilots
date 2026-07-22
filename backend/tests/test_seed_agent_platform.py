@@ -21,8 +21,8 @@ def compile_sql(statement):
 
 def test_seed_uses_one_transaction_and_exact_catalog_counts() -> None:
     session = session_stub(); asyncio.run(seed.seed_agent_platform(session))
-    session.begin.assert_called_once_with(); assert session.execute.await_count == 44
-    assert len(seed.AGENT_REGISTRATIONS) == 6 and len(seed.TOOL_CONTRACTS) == 14 and len(seed.MODEL_SEEDS) == 4
+    session.begin.assert_called_once_with(); assert session.execute.await_count == 50
+    assert len(seed.AGENT_REGISTRATIONS) == 6 and len(seed.TOOL_CONTRACTS) == 17 and len(seed.MODEL_SEEDS) == 4
 
 
 def test_seed_uses_generated_frozen_schemas_and_postgresql_upserts() -> None:

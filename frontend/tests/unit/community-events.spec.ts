@@ -107,12 +107,12 @@ describe('EventsView', () => {
     )
     const wrapper = mount(EventsView)
     await vi.waitFor(() => expect(seen).toHaveLength(1))
-    await wrapper.find('#event-filter-category').setValue('讲座')
+    await wrapper.find('#event-filter-category').setValue('lecture')
     await wrapper.find('#event-filter-from').setValue('2026-09-01')
     await findButton(wrapper, '筛选').trigger('click')
     await vi.waitFor(() => expect(seen).toHaveLength(2))
     const url = new URL(seen[1])
-    expect(url.searchParams.get('category')).toBe('讲座')
+    expect(url.searchParams.get('category')).toBe('lecture')
     expect(url.searchParams.get('starts_from')).toBe(new Date('2026-09-01T00:00:00').toISOString())
   })
 
@@ -135,19 +135,36 @@ describe('EventsView', () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain('迎新晚会'))
     await findButton(wrapper, '发布活动').trigger('click')
     await wrapper.find('#event-form-title').setValue('编程马拉松')
-    await wrapper.find('#event-form-category').setValue('科技')
+    expect(wrapper.find('#event-form-category').element.tagName).toBe('SELECT')
+    expect(wrapper.find('#event-form-category').text()).toContain('竞赛')
+    await wrapper.find('#event-form-category').setValue('competition')
     await wrapper.find('#event-form-location').setValue('实验楼 A 区')
     await wrapper.find('#event-form-capacity').setValue('80')
-    await wrapper.find('#event-form-starts').setValue('2026-10-01T09:00')
-    await wrapper.find('#event-form-ends').setValue('2026-10-01T18:00')
-    await wrapper.find('#event-form-deadline').setValue('2026-09-28T18:00')
+    await wrapper.find('#event-form-starts').setValue('2099-10-01T09:00')
+    await wrapper.find('#event-form-ends').setValue('2099-10-01T18:00')
+    await wrapper.find('#event-form-deadline').setValue('2099-09-28T18:00')
     await wrapper.find('#event-form-description').setValue('24 小时编程挑战')
     await wrapper.find('form').trigger('submit.prevent')
     await vi.waitFor(() => expect(createdBody).not.toBeNull())
-    expect(createdBody).toMatchObject({ title: '编程马拉松', capacity: 80, category: '科技' })
+    expect(createdBody).toMatchObject({ title: '编程马拉松', capacity: 80, category: 'competition' })
     expect(idempotencyKey).toBeTruthy()
     await vi.waitFor(() => expect(wrapper.find('#event-form-title').exists()).toBe(false))
     expect(listCalls).toBe(2)
+  })
+
+  it('explains a past start time on the corresponding field before submitting', async () => {
+    server.use(http.get('/api/v1/events', () => envelope(pageOf([makeEvent()]))))
+    const wrapper = mount(EventsView)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('迎新晚会'))
+    await findButton(wrapper, '发布活动').trigger('click')
+
+    await wrapper.find('#event-form-starts').setValue('2020-07-09T14:35')
+    await wrapper.find('#event-form-ends').setValue('2020-07-16T14:35')
+    await wrapper.find('#event-form-deadline').setValue('2020-07-08T14:35')
+
+    expect(wrapper.findAll('.ui-field__message--error').map((item) => item.text())).toEqual([
+      '开始时间必须晚于当前时间',
+    ])
   })
 
   it('maps EVENT_CAPACITY_FULL on register and reuses the idempotency key on retry', async () => {

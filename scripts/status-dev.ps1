@@ -1,9 +1,8 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     CampusPilot 本地开发环境状态检查：进程 + 就绪探针。
 .EXAMPLE
-    pwsh -File scripts/status-dev.ps1
+    powershell -File scripts/status-dev.ps1
 #>
 [CmdletBinding()]
 param()
@@ -29,8 +28,8 @@ foreach ($c in $checks) {
     }
 }
 
-$pg = & 'E:\CampusPilotServices\PostgreSQL\pgsql\bin\pg_ctl.exe' -D 'E:\CampusPilotServices\PostgreSQL\data' status 2>$null
-Write-Host ("[{0}] postgresql" -f $(if ($LASTEXITCODE -eq 0) { 'UP  ' } else { 'DOWN' }))
+$pgOk = Test-NetConnection -ComputerName 127.0.0.1 -Port 5432 -InformationLevel Quiet -WarningAction SilentlyContinue
+Write-Host ("[{0}] postgresql" -f $(if ($pgOk) { 'UP  ' } else { 'DOWN' }))
 $redis = Test-NetConnection -ComputerName 127.0.0.1 -Port 6379 -InformationLevel Quiet -WarningAction SilentlyContinue
 Write-Host ("[{0}] redis:6379" -f $(if ($redis) { 'UP  ' } else { 'DOWN' }))
 

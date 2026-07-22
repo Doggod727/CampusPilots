@@ -11,7 +11,7 @@ const router = useRouter()
     <p class="forbidden__code">403</p>
     <h1 class="forbidden__title">没有访问权限</h1>
     <p class="forbidden__message">当前账号无权查看该页面。如需访问，请联系管理员调整角色权限。</p>
-    <UiButton variant="primary" @click="router.replace({ name: 'home' })">返回首页</UiButton>
+    <UiButton variant="primary" @click="router.replace({ name: 'chat' })">返回首页</UiButton>
   </div>
 </template>
 

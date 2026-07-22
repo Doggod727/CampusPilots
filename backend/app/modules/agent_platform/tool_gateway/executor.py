@@ -279,7 +279,7 @@ class ToolExecutor:
         try:
             payload = contract.input_model.model_validate(request.arguments)
         except ValidationError as exc:
-            raise ToolArgumentInvalid() from exc
+            raise ToolArgumentInvalid.from_validation_errors(exc.errors()) from exc
         return PreparedToolCall(
             contract=contract,
             payload=payload,
@@ -323,6 +323,18 @@ class ToolExecutor:
                 and not request.idempotency_key
             ):
                 raise ToolArgumentInvalid()
+            safe_input = await self._content_safety.check_input(
+                context, definition, prepared.payload
+            )
+            handler = self._handlers.get(definition.name)
+            if handler is None:
+                raise ToolDependencyUnavailable()
+            preflight = getattr(handler, "preflight", None)
+            if preflight is not None:
+                await preflight(context, safe_input)
+
+            # Parameter and read-only business validation must finish before an
+            # approval is requested or consumed. Approval only guards mutation.
             if definition.requires_approval:
                 if request.approval_id is None:
                     raise ToolApprovalRequired()
@@ -345,13 +357,6 @@ class ToolExecutor:
                 approval_id=request.approval_id,
                 approval_verified=definition.requires_approval,
             )
-
-            safe_input = await self._content_safety.check_input(
-                context, definition, prepared.payload
-            )
-            handler = self._handlers.get(definition.name)
-            if handler is None:
-                raise ToolDependencyUnavailable()
             try:
                 raw_output = await asyncio.wait_for(
                     handler(invocation, safe_input),
