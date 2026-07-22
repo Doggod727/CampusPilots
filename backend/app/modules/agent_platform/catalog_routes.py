@@ -160,11 +160,11 @@ def _tool_data(contract) -> ToolCatalogItemData:
 @router.get("/agents", operation_id="listAgents", response_model=AgentCatalogResponse)
 async def list_agents(
     request: Request,
-    _: Annotated[AuthenticatedUser, Depends(require_permissions("agent:catalog:read"))],
+    user: Annotated[AuthenticatedUser, Depends(require_permissions("agent:catalog:read"))],
     catalogs: Annotated[tuple[AgentRegistry, ToolRegistry], Depends(get_catalogs)],
 ) -> AgentCatalogResponse:
     agents, _tools = catalogs
-    items = [item.model_dump() for item in agents.list_catalog()]
+    items = [item.model_dump() for item in agents.list_visible_catalog(user.permissions)]
     return SuccessResponse(data=AgentCatalogData(items=items), request_id=request.state.request_id, timestamp=datetime.now(UTC))
 
 

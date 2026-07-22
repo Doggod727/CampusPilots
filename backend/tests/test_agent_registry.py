@@ -41,6 +41,17 @@ def test_catalog_is_safe_and_omits_prompt_and_schema() -> None:
     assert internal.version.system_prompt not in repr(internal)
 
 
+def test_catalog_visibility_keeps_runtime_agents_internal() -> None:
+    registry = AgentRegistry(AGENT_REGISTRATIONS)
+    student = registry.list_visible_catalog({"chat:use", "service:read", "community:read"})
+    assert {item.code for item in student} == {
+        "knowledge_agent", "service_agent", "community_agent"
+    }
+    engineer = registry.list_visible_catalog({"model:read"})
+    assert [item.code for item in engineer] == ["modelops_agent"]
+    assert all(item.code not in {"supervisor", "governance_agent"} for item in student + engineer)
+
+
 def test_duplicate_code_version_and_second_active_version_are_rejected() -> None:
     registry = AgentRegistry([AGENT_REGISTRATIONS[0]])
     with pytest.raises(DuplicateAgentRegistration):

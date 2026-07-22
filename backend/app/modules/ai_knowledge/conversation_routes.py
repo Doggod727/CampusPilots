@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.infrastructure.database import Database
 from app.modules.ai_knowledge.conversations import ConversationNotFound, ConversationRepository, ConversationService
 from app.modules.ai_knowledge.models import Conversation, Message, MessageCitation, MessageFeedback
+from app.modules.agent_platform.models import AgentRun
 from app.modules.platform.auth import AuthenticatedUser
 from app.modules.platform.auth_dependencies import require_permissions
 from app.shared.responses import SuccessResponse
@@ -38,8 +39,55 @@ async def dependency():
         await database.dispose()
 
 
-def conversation_data(entity: Conversation) -> dict:
-    return {key: getattr(entity, key) for key in ("id", "title", "status", "last_message_at", "created_at", "updated_at")}
+def conversation_data(entity: Conversation, message_count: int = 0, title: str | None = None) -> dict:
+    return {
+        **{key: getattr(entity, key) for key in ("id", "title", "status", "last_message_at", "created_at", "updated_at")},
+        "title": title or entity.title,
+        "message_count": message_count,
+    }
+
+
+async def conversation_message_counts(session, conversation_ids: list[UUID]) -> dict[UUID, int]:
+    if not conversation_ids:
+        return {}
+    message_rows = (await session.execute(
+        select(Message.conversation_id, func.count()).where(
+            Message.conversation_id.in_(conversation_ids)
+        ).group_by(Message.conversation_id)
+    )).all()
+    run_rows = (await session.execute(
+        select(AgentRun.conversation_id, func.count()).where(
+            AgentRun.conversation_id.in_(conversation_ids)
+        ).group_by(AgentRun.conversation_id)
+    )).all()
+    counts = {conversation_id: int(count) for conversation_id, count in message_rows}
+    for conversation_id, count in run_rows:
+        if conversation_id is not None:
+            counts[conversation_id] = counts.get(conversation_id, 0) + int(count) * 2
+    return counts
+
+
+async def conversation_fallback_titles(session, conversations: list[Conversation]) -> dict[UUID, str]:
+    untitled_ids = [row.id for row in conversations if row.title == "新对话"]
+    if not untitled_ids:
+        return {}
+    message_rows = (await session.execute(
+        select(Message).where(
+            Message.conversation_id.in_(untitled_ids), Message.role == "user"
+        ).order_by(Message.conversation_id, Message.sequence_no)
+    )).scalars().all()
+    run_rows = (await session.execute(
+        select(AgentRun).where(
+            AgentRun.conversation_id.in_(untitled_ids)
+        ).order_by(AgentRun.conversation_id, AgentRun.created_at, AgentRun.id)
+    )).scalars().all()
+    titles: dict[UUID, str] = {}
+    for message in message_rows:
+        titles.setdefault(message.conversation_id, message.content[:100])
+    for run in run_rows:
+        if run.conversation_id is not None:
+            titles.setdefault(run.conversation_id, run.input_summary[:100])
+    return titles
 
 
 def message_data(entity: Message, citations=()) -> dict:
@@ -51,8 +99,10 @@ async def list_conversations(request: Request, user: Annotated[AuthenticatedUser
     session = state[0]
     filters = (Conversation.user_id == user.user_id, Conversation.deleted_at.is_(None))
     rows = (await session.execute(select(Conversation).where(*filters).order_by(Conversation.updated_at.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+    counts = await conversation_message_counts(session, [row.id for row in rows])
+    titles = await conversation_fallback_titles(session, rows)
     total = await session.scalar(select(func.count()).select_from(Conversation).where(*filters))
-    return SuccessResponse(data={"items": [conversation_data(row) for row in rows], "pagination": {"page": page, "page_size": page_size, "total": total, "total_pages": (total + page_size - 1) // page_size}}, request_id=request.state.request_id, timestamp=datetime.now(UTC))
+    return SuccessResponse(data={"items": [conversation_data(row, counts.get(row.id, 0), titles.get(row.id)) for row in rows], "pagination": {"page": page, "page_size": page_size, "total": total, "total_pages": (total + page_size - 1) // page_size}}, request_id=request.state.request_id, timestamp=datetime.now(UTC))
 
 
 @router.post("/api/v1/conversations", operation_id="createConversation", status_code=201)
@@ -65,7 +115,9 @@ async def create_conversation(body: ConversationCreate, request: Request, user: 
 async def get_conversation(conversation_id: UUID, request: Request, user: Annotated[AuthenticatedUser, Depends(require_permissions("chat:use"))], state=Depends(dependency)):
     entity = await state[1].get_owned(conversation_id, user.user_id)
     if entity is None: raise ConversationNotFound()
-    return SuccessResponse(data=conversation_data(entity), request_id=request.state.request_id, timestamp=datetime.now(UTC))
+    counts = await conversation_message_counts(state[0], [conversation_id])
+    titles = await conversation_fallback_titles(state[0], [entity])
+    return SuccessResponse(data=conversation_data(entity, counts.get(conversation_id, 0), titles.get(conversation_id)), request_id=request.state.request_id, timestamp=datetime.now(UTC))
 
 
 @router.delete("/api/v1/conversations/{conversation_id}", operation_id="deleteConversation", status_code=204)

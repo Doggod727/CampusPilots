@@ -7,17 +7,20 @@ from uuid import uuid4
 from app.modules.agent_platform.domain.contracts import UserContext
 from app.modules.agent_platform.models import AgentRuntimeCommand
 from app.modules.agent_platform.runtime_worker import GraphRuntimeCommandProcessor, OutboxRuntimeDispatcher, RuntimeWorker, TraceRuntimeFailureHandler
+from app.modules.agent_platform.checkpointing import RuntimeStartPayloadCodec
 
 NOW = datetime(2026, 7, 15, tzinfo=UTC); RUN = uuid4()
 
 
-def test_outbox_dispatcher_stores_only_safe_command_metadata() -> None:
-    repository = MagicMock(); dispatcher = OutboxRuntimeDispatcher(repository, max_attempts=4, now=lambda: NOW)
+def test_outbox_dispatcher_encrypts_full_start_context() -> None:
+    repository = MagicMock(); codec=RuntimeStartPayloadCodec("checkpoint-secret"); dispatcher = OutboxRuntimeDispatcher(repository, max_attempts=4, now=lambda: NOW,start_codec=codec)
     user = UserContext(user_id=uuid4(), username="student01", request_id="request-123")
-    asyncio.run(dispatcher.start(RUN, user, "private objective", {"token": "secret"}))
+    objective="课程问题"*800
+    asyncio.run(dispatcher.start(RUN, user, objective, {"token": "***","mode":"auto"}))
     command = repository.add.call_args.args[0]
-    assert command.action == "start" and command.payload == {"request_id": "request-123"}
-    assert "private objective" not in str(command.payload) and "secret" not in str(command.payload)
+    assert command.action == "start" and command.payload["request_id"] == "request-123"
+    assert objective not in str(command.payload)
+    assert codec.decode(command.payload)==(objective,{"token":"***","mode":"auto"})
 
 
 def test_best_effort_wakeup_never_breaks_committed_request() -> None:
@@ -32,6 +35,16 @@ def test_graph_processor_loads_current_start_context_and_dispatches_actions() ->
     starts.load = AsyncMock(return_value=(user, "safe summary", {})); processor = GraphRuntimeCommandProcessor(runtime, starts)
     command = AgentRuntimeCommand(run_id=RUN, action="start", payload={}, status="processing")
     asyncio.run(processor.process(command)); runtime.start.assert_awaited_once_with(RUN, user, "safe summary", {})
+
+
+def test_graph_processor_restores_full_input_mode_and_context_from_outbox() -> None:
+    runtime=MagicMock();runtime.start=AsyncMock();starts=MagicMock()
+    user=UserContext(user_id=uuid4(),username="student01",request_id="request-123")
+    starts.load=AsyncMock(return_value=(user,"truncated",{}));codec=RuntimeStartPayloadCodec("checkpoint-secret")
+    objective="长输入"*1000;context={"_run_mode":"service","course":"高等数学"}
+    command=AgentRuntimeCommand(run_id=RUN,action="start",payload=codec.encode(objective,context),status="processing")
+    asyncio.run(GraphRuntimeCommandProcessor(runtime,starts,codec).process(command))
+    runtime.start.assert_awaited_once_with(RUN,user,objective,context)
 
 
 class Tx:

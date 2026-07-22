@@ -13,6 +13,16 @@ from app.modules.agent_platform.orchestration.errors import (
 )
 
 
+AGENT_CATALOG_POLICY: dict[str, tuple[str, tuple[str, ...]]] = {
+    "supervisor": ("runtime_internal", ()),
+    "knowledge_agent": ("public", ("chat:use",)),
+    "service_agent": ("public", ("service:read",)),
+    "community_agent": ("public", ("community:read",)),
+    "governance_agent": ("runtime_internal", ()),
+    "modelops_agent": ("restricted", ("model:read",)),
+}
+
+
 def _version_key(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in value.split("."))  # type: ignore[return-value]
 
@@ -66,16 +76,29 @@ class AgentRegistry:
         return tuple(registrations)
 
     def list_catalog(self) -> tuple[AgentCatalogItem, ...]:
-        return tuple(
-            AgentCatalogItem(
+        items: list[AgentCatalogItem] = []
+        for item in self.list_active():
+            visibility, required_permissions = AGENT_CATALOG_POLICY.get(
+                item.definition.code, ("runtime_internal", ())
+            )
+            items.append(AgentCatalogItem(
                 code=item.definition.code,
                 name=item.definition.name,
                 description=item.definition.description,
                 version=item.version.version,
                 enabled=item.definition.enabled,
                 tool_allowlist=item.version.tool_allowlist,
-            )
-            for item in self.list_active()
+                visibility=visibility,
+                required_permissions=required_permissions,
+            ))
+        return tuple(items)
+
+    def list_visible_catalog(self, permissions: Iterable[str]) -> tuple[AgentCatalogItem, ...]:
+        granted = frozenset(permissions)
+        return tuple(
+            item for item in self.list_catalog()
+            if item.visibility != "runtime_internal"
+            and set(item.required_permissions).issubset(granted)
         )
 
 

@@ -7,7 +7,7 @@ import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.responses import JSONResponse
 from starlette.responses import StreamingResponse
 
@@ -39,6 +39,27 @@ class AgentRunCreateRequest(BaseModel):
     conversation_id:UUID|None=None
     mode:Literal["auto","knowledge","service","community","governance","modelops"]="auto"
     context:dict[str,Any]=Field(default_factory=dict)
+
+    @field_validator("context")
+    @classmethod
+    def validate_runtime_selection(cls, value: dict[str, Any]) -> dict[str, Any]:
+        agents = value.get("requested_agent_codes", [])
+        allowed_agents = {
+            "knowledge_agent", "service_agent", "community_agent",
+            "governance_agent", "modelops_agent",
+        }
+        if not isinstance(agents, list) or len(agents) > 3 or any(
+            not isinstance(item, str) or item not in allowed_agents for item in agents
+        ) or len(set(agents)) != len(agents):
+            raise ValueError("requested_agent_codes must contain up to 3 unique specialist codes")
+        tools = value.get("requested_tool_names", [])
+        if not isinstance(tools, list) or len(tools) > 14 or any(
+            not isinstance(item, str)
+            or re.fullmatch(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$", item) is None
+            for item in tools
+        ) or len(set(tools)) != len(tools):
+            raise ValueError("requested_tool_names must contain up to 14 unique tool names")
+        return value
 
 
 RunResponse=SuccessResponse[RunDTO]
@@ -113,8 +134,8 @@ async def create_run(payload:AgentRunCreateRequest,request:Request,actor:Annotat
 
 
 @router.get("",operation_id="listAgentRuns",response_model=RunListResponse)
-async def list_runs(request:Request,actor:Annotated[AuthenticatedUser,Depends(require_any_permission("agent:run:read_own","agent:run:read_all"))],service:Annotated[AgentRunService,Depends(get_run_service)],page:Annotated[int,Query(ge=1)]=1,page_size:Annotated[int,Query(ge=1,le=100)]=20,status:Literal["created","routing","running","awaiting_approval","succeeded","partial","failed","cancelled"]|None=None) -> RunListResponse:
-    data=await service.list(actor=actor,page=page,page_size=page_size,status=status)
+async def list_runs(request:Request,actor:Annotated[AuthenticatedUser,Depends(require_any_permission("agent:run:read_own","agent:run:read_all"))],service:Annotated[AgentRunService,Depends(get_run_service)],page:Annotated[int,Query(ge=1)]=1,page_size:Annotated[int,Query(ge=1,le=100)]=20,status:Literal["created","routing","running","awaiting_approval","succeeded","partial","failed","cancelled"]|None=None,conversation_id:UUID|None=None) -> RunListResponse:
+    data=await service.list(actor=actor,page=page,page_size=page_size,status=status,conversation_id=conversation_id)
     return SuccessResponse(data=data,request_id=request.state.request_id,timestamp=datetime.now(UTC))
 
 

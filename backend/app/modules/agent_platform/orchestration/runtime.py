@@ -5,12 +5,13 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.modules.agent_platform.approvals import ApprovalService
 from app.modules.agent_platform.domain.contracts import (
-    AgentResult, AgentTask, SupervisorPlan, ToolCallRequest, UserContext,
+    AgentResult, AgentTask, RouteDecision, SupervisorPlan, ToolCallRequest, UserContext,
 )
 from app.modules.agent_platform.orchestration.router import RouterService
 from app.modules.agent_platform.orchestration.supervisor import SupervisorPlanner
@@ -127,6 +128,13 @@ class AllowAgentSafety:
 
 class BoundedGraphRuntime:
     ACTIVE = {"created", "routing", "running", "awaiting_approval"}
+    _TARGET_BY_AGENT = {
+        "knowledge_agent": "knowledge",
+        "service_agent": "service",
+        "community_agent": "community",
+        "governance_agent": "governance",
+        "modelops_agent": "modelops",
+    }
 
     def __init__(self, *, router: RouterService, planner: SupervisorPlanner,
                  specialists: Mapping[str, SpecialistAgentPort], trace: TraceService,
@@ -149,7 +157,18 @@ class BoundedGraphRuntime:
         self._handled_runs.add(run_id)
         objective, safe_context = await self._safety.check_input(user, objective, context)
         await self._trace.transition_run(run_id, {"created"}, "routing", started_at=datetime.now(UTC))
-        route=await self._router.route(objective)
+        requested_agents = tuple(safe_context.get("requested_agent_codes") or ())
+        if requested_agents:
+            targets = tuple(self._TARGET_BY_AGENT[code] for code in requested_agents)
+            route = RouteDecision(
+                target_agent=targets[0],
+                confidence=Decimal("1"),
+                source="rule",
+                reason_code="ROUTE_EXPLICIT_AGENT_SELECTION",
+                candidate_agents=targets[1:],
+            )
+        else:
+            route=await self._router.route(objective)
         await self._events.publish(run_id,"route",route.model_dump(mode="json"))
         plan=self._planner.plan(agent_run_id=run_id,route=route,objective=objective,structured_input=safe_context)
         checkpoint=RuntimeCheckpoint(user,objective,dict(safe_context),plan)
@@ -253,6 +272,10 @@ class BoundedGraphRuntime:
     async def _execute_tool(self,state:RuntimeCheckpoint,step_id:UUID,call_id:UUID|None,request:ToolCallRequest,agent_code:str) -> None:
         if self._tools is None or call_id is None: raise AgentRunStateConflict()
         allowlist=self._agent_allowlists.get(agent_code, ())
+        requested_tools = tuple(state.context.get("requested_tool_names") or ())
+        if requested_tools:
+            selected = set(requested_tools)
+            allowlist = tuple(name for name in allowlist if name in selected)
         result=await self._tools.execute(context=state.user,request=request,agent_allowlist=allowlist)
         await self._trace.transition_tool(call_id,{"prepared","awaiting_approval"},result.status,result_summary=result.data or {},duration_ms=result.duration_ms,finished_at=datetime.now(UTC),audit_id=result.audit_id)
         await self._trace.transition_step(step_id,{"running","awaiting_approval"},"succeeded",output_summary=result.data or {},finished_at=datetime.now(UTC))

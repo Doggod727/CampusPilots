@@ -45,6 +45,11 @@ def test_permissions_headers_and_validation_are_enforced():
     service=MagicMock(); assert make_client(set(),service).get("/api/v1/agent-runs").status_code==403
     response=make_client({"agent:run"},service).post("/api/v1/agent-runs",headers={"Idempotency-Key":"x"},json={"input":"x","unknown":1})
     assert response.status_code==422 and response.json()["code"]=="VALIDATION_ERROR"
+    invalid_selection=make_client({"agent:run"},service).post(
+        "/api/v1/agent-runs",headers={"Idempotency-Key":"y"},
+        json={"input":"test task","context":{"requested_agent_codes":["supervisor"]}},
+    )
+    assert invalid_selection.status_code==422 and invalid_selection.json()["code"]=="VALIDATION_ERROR"
 
 def test_health_does_not_construct_run_service(): assert make_client(set(),MagicMock()).get("/health/live").status_code==200
 

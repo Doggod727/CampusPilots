@@ -23,6 +23,42 @@ class InvalidRuntimeCheckpoint(AppError):
         super().__init__(status_code=409, code="AGENT_CHECKPOINT_INVALID", message="运行恢复状态无效")
 
 
+class RuntimeStartPayloadCodec:
+    """Encrypt the full start input carried by the transactional outbox."""
+
+    def __init__(self, secret: str) -> None:
+        if not secret:
+            raise ValueError("checkpoint secret must not be empty")
+        key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
+        self._fernet = Fernet(key)
+
+    def encode(self, objective: str, context: dict[str, Any]) -> dict[str, str]:
+        raw = json.dumps(
+            {"objective": objective, "context": context},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode("utf-8")
+        return {
+            "encrypted_start": self._fernet.encrypt(raw).decode("ascii"),
+            "start_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+
+    def decode(self, payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        try:
+            raw = self._fernet.decrypt(str(payload["encrypted_start"]).encode("ascii"))
+            if not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), str(payload["start_sha256"])):
+                raise InvalidRuntimeCheckpoint()
+            decoded = json.loads(raw)
+            objective = decoded["objective"]
+            context = decoded["context"]
+            if not isinstance(objective, str) or not isinstance(context, dict):
+                raise InvalidRuntimeCheckpoint()
+            return objective, context
+        except InvalidRuntimeCheckpoint:
+            raise
+        except (InvalidToken, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            raise InvalidRuntimeCheckpoint() from None
+
+
 class CheckpointCodec:
     """Authenticated encryption for short-lived runtime state."""
 

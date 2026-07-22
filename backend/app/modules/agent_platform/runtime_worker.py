@@ -11,7 +11,9 @@ from redis.asyncio import Redis
 
 from app.modules.agent_platform.domain.contracts import UserContext
 from app.modules.agent_platform.models import AgentRuntimeCommand
-from app.modules.agent_platform.checkpointing import RuntimeTerminalCoordinator
+from app.modules.agent_platform.checkpointing import RuntimeStartPayloadCodec, RuntimeTerminalCoordinator
+from app.modules.agent_platform.approvals import ApprovalRepository
+from app.modules.agent_platform.approval_expiry import ApprovalExpiryCoordinator
 from app.modules.agent_platform.orchestration.runtime import BoundedGraphRuntime, RuntimeDispatcherPort
 from app.modules.agent_platform.runtime_persistence import RuntimeCheckpointRepository, RuntimeCommandRepository, RuntimeEventRepository
 from app.modules.agent_platform.traces import AgentRunStateConflict, TraceRepository, TraceService
@@ -57,14 +59,19 @@ class OutboxRuntimeDispatcher(RuntimeDispatcherPort):
 
     def __init__(self, repository: RuntimeCommandRepository, *, max_attempts: int = 3,
                  now: Callable[[], datetime] | None = None,
-                 wakeup: RuntimeWakeupPort | None = None) -> None:
+                 wakeup: RuntimeWakeupPort | None = None,
+                 start_codec: RuntimeStartPayloadCodec | None = None) -> None:
         self._repository = repository
         self._max_attempts = max_attempts
         self._now = now or (lambda: datetime.now(UTC))
         self._wakeup = wakeup
+        self._start_codec = start_codec
 
     async def start(self, run_id: UUID, user: UserContext, objective: str, context) -> None:
-        self._add(run_id, "start", payload={"request_id": user.request_id})
+        payload = {"request_id": user.request_id}
+        if self._start_codec is not None:
+            payload.update(self._start_codec.encode(objective, dict(context)))
+        self._add(run_id, "start", payload=payload)
 
     async def resume(self, run_id: UUID, approval_id: UUID) -> None:
         self._add(run_id, "resume", approval_id=approval_id)
@@ -92,13 +99,17 @@ class OutboxRuntimeDispatcher(RuntimeDispatcherPort):
 
 
 class GraphRuntimeCommandProcessor:
-    def __init__(self, runtime: BoundedGraphRuntime, starts: RuntimeStartContextPort) -> None:
+    def __init__(self, runtime: BoundedGraphRuntime, starts: RuntimeStartContextPort,
+                 start_codec: RuntimeStartPayloadCodec | None = None) -> None:
         self._runtime = runtime
         self._starts = starts
+        self._start_codec = start_codec
 
     async def process(self, command: AgentRuntimeCommand) -> None:
         if command.action == "start":
             user, objective, context = await self._starts.load(command.run_id)
+            if self._start_codec is not None and "encrypted_start" in command.payload:
+                objective, context = self._start_codec.decode(command.payload)
             await self._runtime.start(command.run_id, user, objective, context)
         elif command.action == "resume" and command.approval_id is not None:
             await self._runtime.resume(command.run_id, command.approval_id)
@@ -155,6 +166,13 @@ class RuntimeWorker:
     async def run_once(self, *, limit: int = 10) -> int:
         async with self._sessions() as session:
             async with session.begin():
+                await ApprovalExpiryCoordinator(
+                    ApprovalRepository(session),
+                    TraceService(TraceRepository(session)),
+                    RuntimeTerminalCoordinator(
+                        RuntimeCheckpointRepository(session), RuntimeEventRepository(session)
+                    ),
+                ).expire_due(self._now())
                 await RuntimeCheckpointRepository(session).delete_expired(self._now())
                 claimed = await RuntimeCommandRepository(session).claim_batch(
                     worker_id=self._worker_id, now=self._now(),

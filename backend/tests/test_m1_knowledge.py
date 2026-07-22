@@ -7,7 +7,9 @@ import pytest
 from app.modules.ai_knowledge.knowledge import (
     KnowledgeBaseConflict,
     KnowledgeBaseNotFound,
+    KnowledgeBaseVisibilityForbidden,
     KnowledgeService,
+    require_allowed_visibility,
 )
 def test_m1_knowledge_errors_are_stable():
  assert KnowledgeBaseNotFound().code=="KNOWLEDGE_BASE_NOT_FOUND" and KnowledgeBaseConflict().status_code==409
@@ -40,3 +42,20 @@ def test_explicit_global_permission_can_read_private_resource():
  user = SimpleNamespace(user_id=uuid4(), permissions=("knowledge:read_all",), department=None)
 
  assert asyncio.run(service.require(uuid4(), user)) is knowledge_base
+
+
+def test_regular_writer_can_only_manage_private_knowledge_bases():
+ user = SimpleNamespace(permissions=("knowledge:write", "knowledge:publish"))
+
+ require_allowed_visibility(user, "private")
+ with pytest.raises(KnowledgeBaseVisibilityForbidden):
+  require_allowed_visibility(user, "public")
+ with pytest.raises(KnowledgeBaseVisibilityForbidden):
+  require_allowed_visibility(user, "department")
+
+
+def test_global_writer_can_manage_shared_knowledge_bases():
+ user = SimpleNamespace(permissions=("knowledge:write", "knowledge:write_all"))
+
+ require_allowed_visibility(user, "public")
+ require_allowed_visibility(user, "department")

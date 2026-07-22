@@ -12,10 +12,22 @@ import {
   updateKnowledgeBase,
 } from '@/api/generated'
 import type { KnowledgeBase, KnowledgeBaseVisibility, UserSummary } from '@/api/generated'
+import { useAuthStore } from '@/modules/auth/stores/auth'
 import { useResourceList } from '@/shared/lib/useResourceList'
-import { EmptyState, ErrorState, PageHeader, UiButton, UiCard, UiField, UiPagination, UiSkeleton } from '@/shared/ui'
+import {
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  UiButton,
+  UiCard,
+  UiField,
+  UiPagination,
+  UiSkeleton,
+} from '@/shared/ui'
 
 const router = useRouter()
+const auth = useAuthStore()
+const canManageSharedKnowledge = auth.hasPermission('knowledge:write_all')
 
 const VISIBILITY_FILTERS: Array<{ value: KnowledgeBaseVisibility | ''; label: string }> = [
   { value: '', label: '全部' },
@@ -41,7 +53,9 @@ const list = useResourceList<KnowledgeBase>(async (page, pageSize) => {
         page,
         page_size: pageSize,
         ...(searchQuery.value ? { q: searchQuery.value } : {}),
-        ...(visibilityFilter.value ? { visibility: visibilityFilter.value as KnowledgeBaseVisibility } : {}),
+        ...(visibilityFilter.value
+          ? { visibility: visibilityFilter.value as KnowledgeBaseVisibility }
+          : {}),
       },
     }),
   )
@@ -94,7 +108,12 @@ function describeKbError(error: unknown, fallback: string): string {
 /* ---------- 创建 ---------- */
 
 const showCreate = ref(false)
-const createForm = reactive({ name: '', description: '', visibility: 'private' as KnowledgeBaseVisibility, owner_department: '' })
+const createForm = reactive({
+  name: '',
+  description: '',
+  visibility: 'private' as KnowledgeBaseVisibility,
+  owner_department: '',
+})
 const creating = ref(false)
 const createError = ref('')
 /** 同一表单会话固定幂等键：失败重试复用，成功后更换。 */
@@ -193,6 +212,11 @@ async function submitEdit() {
 const confirmingDeleteId = ref<string | null>(null)
 const deleting = ref(false)
 const deleteError = ref('')
+
+function beginDelete(kb: KnowledgeBase) {
+  confirmingDeleteId.value = kb.id
+  deleteError.value = ''
+}
 
 async function confirmDelete(kb: KnowledgeBase) {
   if (deleting.value) {
@@ -337,12 +361,21 @@ function memberLabel(userId: string): string {
 <template>
   <div class="kb">
     <PageHeader title="知识库管理" subtitle="管理你可访问的知识库、成员与切分设置">
-      <UiButton variant="primary" @click="showCreate = !showCreate">{{ showCreate ? '收起' : '新建知识库' }}</UiButton>
+      <UiButton variant="primary" @click="showCreate = !showCreate">
+        {{ showCreate ? '收起' : '新建知识库' }}
+      </UiButton>
     </PageHeader>
 
     <div class="kb__toolbar">
       <form class="kb__search" @submit.prevent="applySearch">
-        <input v-model="searchInput" class="kb__search-input" type="search" maxlength="100" placeholder="按名称搜索" aria-label="按名称搜索" />
+        <input
+          v-model="searchInput"
+          class="kb__search-input"
+          type="search"
+          maxlength="100"
+          placeholder="按名称搜索"
+          aria-label="按名称搜索"
+        />
         <UiButton type="submit">搜索</UiButton>
       </form>
       <div class="kb__filters" role="tablist" aria-label="可见性筛选">
@@ -363,24 +396,68 @@ function memberLabel(userId: string): string {
       <h2 class="kb__panel-title">新建知识库</h2>
       <form class="kb__form" @submit.prevent="submitCreate">
         <UiField label="名称" input-id="kb-create-name" required>
-          <input id="kb-create-name" v-model="createForm.name" class="kb__input" maxlength="100" :disabled="creating" />
+          <input
+            id="kb-create-name"
+            v-model="createForm.name"
+            class="kb__input"
+            maxlength="100"
+            :disabled="creating"
+          />
         </UiField>
         <UiField label="描述" input-id="kb-create-desc">
-          <textarea id="kb-create-desc" v-model="createForm.description" class="kb__input" rows="2" maxlength="500" :disabled="creating" />
+          <textarea
+            id="kb-create-desc"
+            v-model="createForm.description"
+            class="kb__input"
+            rows="2"
+            maxlength="500"
+            :disabled="creating"
+          />
         </UiField>
         <div class="kb__form-row">
           <UiField label="可见性" input-id="kb-create-visibility">
-            <select id="kb-create-visibility" v-model="createForm.visibility" class="kb__input" :disabled="creating">
-              <option v-for="option in VISIBILITY_FILTERS.slice(1)" :key="option.value" :value="option.value">{{ option.label }}</option>
+            <select
+              id="kb-create-visibility"
+              v-model="createForm.visibility"
+              class="kb__input"
+              :disabled="creating"
+            >
+              <option
+                v-for="option in canManageSharedKnowledge
+                  ? VISIBILITY_FILTERS.slice(1)
+                  : VISIBILITY_FILTERS.filter((item) => item.value === 'private')"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
             </select>
           </UiField>
-          <UiField label="所属部门" input-id="kb-create-dept" hint="可见性为“部门”时填写">
-            <input id="kb-create-dept" v-model="createForm.owner_department" class="kb__input" maxlength="100" :disabled="creating" />
+          <UiField
+            v-if="canManageSharedKnowledge"
+            label="所属部门"
+            input-id="kb-create-dept"
+            hint="可见性为“部门”时填写"
+          >
+            <input
+              id="kb-create-dept"
+              v-model="createForm.owner_department"
+              class="kb__input"
+              maxlength="100"
+              :disabled="creating"
+            />
           </UiField>
         </div>
         <p v-if="createError" class="kb__error" role="alert">{{ createError }}</p>
         <div class="kb__form-actions">
-          <UiButton variant="primary" type="submit" :loading="creating" :disabled="!createForm.name.trim()">创建</UiButton>
+          <UiButton
+            variant="primary"
+            type="submit"
+            :loading="creating"
+            :disabled="!createForm.name.trim()"
+          >
+            创建
+          </UiButton>
         </div>
       </form>
     </UiCard>
@@ -389,32 +466,87 @@ function memberLabel(userId: string): string {
       <h2 class="kb__panel-title">编辑知识库</h2>
       <form class="kb__form" @submit.prevent="submitEdit">
         <UiField label="名称" input-id="kb-edit-name" required>
-          <input id="kb-edit-name" v-model="editForm.name" class="kb__input" maxlength="100" :disabled="updating" />
+          <input
+            id="kb-edit-name"
+            v-model="editForm.name"
+            class="kb__input"
+            maxlength="100"
+            :disabled="updating"
+          />
         </UiField>
         <UiField label="描述" input-id="kb-edit-desc">
-          <textarea id="kb-edit-desc" v-model="editForm.description" class="kb__input" rows="2" maxlength="500" :disabled="updating" />
+          <textarea
+            id="kb-edit-desc"
+            v-model="editForm.description"
+            class="kb__input"
+            rows="2"
+            maxlength="500"
+            :disabled="updating"
+          />
         </UiField>
         <div class="kb__form-row">
           <UiField label="可见性" input-id="kb-edit-visibility">
-            <select id="kb-edit-visibility" v-model="editForm.visibility" class="kb__input" :disabled="updating">
-              <option v-for="option in VISIBILITY_FILTERS.slice(1)" :key="option.value" :value="option.value">{{ option.label }}</option>
+            <select
+              id="kb-edit-visibility"
+              v-model="editForm.visibility"
+              class="kb__input"
+              :disabled="updating"
+            >
+              <option
+                v-for="option in canManageSharedKnowledge
+                  ? VISIBILITY_FILTERS.slice(1)
+                  : VISIBILITY_FILTERS.filter((item) => item.value === 'private')"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
             </select>
           </UiField>
-          <UiField label="所属部门" input-id="kb-edit-dept">
-            <input id="kb-edit-dept" v-model="editForm.owner_department" class="kb__input" maxlength="100" :disabled="updating" />
+          <UiField v-if="canManageSharedKnowledge" label="所属部门" input-id="kb-edit-dept">
+            <input
+              id="kb-edit-dept"
+              v-model="editForm.owner_department"
+              class="kb__input"
+              maxlength="100"
+              :disabled="updating"
+            />
           </UiField>
         </div>
         <div class="kb__form-row">
           <UiField label="切分长度" input-id="kb-edit-chunk" hint="只影响后续入库文档">
-            <input id="kb-edit-chunk" v-model.number="editForm.chunk_size" class="kb__input" type="number" min="128" max="4096" :disabled="updating" />
+            <input
+              id="kb-edit-chunk"
+              v-model.number="editForm.chunk_size"
+              class="kb__input"
+              type="number"
+              min="128"
+              max="4096"
+              :disabled="updating"
+            />
           </UiField>
           <UiField label="切分重叠" input-id="kb-edit-overlap">
-            <input id="kb-edit-overlap" v-model.number="editForm.chunk_overlap" class="kb__input" type="number" min="0" max="1024" :disabled="updating" />
+            <input
+              id="kb-edit-overlap"
+              v-model.number="editForm.chunk_overlap"
+              class="kb__input"
+              type="number"
+              min="0"
+              max="1024"
+              :disabled="updating"
+            />
           </UiField>
         </div>
         <p v-if="updateError" class="kb__error" role="alert">{{ updateError }}</p>
         <div class="kb__form-actions">
-          <UiButton variant="primary" type="submit" :loading="updating" :disabled="!editForm.name.trim()">保存</UiButton>
+          <UiButton
+            variant="primary"
+            type="submit"
+            :loading="updating"
+            :disabled="!editForm.name.trim()"
+          >
+            保存
+          </UiButton>
           <UiButton @click="editingId = null">取消</UiButton>
         </div>
       </form>
@@ -428,21 +560,36 @@ function memberLabel(userId: string): string {
         <ul class="kb__members">
           <li v-for="member in membersKb.members" :key="member.user_id" class="kb__member">
             <span class="kb__member-name">{{ memberLabel(member.user_id) }}</span>
-            <span class="kb__member-meta">{{ ACCESS_LABELS[member.access_level] ?? member.access_level }}</span>
-            <UiButton size="sm" :disabled="memberBusy" @click="removeMember(member.user_id)">移除</UiButton>
+            <span class="kb__member-meta">{{
+              ACCESS_LABELS[member.access_level] ?? member.access_level
+            }}</span>
+            <UiButton size="sm" :disabled="memberBusy" @click="removeMember(member.user_id)">
+              移除
+            </UiButton>
           </li>
           <li v-if="membersKb.members.length === 0" class="kb__member-empty">暂无成员</li>
         </ul>
         <form class="kb__member-search" @submit.prevent="searchUsers">
-          <input v-model="userQuery" class="kb__input" type="search" maxlength="100" placeholder="按用户名、姓名或邮箱搜索用户" aria-label="搜索用户" />
+          <input
+            v-model="userQuery"
+            class="kb__input"
+            type="search"
+            maxlength="100"
+            placeholder="按用户名、姓名或邮箱搜索用户"
+            aria-label="搜索用户"
+          />
           <UiButton type="submit" :loading="searchingUsers">搜索用户</UiButton>
         </form>
         <p v-if="userSearchError" class="kb__error" role="alert">{{ userSearchError }}</p>
         <ul v-if="userResults.length > 0" class="kb__user-results">
           <li v-for="user in userResults" :key="user.id" class="kb__member">
             <span class="kb__member-name">{{ user.display_name || user.username }}</span>
-            <span class="kb__member-meta">{{ user.username }}<template v-if="user.department"> · {{ user.department }}</template></span>
-            <UiButton size="sm" variant="primary" :disabled="memberBusy" @click="addMember(user)">添加</UiButton>
+            <span class="kb__member-meta">
+              {{ user.username }}<template v-if="user.department"> · {{ user.department }}</template>
+            </span>
+            <UiButton size="sm" variant="primary" :disabled="memberBusy" @click="addMember(user)">
+              添加
+            </UiButton>
           </li>
         </ul>
         <p v-if="memberActionError" class="kb__error" role="alert">{{ memberActionError }}</p>
@@ -456,7 +603,11 @@ function memberLabel(userId: string): string {
 
     <UiSkeleton v-if="list.loading.value" :lines="5" />
     <ErrorState v-else-if="list.failed.value" title="知识库列表加载失败" @retry="list.load" />
-    <EmptyState v-else-if="list.isEmpty.value" title="暂无知识库" description="点击右上角“新建知识库”创建第一个知识库" />
+    <EmptyState
+      v-else-if="list.isEmpty.value"
+      title="暂无知识库"
+      description="点击右上角“新建知识库”创建第一个知识库"
+    />
     <template v-else>
       <div class="kb__list">
         <UiCard v-for="kb in list.items.value" :key="kb.id" class="kb__item" padding="md">
@@ -466,24 +617,37 @@ function memberLabel(userId: string): string {
           </div>
           <p v-if="kb.description" class="kb__desc">{{ kb.description }}</p>
           <p class="kb__meta">
-            文档 {{ kb.document_count }} · 成员 {{ kb.members.length }}<template v-if="kb.owner_department"> · {{ kb.owner_department }}</template>
-            · 更新于 {{ formatTime(kb.updated_at) }} · v{{ kb.version }}
+            文档 {{ kb.document_count }} · 成员 {{ kb.members.length
+            }}<template v-if="kb.owner_department"> · {{ kb.owner_department }}</template> · 更新于
+            {{ formatTime(kb.updated_at) }} · v{{ kb.version }}
           </p>
           <div class="kb__item-actions">
             <UiButton size="sm" @click="openMembers(kb)">成员</UiButton>
             <UiButton size="sm" @click="openEdit(kb)">编辑</UiButton>
-            <UiButton size="sm" @click="router.push({ name: 'knowledge-ingestion', query: { kb: kb.id } })">文档</UiButton>
+            <UiButton
+              size="sm"
+              @click="router.push({ name: 'knowledge-ingestion', query: { kb: kb.id } })"
+            >
+              文档
+            </UiButton>
             <template v-if="confirmingDeleteId === kb.id">
               <span class="kb__confirm-text">确认删除？</span>
-              <UiButton size="sm" variant="danger" :loading="deleting" @click="confirmDelete(kb)">确认删除</UiButton>
+              <UiButton size="sm" variant="danger" :loading="deleting" @click="confirmDelete(kb)">
+                确认删除
+              </UiButton>
               <UiButton size="sm" @click="confirmingDeleteId = null">取消</UiButton>
             </template>
-            <UiButton v-else size="sm" variant="danger" @click="confirmingDeleteId = kb.id; deleteError = ''">删除</UiButton>
+            <UiButton v-else size="sm" variant="danger" @click="beginDelete(kb)"> 删除 </UiButton>
           </div>
         </UiCard>
       </div>
       <div class="kb__pagination">
-        <UiPagination :page="list.page.value" :total="list.total.value" :page-size="list.pageSize" @change="list.changePage" />
+        <UiPagination
+          :page="list.page.value"
+          :total="list.total.value"
+          :page-size="list.pageSize"
+          @change="list.changePage"
+        />
       </div>
     </template>
   </div>

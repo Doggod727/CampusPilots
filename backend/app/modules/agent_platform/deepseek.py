@@ -294,9 +294,18 @@ class DeepSeekSpecialistProvider:
         return prompt
 
     async def invoke(self, task: AgentTask, user: UserContext) -> SpecialistOutcome:
+        system_prompt = self._system_prompt()
+        requested_tools = task.structured_input.get("requested_tool_names")
+        if isinstance(requested_tools, list) and requested_tools:
+            system_prompt += (
+                "本次用户已显式选择 Tool："
+                + json.dumps(requested_tools, ensure_ascii=False)
+                + "。tool_call 不得为 null，必须从该列表选择一个与当前目标最匹配的 Tool；"
+                "不得调用列表之外的 Tool。"
+            )
         raw = await self._gateway.json_completion(
             (
-                {"role": "system", "content": self._system_prompt()},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps({"objective": task.objective, "input": task.structured_input}, ensure_ascii=False, sort_keys=True)},
             )
         )

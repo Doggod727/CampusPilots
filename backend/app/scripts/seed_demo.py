@@ -246,6 +246,8 @@ ROLE_PERMISSION_CODES = {
     ),
     "student": (
         "knowledge:read",
+        "knowledge:write",
+        "knowledge:publish",
         "chat:use",
         "work_order:read",
         "work_order:create",
@@ -260,6 +262,8 @@ ROLE_PERMISSION_CODES = {
         "electricity:topup_request:create",
     ),
     "model_engineer": (
+        "agent:run",
+        "agent:run:read_own",
         "agent:run:read_all",
         "agent:catalog:read",
         "tool:catalog:read",

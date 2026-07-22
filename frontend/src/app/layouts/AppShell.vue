@@ -4,12 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { filteredNav } from '@/app/router/navigation'
 import { useAuthStore } from '@/modules/auth/stores/auth'
-import { UiButton } from '@/shared/ui'
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const drawerOpen = ref(false)
+const immersive = computed(() => route.meta.immersive === true)
 
 const groups = computed(() =>
   filteredNav((code) => auth.hasPermission(code))
@@ -30,19 +30,24 @@ const breadcrumbs = computed(() => {
 
 const initials = computed(() => (auth.user?.display_name ?? auth.user?.username ?? '?').slice(0, 1))
 
-async function logout() {
-  await auth.logout()
-  await router.replace({ name: 'login' })
+function goHome() {
+  drawerOpen.value = false
+  void router.push({ name: 'chat' })
 }
 </script>
 
 <template>
-  <div class="shell">
-    <aside class="shell__sidebar" :class="{ 'shell__sidebar--open': drawerOpen }">
-      <div class="shell__brand" @click="drawerOpen = false; router.push({ name: 'home' })">
+  <div class="shell" :class="{ 'shell--immersive': immersive }">
+    <aside v-if="!immersive" class="shell__sidebar" :class="{ 'shell__sidebar--open': drawerOpen }">
+      <button
+        type="button"
+        class="shell__brand"
+        aria-label="返回 CampusPilot 对话首页"
+        @click="goHome"
+      >
         <span class="shell__logo">CP</span>
         <span class="shell__name">CampusPilot</span>
-      </div>
+      </button>
       <nav class="shell__nav" aria-label="主导航">
         <section v-for="group in groups" :key="group.title" class="shell__group">
           <p class="shell__group-title">{{ group.title }}</p>
@@ -60,11 +65,17 @@ async function logout() {
       </nav>
     </aside>
 
-    <div v-if="drawerOpen" class="shell__scrim" @click="drawerOpen = false" />
+    <div v-if="!immersive && drawerOpen" class="shell__scrim" @click="drawerOpen = false" />
 
     <div class="shell__main">
-      <header class="shell__topbar">
-        <button type="button" class="shell__menu" aria-label="打开导航" @click="drawerOpen = true">☰</button>
+      <header v-if="!immersive" class="shell__topbar">
+        <button type="button" class="shell__home" aria-label="返回对话首页" @click="goHome">
+          <span aria-hidden="true">←</span>
+          <span>返回对话</span>
+        </button>
+        <button type="button" class="shell__menu" aria-label="打开导航" @click="drawerOpen = true">
+          ☰
+        </button>
         <nav class="shell__crumbs" aria-label="面包屑">
           <template v-for="(crumb, index) in breadcrumbs" :key="crumb.name">
             <span v-if="index" class="shell__crumb-sep">/</span>
@@ -74,14 +85,17 @@ async function logout() {
         <div class="shell__user">
           <span class="shell__avatar" aria-hidden="true">{{ initials }}</span>
           <div class="shell__user-meta">
-            <span class="shell__user-name">{{ auth.user?.display_name ?? auth.user?.username }}</span>
-            <span class="shell__user-role">{{ auth.user?.roles.map((role) => role.name).join(' · ') }}</span>
+            <span class="shell__user-name">{{
+              auth.user?.display_name ?? auth.user?.username
+            }}</span>
+            <span class="shell__user-role">{{
+              auth.user?.roles.map((role) => role.name).join(' · ')
+            }}</span>
           </div>
-          <UiButton size="sm" variant="text" @click="logout">退出</UiButton>
         </div>
       </header>
 
-      <main class="shell__content">
+      <main class="shell__content" :class="{ 'shell__content--immersive': immersive }">
         <router-view />
       </main>
     </div>
@@ -107,11 +121,16 @@ async function logout() {
 }
 
 .shell__brand {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: var(--cp-space-2);
   padding: var(--cp-space-2) var(--cp-space-2) var(--cp-space-4);
+  border: 0;
+  background: transparent;
   cursor: pointer;
+  font-family: inherit;
+  text-align: left;
 }
 
 .shell__logo {
@@ -187,15 +206,37 @@ async function logout() {
   border-bottom: 1px solid var(--cp-hairline);
 }
 
+.shell__home,
 .shell__menu {
-  display: none;
-  width: 40px;
   height: 40px;
   border: 1px solid var(--cp-hairline-strong);
   border-radius: var(--cp-radius-button);
   background: var(--cp-surface-card);
-  font-size: 16px;
+  color: var(--cp-body);
   cursor: pointer;
+  font-family: inherit;
+}
+
+.shell__home {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cp-space-1);
+  padding: 0 var(--cp-space-3);
+  font-size: 12px;
+}
+
+.shell__home:hover,
+.shell__home:focus-visible,
+.shell__menu:hover,
+.shell__menu:focus-visible {
+  background: var(--cp-canvas-soft);
+  color: var(--cp-ink);
+}
+
+.shell__menu {
+  display: none;
+  width: 40px;
+  font-size: 16px;
 }
 
 .shell__crumbs {
@@ -255,6 +296,13 @@ async function logout() {
   margin: 0 auto;
 }
 
+.shell__content--immersive {
+  max-width: none;
+  height: 100vh;
+  padding: 0;
+  overflow: hidden;
+}
+
 .shell__scrim {
   display: none;
 }
@@ -282,6 +330,16 @@ async function logout() {
   .shell__menu {
     display: grid;
     place-items: center;
+  }
+
+  .shell__home {
+    width: 40px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .shell__home span:last-child {
+    display: none;
   }
 
   .shell__content {

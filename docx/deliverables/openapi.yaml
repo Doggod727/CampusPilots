@@ -2128,8 +2128,8 @@ paths:
     post:
       tags: [Chat]
       operationId: createChatCompletion
-      summary: 执行非流式 RAG 问答
-      description: 无合格检索结果时直接返回 fallback，不调用 DeepSeek。
+      summary: 执行非流式知识问答或学习辅导
+      description: RAG 无合格检索结果时直接返回 fallback；learn 无资料时允许通用课程辅导并明确标注无校内资料引用，校园制度事实仍要求 RAG。
       parameters:
         - $ref: "#/components/parameters/XRequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -2156,7 +2156,7 @@ paths:
     post:
       tags: [Chat]
       operationId: streamChatCompletion
-      summary: 通过平台 SSE 协议执行流式 RAG 问答
+      summary: 通过平台 SSE 协议执行流式知识问答或学习辅导
       description: |
         事件顺序为 meta → delta* → sources → done；异常终止为 meta → error。
         DeepSeek 的 `: keep-alive` 仅用于保持上游连接，不直接转发为业务事件。
@@ -2674,6 +2674,10 @@ paths:
         - name: status
           in: query
           schema: {$ref: "#/components/schemas/AgentRunStatus"}
+        - name: conversation_id
+          in: query
+          description: 仅返回归属于指定会话的 Agent 运行
+          schema: {type: string, format: uuid}
         - $ref: "#/components/parameters/XRequestId"
       responses:
         "200":
@@ -5129,9 +5133,13 @@ components:
       properties:
         conversation_id: {type: [string, "null"], format: uuid}
         question: {type: string, minLength: 1, maxLength: 2000}
+        mode:
+          type: string
+          enum: [rag, learn]
+          default: rag
+          description: rag 要求知识库范围；learn 无资料时仅允许通用课程辅导，并明确标注无校内引用
         knowledge_base_ids:
           type: array
-          minItems: 1
           maxItems: 10
           uniqueItems: true
           items: {type: string, format: uuid}
@@ -5655,7 +5663,20 @@ components:
         context:
           type: object
           additionalProperties: true
-          description: 仅允许非敏感、可序列化上下文；服务端再次脱敏
+          description: 仅允许非敏感、可序列化上下文；服务端再次脱敏。保留字段用于从公开目录显式限定 Agent 和 Tool。
+          properties:
+            requested_agent_codes:
+              type: array
+              maxItems: 3
+              uniqueItems: true
+              items:
+                type: string
+                enum: [knowledge_agent, service_agent, community_agent, governance_agent, modelops_agent]
+            requested_tool_names:
+              type: array
+              maxItems: 14
+              uniqueItems: true
+              items: {type: string, pattern: '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'}
     AgentRun:
       type: object
       required: [id, status, route, input_summary, created_at, updated_at]
@@ -5782,7 +5803,7 @@ components:
 
     AgentCatalogItem:
       type: object
-      required: [code, name, description, version, enabled, tool_allowlist]
+      required: [code, name, description, version, enabled, tool_allowlist, visibility, required_permissions]
       additionalProperties: false
       properties:
         code: {type: string}
@@ -5791,6 +5812,8 @@ components:
         version: {type: string}
         enabled: {type: boolean}
         tool_allowlist: {type: array, items: {type: string}}
+        visibility: {type: string, enum: [public, restricted, runtime_internal]}
+        required_permissions: {type: array, items: {type: string}}
     AgentCatalogData:
       type: object
       required: [items]

@@ -45,10 +45,12 @@ def test_owner_scope_and_stable_pagination_compile() -> None:
         statements.append(statement)
         result=MagicMock(); result.scalar_one.return_value=0; result.scalars.return_value.all.return_value=[]; return result
     session.execute=AsyncMock(side_effect=execute)
-    rows,total=asyncio.run(repository.list_runs(user_id=USER,can_read_all=False,page=2,page_size=10,status="running"))
+    conversation_id = uuid4()
+    rows,total=asyncio.run(repository.list_runs(user_id=USER,can_read_all=False,page=2,page_size=10,status="running",conversation_id=conversation_id))
     sql=[str(item.compile(dialect=postgresql.dialect(),compile_kwargs={"literal_binds":True})) for item in statements]
     assert rows==() and total==0 and len(sql)==2
-    assert all("user_id" in item and "status" in item for item in sql)
+    assert all("user_id" in item and "status" in item and "conversation_id" in item for item in sql)
+    assert str(conversation_id) in sql[0]
     assert "ORDER BY agent_platform.agent_runs.created_at DESC" in sql[1]
     assert "LIMIT 10 OFFSET 10" in sql[1]
 

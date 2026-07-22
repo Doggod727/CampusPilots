@@ -86,6 +86,8 @@ def test_seed_constants_include_the_m5_platform_compatibility_baseline() -> None
     )
     assert "electricity:read_own" in seed_demo.ROLE_PERMISSION_CODES["student"]
     assert "chat:use" in seed_demo.ROLE_PERMISSION_CODES["student"]
+    assert "knowledge:write" in seed_demo.ROLE_PERMISSION_CODES["student"]
+    assert "knowledge:publish" in seed_demo.ROLE_PERMISSION_CODES["student"]
     assert "knowledge:read_all" in seed_demo.ROLE_PERMISSION_CODES["knowledge_admin"]
     assert "knowledge:write_all" in seed_demo.ROLE_PERMISSION_CODES["knowledge_admin"]
 

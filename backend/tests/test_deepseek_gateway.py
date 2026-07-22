@@ -100,6 +100,25 @@ def test_specialist_strictly_parses_result_and_tool_call():
     assert outcome.tool_request.agent_run_id == run_id
 
 
+def test_specialist_prompt_requires_an_explicitly_selected_tool():
+    run_id, task_id = uuid4(), uuid4()
+    client = FakeClient(_completion({
+        "status": "succeeded", "summary": "已查询",
+        "structured_output": {"answer": "查询完成"},
+        "tool_call": {"name": "service.get_guide", "version": "1.0.0", "arguments": {"query": "校历"}, "idempotency_key": None},
+    }))
+    provider = DeepSeekSpecialistProvider(DeepSeekGateway(api_key="secret", client=client))
+    asyncio.run(provider.invoke(
+        AgentTask(
+            task_id=task_id, agent_run_id=run_id, target_agent="service_agent",
+            objective="查询校历", structured_input={"requested_tool_names": ["service.get_guide"]},
+        ),
+        UserContext(user_id=uuid4(), username="student01", request_id="request-1234"),
+    ))
+    system_prompt = client.requests[0][1]["json"]["messages"][0]["content"]
+    assert "tool_call 不得为 null" in system_prompt and "service.get_guide" in system_prompt
+
+
 def test_reasoning_or_invalid_shape_is_safely_rejected():
     gateway = DeepSeekGateway(api_key="secret", client=FakeClient(_completion({"x": 1}, reasoning="hidden chain")))
     with pytest.raises(DeepSeekUnavailable) as caught:

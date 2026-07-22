@@ -2299,9 +2299,9 @@ export const getMessage = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * 执行非流式 RAG 问答
+ * 执行非流式知识问答或学习辅导
  *
- * 无合格检索结果时直接返回 fallback，不调用 DeepSeek。
+ * RAG 无合格检索结果时直接返回 fallback；learn 无资料时允许通用课程辅导并明确标注无校内资料引用，校园制度事实仍要求 RAG。
  */
 export const createChatCompletion = <ThrowOnError extends boolean = false>(
   options: Options<CreateChatCompletionData, ThrowOnError>,
@@ -2327,7 +2327,7 @@ export const createChatCompletion = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * 通过平台 SSE 协议执行流式 RAG 问答
+ * 通过平台 SSE 协议执行流式知识问答或学习辅导
  *
  * 事件顺序为 meta → delta* → sources → done；异常终止为 meta → error。
  * DeepSeek 的 `: keep-alive` 仅用于保持上游连接，不直接转发为业务事件。

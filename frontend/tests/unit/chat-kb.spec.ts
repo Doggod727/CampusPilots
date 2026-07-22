@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { tokenStore } from '@/api/client'
+import { useAuthStore } from '@/modules/auth/stores/auth'
 import ChatView from '@/modules/chat-kb/ChatView.vue'
 import IngestionView from '@/modules/chat-kb/IngestionView.vue'
 import KnowledgeBasesView from '@/modules/chat-kb/KnowledgeBasesView.vue'
@@ -17,8 +18,20 @@ afterAll(() => server.close())
 
 const NOW = '2026-07-18T00:00:00Z'
 
-const envelope = (data: unknown) => ({ code: 'OK', message: 'success', data, request_id: 'r', timestamp: NOW })
-const errorEnvelope = (code: string, message: string) => ({ code, message, details: [], request_id: 'r', timestamp: NOW })
+const envelope = (data: unknown) => ({
+  code: 'OK',
+  message: 'success',
+  data,
+  request_id: 'r',
+  timestamp: NOW,
+})
+const errorEnvelope = (code: string, message: string) => ({
+  code,
+  message,
+  details: [],
+  request_id: 'r',
+  timestamp: NOW,
+})
 const pageOf = (items: unknown[], total = items.length) => ({
   items,
   pagination: { page: 1, page_size: 20, total, total_pages: Math.max(1, Math.ceil(total / 20)) },
@@ -51,6 +64,30 @@ const CONVERSATION = {
   last_message_at: null,
   created_at: NOW,
   updated_at: NOW,
+}
+
+const SERVICE_AGENT = {
+  code: 'service_agent',
+  name: '校园服务 Agent',
+  description: '办事指南、工单与电费',
+  version: '1.0.0',
+  enabled: true,
+  tool_allowlist: ['electricity.get_balance'],
+}
+
+const ELECTRICITY_TOOL = {
+  name: 'electricity.get_balance',
+  module: 'm2',
+  description: '查询本人绑定房间电费',
+  risk_level: 'r0',
+  enabled: true,
+  version: '1.0.0',
+  input_schema: {},
+  output_schema: {},
+  required_permissions: ['electricity:read_own'],
+  timeout_ms: 3000,
+  idempotent: true,
+  requires_approval: false,
 }
 
 const CITATION = {
@@ -107,6 +144,26 @@ async function clickButton(wrapper: ReturnType<typeof mount>, text: string) {
   await button?.trigger('click')
 }
 
+function mountChat() {
+  const EmptyRoute = { template: '<div />' }
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', name: 'chat', component: EmptyRoute },
+      { path: '/login', name: 'login', component: EmptyRoute },
+      { path: '/services/work-orders', name: 'work-orders-mine', component: EmptyRoute },
+      { path: '/community/events', name: 'community-events', component: EmptyRoute },
+      { path: '/community/claims', name: 'lost-found-claims', component: EmptyRoute },
+    ],
+  })
+  return mount(ChatView, {
+    global: {
+      plugins: [router],
+      stubs: { RouterLink: { template: '<a><slot /></a>' } },
+    },
+  })
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   tokenStore.set('test-token')
@@ -117,7 +174,9 @@ describe('KnowledgeBasesView', () => {
     server.use(
       http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
       http.delete('/api/v1/knowledge-bases/kb-1', () =>
-        HttpResponse.json(errorEnvelope('KNOWLEDGE_BASE_IN_USE', '知识库仍被文档或会话引用'), { status: 409 }),
+        HttpResponse.json(errorEnvelope('KNOWLEDGE_BASE_IN_USE', '知识库仍被文档或会话引用'), {
+          status: 409,
+        }),
       ),
     )
     const router = makeRouter()
@@ -134,7 +193,9 @@ describe('IngestionView', () => {
   it('重复文件上传映射 409 DOCUMENT_ALREADY_EXISTS', async () => {
     server.use(
       http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
-      http.get('/api/v1/knowledge-bases/kb-1/documents', () => HttpResponse.json(envelope(pageOf([])))),
+      http.get('/api/v1/knowledge-bases/kb-1/documents', () =>
+        HttpResponse.json(envelope(pageOf([]))),
+      ),
       http.post('/api/v1/knowledge-bases/kb-1/documents', () =>
         HttpResponse.json(errorEnvelope('DOCUMENT_ALREADY_EXISTS', '文档已存在'), { status: 409 }),
       ),
@@ -158,9 +219,16 @@ describe('ChatView', () => {
     server.use(
       http.get('/api/v1/conversations', () => HttpResponse.json(envelope(pageOf([CONVERSATION])))),
       http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
-      http.get('/api/v1/conversations/conv-1/messages', () => HttpResponse.json(envelope(pageOf([])))),
-      http.post('/api/v1/chat/stream', () => new Response(sse(streamBody), { headers: { 'Content-Type': 'text/event-stream' } })),
-      http.get(`/api/v1/messages/${message.id as string}`, () => HttpResponse.json(envelope(message))),
+      http.get('/api/v1/conversations/conv-1/messages', () =>
+        HttpResponse.json(envelope(pageOf([]))),
+      ),
+      http.post(
+        '/api/v1/chat/stream',
+        () => new Response(sse(streamBody), { headers: { 'Content-Type': 'text/event-stream' } }),
+      ),
+      http.get(`/api/v1/messages/${message.id as string}`, () =>
+        HttpResponse.json(envelope(message)),
+      ),
     )
   }
 
@@ -170,6 +238,298 @@ describe('ChatView', () => {
     await wrapper.find('textarea.chat__input').setValue(question)
     await clickButton(wrapper, '发送')
   }
+
+  async function askWithLibrary(wrapper: ReturnType<typeof mount>, question: string) {
+    await wrapper.find('.chat__conversation').trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('暂无消息'))
+    const input = wrapper.find('textarea.chat__input')
+    await input.setValue('/lib')
+    await input.trigger('keydown', { key: 'Enter' })
+    await input.setValue(question)
+    await clickButton(wrapper, '发送')
+  }
+
+  it('shows permission-filtered modules as compact expandable navigation', async () => {
+    server.use(
+      http.get('/api/v1/conversations', () => HttpResponse.json(envelope(pageOf([CONVERSATION])))),
+      http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
+      http.get('/api/v1/agents', () => HttpResponse.json(envelope({ items: [] }))),
+      http.get('/api/v1/tools', () => HttpResponse.json(envelope({ items: [] }))),
+    )
+    const auth = useAuthStore()
+    auth.user = {
+      id: 'u1',
+      username: 'student01',
+      display_name: '张同学',
+      status: 'active',
+      roles: [{ id: 'r1', code: 'student', name: '普通学生' }],
+      permissions: [
+        'chat:use',
+        'service:read',
+        'work_order:read',
+        'agent:run',
+        'agent:catalog:read',
+        'tool:catalog:read',
+      ],
+      created_at: NOW,
+      version: 1,
+    } as never
+    auth.status = 'authenticated'
+
+    const wrapper = mountChat()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('校园服务'))
+
+    const campusTrigger = wrapper
+      .findAll('.chat__module-trigger')
+      .find((candidate) => candidate.text().includes('校园服务'))
+    await campusTrigger?.trigger('click')
+    expect(wrapper.find('.chat__module-links').text()).toContain('办事指南')
+    expect(wrapper.find('.chat__module-links').text()).toContain('我的工单')
+    expect(wrapper.text()).not.toContain('能力中心')
+    expect(wrapper.text()).not.toContain('可用 Agent')
+    expect(wrapper.text()).not.toContain('可用工具')
+    expect(wrapper.text()).not.toContain('管理')
+    wrapper.unmount()
+  })
+
+  it('opens a database-backed account menu without inventing a global approval page', async () => {
+    server.use(
+      http.get('/api/v1/conversations', () => HttpResponse.json(envelope(pageOf([CONVERSATION])))),
+      http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
+      http.get('/api/v1/agents', () => HttpResponse.json(envelope({ items: [] }))),
+      http.get('/api/v1/tools', () => HttpResponse.json(envelope({ items: [] }))),
+    )
+    const auth = useAuthStore()
+    auth.user = {
+      id: 'u1',
+      username: 'student01',
+      display_name: '张同学',
+      status: 'active',
+      roles: [{ id: 'r1', code: 'student', name: '普通学生' }],
+      permissions: [
+        'chat:use',
+        'work_order:read',
+        'community:read',
+        'agent:run',
+        'agent:run:read_own',
+      ],
+      created_at: NOW,
+      version: 1,
+    } as never
+    auth.status = 'authenticated'
+
+    const wrapper = mountChat()
+    await wrapper.find('.chat__user').trigger('click')
+    expect(wrapper.find('.chat__account-menu').text()).toContain('我的工单')
+    expect(wrapper.find('.chat__account-menu').text()).toContain('我的活动')
+    expect(wrapper.find('.chat__account-menu').text()).toContain('我的认领')
+    expect(wrapper.find('.chat__account-menu').text()).toContain('待办审批')
+    await clickButton(wrapper, '待办审批')
+    expect(wrapper.find('.chat__account-notice').text()).toContain('请先打开一段对话')
+    wrapper.unmount()
+  })
+
+  it('applies slash commands without sending them as messages and opens library selection', async () => {
+    server.use(
+      http.get('/api/v1/conversations', () => HttpResponse.json(envelope(pageOf([CONVERSATION])))),
+      http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
+    )
+    const wrapper = mountChat()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('校区咨询'))
+
+    const input = wrapper.find('textarea.chat__input')
+    expect(wrapper.find('.chat__mode-launcher').exists()).toBe(false)
+    expect(wrapper.find('.chat__header-actions').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('回答基于已发布知识库')
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('流式')
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('智能路由')
+
+    await input.setValue('/')
+    expect(wrapper.find('.chat__command-menu').exists()).toBe(true)
+    expect(wrapper.findAll('.chat__command-option')[0]?.classes()).toContain(
+      'chat__command-option--selected',
+    )
+
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    const syncOption = wrapper
+      .findAll('.chat__command-option')
+      .find((candidate) => candidate.text().includes('/sync'))
+    expect(syncOption?.classes()).toContain('chat__command-option--selected')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect((input.element as HTMLTextAreaElement).value).toBe('')
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('完整')
+
+    await input.setValue('/stream')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect((input.element as HTMLTextAreaElement).value).toBe('')
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('流式')
+
+    await input.setValue('/lib')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect((input.element as HTMLTextAreaElement).value).toBe('')
+    expect(wrapper.find('.chat__kb-panel').exists()).toBe(true)
+    expect(wrapper.find('.chat__kb-panel').text()).toContain('校规知识库')
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('知识库 1')
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('知识库问答')
+    await input.setValue('/')
+    expect(wrapper.text()).not.toContain('/agent')
+    expect(wrapper.text()).not.toContain('/tool')
+    wrapper.unmount()
+  })
+
+  it('selects real agents and tools from the backend catalog and executes an agent run inline', async () => {
+    let createBody: Record<string, unknown> | null = null
+    let listedConversationId = ''
+    const run = {
+      id: 'run-1',
+      status: 'created',
+      route: null,
+      router_model: null,
+      router_confidence: null,
+      input_summary: '查询我的电费',
+      final_answer: null,
+      error_code: null,
+      created_at: NOW,
+      updated_at: NOW,
+      finished_at: null,
+    }
+    server.use(
+      http.get('/api/v1/conversations', () => HttpResponse.json(envelope(pageOf([CONVERSATION])))),
+      http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
+      http.get('/api/v1/agents', () => HttpResponse.json(envelope({ items: [SERVICE_AGENT] }))),
+      http.get('/api/v1/tools', () => HttpResponse.json(envelope({ items: [ELECTRICITY_TOOL] }))),
+      http.post('/api/v1/conversations', () =>
+        HttpResponse.json(envelope(CONVERSATION), { status: 201 }),
+      ),
+      http.get('/api/v1/conversations/:id/messages', () => HttpResponse.json(envelope(pageOf([])))),
+      http.get('/api/v1/agent-runs', ({ request }) => {
+        listedConversationId = new URL(request.url).searchParams.get('conversation_id') ?? ''
+        return HttpResponse.json(envelope(pageOf([run])))
+      }),
+      http.post('/api/v1/agent-runs', async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(envelope(run), { status: 202 })
+      }),
+      http.get('/api/v1/agent-runs/run-1', () =>
+        HttpResponse.json(
+          envelope({
+            run: {
+              ...run,
+              status: 'succeeded',
+              route: 'service',
+              final_answer: '当前余额 32.50 元。',
+            },
+            steps: [],
+            tool_calls: [],
+            approvals: [],
+          }),
+        ),
+      ),
+      http.get(
+        '/api/v1/agent-runs/run-1/stream',
+        () =>
+          new Response(
+            sse(
+              'id: 1\nevent: route\ndata: {"sequence":1,"data":{"target_agent":"service"}}\n\n' +
+                'id: 2\nevent: done\ndata: {"sequence":2,"data":{"status":"succeeded"}}\n\n',
+            ),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+      ),
+    )
+    const auth = useAuthStore()
+    auth.user = {
+      id: 'u1',
+      username: 'student01',
+      display_name: '张同学',
+      status: 'active',
+      roles: [{ id: 'r1', code: 'model_engineer', name: '模型工程管理员' }],
+      permissions: [
+        'chat:use',
+        'agent:run',
+        'agent:run:read_own',
+        'agent:catalog:read',
+        'tool:catalog:read',
+        'model:read',
+      ],
+      created_at: NOW,
+      version: 1,
+    } as never
+    auth.status = 'authenticated'
+
+    const wrapper = mountChat()
+    const input = wrapper.find('textarea.chat__input')
+    await input.setValue('/agent')
+    await input.trigger('keydown', { key: 'Enter' })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('校园服务 Agent'))
+    await wrapper.find('.chat__selection-item input').setValue(true)
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('Agent 1')
+
+    await input.setValue('/tool')
+    await input.trigger('keydown', { key: 'Enter' })
+    await wrapper.find('.chat__selection-item input').setValue(true)
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('Tool 1')
+
+    await input.setValue('查询我的电费')
+    await clickButton(wrapper, '发送')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('当前余额 32.50 元。'))
+    expect(createBody).toMatchObject({
+      conversation_id: CONVERSATION.id,
+      mode: 'service',
+      context: {
+        requested_agent_codes: ['service_agent'],
+        requested_tool_names: ['electricity.get_balance'],
+      },
+    })
+    expect(wrapper.text()).not.toContain('最近 Agent 任务')
+    await wrapper.find('.chat__conversation').trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('当前余额 32.50 元。'))
+    expect(listedConversationId).toBe(CONVERSATION.id)
+    wrapper.unmount()
+  })
+
+  it('sends ordinary input through an auto Agent Run bound to the current conversation', async () => {
+    let createBody: Record<string, unknown> = {}
+    const run = { id: 'run-auto', status: 'created', route: null, input_summary: '查询电费', final_answer: null, error_code: null, created_at: NOW, updated_at: NOW, finished_at: null }
+    server.use(
+      http.get('/api/v1/conversations', () => HttpResponse.json(envelope(pageOf([CONVERSATION])))),
+      http.get('/api/v1/knowledge-bases', () => HttpResponse.json(envelope(pageOf([KB])))),
+      http.get('/api/v1/conversations/conv-1/messages', () => HttpResponse.json(envelope(pageOf([])))),
+      http.get('/api/v1/agent-runs', () => HttpResponse.json(envelope(pageOf([])))),
+      http.post('/api/v1/agent-runs', async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(envelope(run), { status: 202 })
+      }),
+      http.get('/api/v1/agent-runs/run-auto', () => HttpResponse.json(envelope({ run: { ...run, status: 'succeeded', final_answer: '余额为 32.50 元。' }, steps: [], tool_calls: [], approvals: [] }))),
+      http.get('/api/v1/agent-runs/run-auto/stream', () => new Response(sse('id: 1\nevent: done\ndata: {"sequence":1,"data":{"status":"succeeded"}}\n\n'), { headers: { 'Content-Type': 'text/event-stream' } })),
+    )
+    const auth=useAuthStore()
+    auth.user={id:'u1',username:'student01',display_name:'张同学',status:'active',roles:[{id:'r1',code:'student',name:'普通学生'}],permissions:['chat:use','agent:run','agent:run:read_own'],created_at:NOW,version:1} as never
+    auth.status='authenticated'
+    const wrapper=mountChat()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('校区咨询'))
+    await ask(wrapper,'查询电费')
+    await vi.waitFor(() => expect(createBody).toMatchObject({conversation_id:'conv-1',mode:'auto',context:{}}))
+    expect(createBody).toMatchObject({conversation_id:'conv-1',mode:'auto',context:{}})
+    wrapper.unmount()
+  })
+
+  it('uses /learn without sources and sends the real learn contract mode', async () => {
+    let requestBody: Record<string, unknown> = {}
+    const message=makeMessage({id:'learn-1',content:'通用模型回答，无校内资料引用\n\n导数描述函数的瞬时变化率。',citations:[]})
+    useChatHandlers(message,'event: meta\ndata: {"conversation_id":"conv-1","message_id":"learn-1","request_id":"r"}\n\nevent: delta\ndata: {"sequence":1,"content":"通用模型回答，无校内资料引用\\n\\n导数描述函数的瞬时变化率。"}\n\nevent: sources\ndata: {"citations":[]}\n\nevent: done\ndata: {"finish_reason":"stop","usage":{}}\n\n')
+    server.use(http.post('/api/v1/chat/stream',async ({request})=>{requestBody=(await request.json()) as Record<string,unknown>;return new Response(sse('event: meta\ndata: {"conversation_id":"conv-1","message_id":"learn-1","request_id":"r"}\n\nevent: done\ndata: {"finish_reason":"stop","usage":{}}\n\n'),{headers:{'Content-Type':'text/event-stream'}})}))
+    const wrapper=mountChat()
+    await vi.waitFor(()=>expect(wrapper.text()).toContain('校区咨询'))
+    await wrapper.find('.chat__conversation').trigger('click')
+    const input=wrapper.find('textarea.chat__input')
+    await input.setValue('/learn');await input.trigger('keydown',{key:'Enter'})
+    await wrapper.find('.chat__kb-item input').setValue(false)
+    await input.setValue('讲解导数');await clickButton(wrapper,'发送')
+    await vi.waitFor(()=>expect(requestBody).toMatchObject({mode:'learn',knowledge_base_ids:[]}))
+    expect(wrapper.find('.chat__selection-chips').text()).toContain('学习辅导')
+    wrapper.unmount()
+  })
 
   it('流式回答按 meta→delta→sources→done 渲染，经 getMessage 恢复并展示引用；反馈幂等提交', async () => {
     const message = makeMessage({
@@ -197,9 +557,9 @@ describe('ChatView', () => {
         )
       }),
     )
-    const wrapper = mount(ChatView)
+    const wrapper = mountChat()
     await vi.waitFor(() => expect(wrapper.text()).toContain('校区咨询'))
-    await ask(wrapper, '望江校区地址')
+    await askWithLibrary(wrapper, '望江校区地址')
     // 最终内容以后端 getMessage 恢复为准
     await vi.waitFor(() => expect(wrapper.text()).toContain('四川大学望江校区位于成都市武侯区。'))
     // 引用侧栏：文档名、位置、页码、摘录
@@ -218,7 +578,7 @@ describe('ChatView', () => {
     wrapper.unmount()
   })
 
-  it('fallback 回答展示兜底标识且不显示伪引用', async () => {
+  it('fallback 回答保留正文但隐藏内部状态标识和伪引用', async () => {
     const message = makeMessage({
       id: 'm2',
       status: 'fallback',
@@ -233,12 +593,14 @@ describe('ChatView', () => {
         'event: sources\ndata: {"citations":[]}\n\n' +
         'event: done\ndata: {"finish_reason":"fallback","usage":{"prompt_tokens":0,"completion_tokens":0}}\n\n',
     )
-    const wrapper = mount(ChatView)
+    const wrapper = mountChat()
     await vi.waitFor(() => expect(wrapper.text()).toContain('校区咨询'))
-    await ask(wrapper, '量子引力')
+    await askWithLibrary(wrapper, '量子引力')
     await vi.waitFor(() => expect(wrapper.text()).toContain('未在已发布知识库中找到相关内容'))
-    expect(wrapper.text()).toContain('兜底回答')
-    const citationButtons = wrapper.findAll('button').filter((candidate) => candidate.text().includes('引用'))
+    expect(wrapper.text()).not.toContain('兜底回答')
+    const citationButtons = wrapper
+      .findAll('button')
+      .filter((candidate) => candidate.text().includes('引用'))
     expect(citationButtons).toHaveLength(0)
     wrapper.unmount()
   })
