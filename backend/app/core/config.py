@@ -73,6 +73,16 @@ class Settings(BaseSettings):
     knowledge_chroma_path: Path = Path("/data/chroma")
     knowledge_embedding_model_path: Path = Path("/models/bge-small-zh-v1.5")
 
+    # OpenSearch 混合检索配置
+    knowledge_search_backend: str = Field(default="opensearch", pattern="^(chroma|opensearch)$")
+    knowledge_opensearch_url: str = "http://localhost:9200"
+    knowledge_opensearch_username: str = "admin"
+    knowledge_opensearch_password: SecretStr = SecretStr("CampusPilot2024!")
+    knowledge_opensearch_index_prefix: str = "kb_"
+    knowledge_hybrid_vector_weight: float = Field(default=0.7, ge=0, le=1)
+    knowledge_hybrid_bm25_weight: float = Field(default=0.3, ge=0, le=1)
+    knowledge_hybrid_rrf_k: int = Field(default=60, ge=1, le=1000)
+
 
 @lru_cache
 def get_settings() -> Settings:

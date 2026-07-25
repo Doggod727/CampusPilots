@@ -13,6 +13,7 @@ from app.modules.campus_service.repositories import (
     ElectricityRepository,
     WorkOrderEventRepository,
     WorkOrderRepository,
+    resolve_enabled_campus_code,
 )
 from app.modules.campus_service.work_order_access import WorkOrderScopeRepository
 from app.modules.campus_service.work_order_schemas import (
@@ -199,6 +200,49 @@ class WorkOrderService:
             idempotency_key=idempotency_key,
             request_id=request_id,
         )
+
+    async def create_from_location_in_transaction(
+        self,
+        *,
+        actor: WorkOrderActor,
+        campus: str,
+        dormitory_area: str,
+        building: str,
+        room: str,
+        fault_category: str,
+        description: str,
+        preferred_start_at: datetime,
+        preferred_end_at: datetime,
+        idempotency_key: str,
+        request_id: str,
+        agent_run_id: UUID,
+        approval_id: UUID | None,
+        approval_verified: bool,
+    ) -> WorkOrderMutationResult:
+        if approval_id is None or not approval_verified:
+            raise WorkOrderApprovalInvalid()
+        campus_code = await self._resolve_campus_code(campus)
+        return await self.create_in_transaction(
+            actor=actor,
+            command=CreateWorkOrderCommand(
+                campus_code=campus_code,
+                dormitory_area=dormitory_area,
+                building=building,
+                room=room,
+                fault_category=fault_category,
+                description=description,
+                preferred_start_at=preferred_start_at,
+                preferred_end_at=preferred_end_at,
+            ),
+            idempotency_key=idempotency_key,
+            request_id=request_id,
+        )
+
+    async def _resolve_campus_code(self, campus: str) -> str:
+        code = await resolve_enabled_campus_code(self._campuses, campus)
+        if code is None:
+            raise CampusNotFound()
+        return code
 
     async def _create(
         self,

@@ -21,8 +21,22 @@ from app.modules.agent_platform.tool_gateway.executor import ToolExecutor
 from app.modules.agent_platform.traces import AgentRunStateConflict, TraceService
 
 
+def _current_message(text: str) -> str:
+    """objective 可能拼接了会话历史；意图判断只依据当前用户消息。"""
+
+    if not isinstance(text, str):
+        return ""
+    return text.rsplit("当前用户消息：", 1)[-1]
+
+
+_TOPUP_WORDS = ("充电费", "充值", "充钱", "缴电费", "缴费", "交电费", "交费")
+_TOPUP_AMOUNT_RE = re.compile(r"充\s*\d+(?:\.\d+)?\s*元?")
+
+
 def _is_electricity_topup_text(text: str) -> bool:
-    return any(word in text for word in ("充电费", "充值", "充钱", "缴电费", "缴费"))
+    return any(word in text for word in _TOPUP_WORDS) or bool(
+        _TOPUP_AMOUNT_RE.search(text)
+    )
 
 
 def _required_write_tool(text: str) -> str | None:
@@ -90,8 +104,36 @@ def _tool_success_answer(tool_name: str, data: Mapping[str, Any]) -> str:
         items = data.get("items") or ()
         if not items:
             return "办事指南查询已完成，暂未找到匹配的指南。"
-        titles = [str(item.get("title")) for item in items[:5] if isinstance(item, Mapping) and item.get("title")]
-        return "已找到相关办事指南：" + "、".join(titles) + "。"
+        blocks: list[str] = []
+        for item in items[:3]:
+            if not isinstance(item, Mapping):
+                continue
+            lines = [f"【{item.get('title')}】{item.get('summary') or ''}".rstrip()]
+            facts = []
+            if item.get("department"):
+                facts.append(f"办理部门：{item['department']}")
+            if item.get("location"):
+                facts.append(f"办理地点：{item['location']}")
+            if item.get("service_hours"):
+                facts.append(f"服务时间：{item['service_hours']}")
+            if facts:
+                lines.append("；".join(facts))
+            materials = item.get("materials") or ()
+            if materials:
+                lines.append("所需材料：" + "、".join(str(m) for m in materials))
+            steps = item.get("steps") or ()
+            if steps:
+                lines.append("办理步骤：" + "；".join(str(s) for s in steps))
+            blocks.append("\n".join(lines))
+        rest = [
+            str(item.get("title"))
+            for item in items[3:5]
+            if isinstance(item, Mapping) and item.get("title")
+        ]
+        answer = "\n\n".join(blocks)
+        if rest:
+            answer += ("\n\n" if answer else "") + "其他相关指南：" + "、".join(rest) + "。"
+        return answer or "办事指南查询已完成。"
     if tool_name == "work_order.create":
         identifier = data.get("work_order_id")
         return f"报修工单已提交，工单编号为 {identifier}。" if identifier else "报修工单已提交。"
@@ -102,8 +144,12 @@ def _tool_success_answer(tool_name: str, data: Mapping[str, Any]) -> str:
         return f"查询成功，房间当前电费余额为 {data.get('balance')} {data.get('currency', 'CNY')}。"
     if tool_name == "electricity.create_topup_request":
         amount = data.get("amount")
-        prefix = f"已完成 {amount} 元电费充值申请。" if amount is not None else "电费充值申请已完成。"
-        return prefix + "这是模拟申请，不会产生真实扣款或到账。"
+        balance_after = data.get("balance_after")
+        if amount is not None and balance_after is not None:
+            return f"已成功充值 {amount} 元电费，当前余额为 {balance_after} 元。"
+        if amount is not None:
+            return f"已成功充值 {amount} 元电费。"
+        return "电费充值已完成。"
     if tool_name == "event.search":
         items = data.get("items") or ()
         if not items:
@@ -314,15 +360,16 @@ class BoundedGraphRuntime:
         else:
             route=await self._router.route(objective)
         await self._events.publish(run_id,"route",route.model_dump(mode="json"))
+        current_message = _current_message(objective)
         if (
             route.target_agent == "service"
-            and ("电费" in objective or "ELECTRICITY" in route.reason_code)
-            and not _is_electricity_topup_text(objective)
+            and ("电费" in current_message or "ELECTRICITY" in route.reason_code)
+            and not _is_electricity_topup_text(current_message)
         ):
             # Persist the cross-turn intent separately from the free-form text.
             # A later UUID must fill room_id, not trigger a fresh classification.
             safe_context["resolved_intent"] = "electricity.get_balance"
-        elif route.target_agent == "service" and _is_electricity_topup_text(objective):
+        elif route.target_agent == "service" and _is_electricity_topup_text(current_message):
             safe_context["resolved_intent"] = "electricity.create_topup_request"
         plan=self._planner.plan(agent_run_id=run_id,route=route,objective=objective,structured_input=safe_context)
         checkpoint=RuntimeCheckpoint(user,objective,dict(safe_context),plan)
@@ -399,7 +446,7 @@ class BoundedGraphRuntime:
             resolved_slots["room_id"] = str(supplied_uuid)
             # The authenticated room scope makes this UUID unambiguous. Without
             # an explicit top-up request, continuing as a read-only query is safe.
-            if not _is_electricity_topup_text(state.objective):
+            if not _is_electricity_topup_text(_current_message(state.objective)):
                 resolved_slots["resolved_intent"] = "electricity.get_balance"
         elif supplied_uuid is not None and len(missing_slots) == 1:
             resolved_slots[str(missing_slots[0])] = str(supplied_uuid)
@@ -461,7 +508,7 @@ class BoundedGraphRuntime:
             if specialist is None:
                 await self._trace.finalize(run_id,"failed",error_code="AGENT_NOT_FOUND")
                 state.terminal=True; self._terminal_runs.add(run_id); await self._checkpoints.save(run_id,state); await self._checkpoints.delete(run_id); return
-            required_write_tool = _required_write_tool(task.objective)
+            required_write_tool = _required_write_tool(_current_message(task.objective))
             step=await self._trace.append_step(run_id=run_id,agent_code=task.target_agent,task_type="generate",input_summary=task.structured_input)
             await self._trace.transition_step(step.id,{"created"},"running",started_at=datetime.now(UTC))
             if (

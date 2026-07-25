@@ -186,7 +186,7 @@ function formatDate(value: string): string {
 
 <template>
   <div class="services">
-    <PageHeader title="校园服务" subtitle="办事指南、材料清单与部门联系方式（内容均来自后端）" />
+    <PageHeader title="校园服务" subtitle="办事指南、材料清单与部门联系方式" />
 
     <section class="services__section" aria-label="办事指南">
       <h2 class="services__heading">办事指南</h2>

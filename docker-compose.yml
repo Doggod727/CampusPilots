@@ -15,6 +15,14 @@ x-backend-env: &backend-env
   KNOWLEDGE_UPLOAD_ROOT: /data/knowledge
   KNOWLEDGE_CHROMA_PATH: /data/chroma
   KNOWLEDGE_EMBEDDING_MODEL_PATH: /models/bge-small-zh-v1.5
+  KNOWLEDGE_SEARCH_BACKEND: ${KNOWLEDGE_SEARCH_BACKEND:-opensearch}
+  KNOWLEDGE_OPENSEARCH_URL: http://opensearch:9200
+  KNOWLEDGE_OPENSEARCH_USERNAME: admin
+  KNOWLEDGE_OPENSEARCH_PASSWORD: ${KNOWLEDGE_OPENSEARCH_PASSWORD:-CampusPilot2024!}
+  KNOWLEDGE_OPENSEARCH_INDEX_PREFIX: kb_
+  KNOWLEDGE_HYBRID_VECTOR_WEIGHT: "0.7"
+  KNOWLEDGE_HYBRID_BM25_WEIGHT: "0.3"
+  KNOWLEDGE_HYBRID_RRF_K: "60"
   MODEL_ARTIFACT_ROOT: /data/models
   DATASET_ARTIFACT_ROOT: /data/datasets
   MODELOPS_EXECUTION_MODE: ${MODELOPS_EXECUTION_MODE:-local}
@@ -53,6 +61,22 @@ services:
       retries: 30
     restart: unless-stopped
 
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=CampusPilot2024!
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
   # 一次性任务：迁移 + 演示种子（幂等，可重复执行）
   migrate:
     build:
@@ -62,6 +86,8 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      opensearch:
         condition: service_healthy
     environment: *backend-env
     volumes: *backend-volumes
@@ -175,3 +201,4 @@ volumes:
   model-artifacts:
   dataset-artifacts:
   hf-cache:
+  opensearch-data:

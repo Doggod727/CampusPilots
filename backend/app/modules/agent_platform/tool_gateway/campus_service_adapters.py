@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from pydantic import ValidationError
 
@@ -21,8 +22,14 @@ from app.modules.agent_platform.tool_gateway.errors import (
     ToolDependencyUnavailable,
     ToolForbidden,
 )
-from app.modules.campus_service.guides import ServiceGuideService
-from app.modules.campus_service.work_order_errors import WorkOrderNotFound
+from app.modules.campus_service.guides import (
+    GuideDetailDTO,
+    GuideNotFound,
+    GuideSummaryDTO,
+    ServiceGuideService,
+)
+from app.modules.campus_service.repositories import CampusReferenceRepository
+from app.modules.campus_service.work_order_errors import CampusNotFound, WorkOrderNotFound
 from app.modules.campus_service.work_orders import WorkOrderService
 
 FAULT_TYPES = {
@@ -49,8 +56,16 @@ STATUS_TEXT = {
 
 
 class ServiceGuideToolHandler:
-    def __init__(self, service: ServiceGuideService) -> None:
+    _DETAIL_LIMIT = 3
+
+    def __init__(
+        self,
+        service: ServiceGuideService,
+        *,
+        campuses: CampusReferenceRepository | None = None,
+    ) -> None:
         self._service = service
+        self._campuses = campuses
 
     async def __call__(
         self, invocation: ToolInvocationContext, payload: ToolModel
@@ -66,19 +81,76 @@ class ServiceGuideToolHandler:
             )
         except ValueError as exc:
             raise ToolArgumentInvalid() from exc
-        return ServiceGuideOutput(
-            items=tuple(
-                GuideItem(
-                    guide_id=item.id,
-                    title=item.title,
-                    summary=item.summary,
-                    location=item.location,
-                    updated_at=item.updated_at,
-                    steps=(),
-                )
-                for item in page.items
-            )
+        detailed = [
+            await self._guide_item(item, invocation, data)
+            for item in page.items[: self._DETAIL_LIMIT]
+        ]
+        items = tuple(detailed) + tuple(
+            self._summary_item(item) for item in page.items[self._DETAIL_LIMIT :]
         )
+        return ServiceGuideOutput(items=items)
+
+    async def _guide_item(
+        self,
+        item: GuideSummaryDTO,
+        invocation: ToolInvocationContext,
+        data: ServiceGuideInput,
+    ) -> GuideItem:
+        detail = await self._detail_for(item.id, invocation, data)
+        if detail is None:
+            return self._summary_item(item)
+        return GuideItem(
+            guide_id=item.id,
+            title=item.title,
+            summary=item.summary,
+            location=item.location,
+            updated_at=item.updated_at,
+            department=item.department.name,
+            service_hours=item.service_hours,
+            materials=tuple(
+                f"{material.name}（{material.copies}份）" if material.copies > 1 else material.name
+                for material in detail.materials
+            ),
+            steps=tuple(
+                f"{step.step_no}. {step.title}：{step.description}"
+                for step in detail.steps
+            ),
+        )
+
+    def _summary_item(self, item: GuideSummaryDTO) -> GuideItem:
+        return GuideItem(
+            guide_id=item.id,
+            title=item.title,
+            summary=item.summary,
+            location=item.location,
+            updated_at=item.updated_at,
+            department=item.department.name,
+            service_hours=item.service_hours,
+        )
+
+    async def _detail_for(
+        self,
+        guide_id: UUID,
+        invocation: ToolInvocationContext,
+        data: ServiceGuideInput,
+    ) -> GuideDetailDTO | None:
+        student_type = data.student_type or "undergraduate"
+        candidates: list[str] = []
+        for value in (data.campus_id, invocation.user.campus_id):
+            if value and value not in candidates:
+                candidates.append(value)
+        if self._campuses is not None:
+            for campus in await self._campuses.list_enabled_campuses():
+                if campus.code not in candidates:
+                    candidates.append(campus.code)
+        for campus_code in candidates:
+            try:
+                return await self._service.get_detail(
+                    guide_id, campus_code=campus_code, student_type=student_type
+                )
+            except (GuideNotFound, ValueError):
+                continue
+        return None
 
 
 class WorkOrderCreateToolHandler:
@@ -127,20 +199,45 @@ class WorkOrderCreateToolHandler:
                 reason="故障类型、描述或附件不符合工单要求；当前暂不支持附件",
             )
         preferred_start_at, preferred_end_at = self._time_window(data.available_time)
-        result = await self._service.create_from_room_in_transaction(
-            actor=invocation.user,
-            room_ids=invocation.user.room_ids,
-            room_id=data.room_id,
-            fault_category=fault_category,
-            description=data.description,
-            preferred_start_at=preferred_start_at,
-            preferred_end_at=preferred_end_at,
-            idempotency_key=invocation.idempotency_key,
-            request_id=invocation.user.request_id,
-            agent_run_id=invocation.agent_run_id,
-            approval_id=invocation.approval_id,
-            approval_verified=invocation.approval_verified,
-        )
+        if data.room_id is not None:
+            result = await self._service.create_from_room_in_transaction(
+                actor=invocation.user,
+                room_ids=invocation.user.room_ids,
+                room_id=data.room_id,
+                fault_category=fault_category,
+                description=data.description,
+                preferred_start_at=preferred_start_at,
+                preferred_end_at=preferred_end_at,
+                idempotency_key=invocation.idempotency_key,
+                request_id=invocation.user.request_id,
+                agent_run_id=invocation.agent_run_id,
+                approval_id=invocation.approval_id,
+                approval_verified=invocation.approval_verified,
+            )
+        else:
+            try:
+                result = await self._service.create_from_location_in_transaction(
+                    actor=invocation.user,
+                    campus=data.campus or "",
+                    dormitory_area=(data.dormitory_area or "").strip(),
+                    building=(data.building or "").strip(),
+                    room=(data.room or "").strip(),
+                    fault_category=fault_category,
+                    description=data.description,
+                    preferred_start_at=preferred_start_at,
+                    preferred_end_at=preferred_end_at,
+                    idempotency_key=invocation.idempotency_key,
+                    request_id=invocation.user.request_id,
+                    agent_run_id=invocation.agent_run_id,
+                    approval_id=invocation.approval_id,
+                    approval_verified=invocation.approval_verified,
+                )
+            except CampusNotFound as exc:
+                raise ToolArgumentInvalid(
+                    "校区不存在或已停用",
+                    field="campus",
+                    reason="请提供有效的校区名称或编码，例如 江安校区",
+                ) from exc
         body = result.body["data"]
         return WorkOrderCreateOutput.model_validate(
             {

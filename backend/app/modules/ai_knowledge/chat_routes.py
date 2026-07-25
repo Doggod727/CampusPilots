@@ -51,10 +51,10 @@ async def chat_dependency():
     settings = get_settings(); database = Database.from_settings(settings)
     try:
         async with database.session() as session:
-            import chromadb
             repository = ConversationRepository(session); conversations = ConversationService(session, repository)
             knowledge = KnowledgeService(session, KnowledgeRepository(session))
-            vectors = ChromaVectorStore(chromadb.PersistentClient(path=str(settings.knowledge_chroma_path)))
+            from app.modules.ai_knowledge.vectors import create_vector_store
+            vectors = create_vector_store(settings)
             retrieval = RetrievalService(session, knowledge, BgeSmallZhEmbeddingProvider(str(settings.knowledge_embedding_model_path)), vectors, settings.knowledge_score_threshold)
             gateway = DeepSeekGateway(api_key=settings.deepseek_api_key.get_secret_value(), base_url=str(settings.deepseek_base_url), model=settings.deepseek_model)
             yield session, repository, conversations, RagChatService(session, conversations, retrieval, gateway, settings.knowledge_history_rounds)

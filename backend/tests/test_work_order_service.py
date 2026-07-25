@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, date, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
@@ -7,7 +8,11 @@ import pytest
 
 from app.modules.campus_service.models import WorkOrder, WorkOrderEvent
 from app.modules.campus_service.models import ElectricityAccount
-from app.modules.campus_service.work_order_errors import CampusNotFound, WorkOrderNotFound
+from app.modules.campus_service.work_order_errors import (
+    CampusNotFound,
+    WorkOrderApprovalInvalid,
+    WorkOrderNotFound,
+)
 from app.modules.campus_service.work_orders import (
     CreateWorkOrderCommand,
     WorkOrderService,
@@ -274,6 +279,66 @@ def test_event_query_returns_stable_timeline_after_visibility_check() -> None:
     result = asyncio.run(service.list_events(actor=_actor(), work_order_id=order.id))
 
     assert [item.sequence_no for item in result.items] == [1]
+
+
+def test_tool_location_create_resolves_campus_name_and_reuses_caller_transaction() -> None:
+    service, session, campuses, _, _, _, _ = _service()
+    campus = SimpleNamespace(code="jiangan", name="江安校区")
+
+    async def _get_campus(code: str):
+        return campus if code == "jiangan" else None
+
+    campuses.get_enabled_campus = AsyncMock(side_effect=_get_campus)
+    campuses.list_enabled_campuses = AsyncMock(return_value=(campus,))
+    result = asyncio.run(service.create_from_location_in_transaction(
+        actor=_actor(), campus="江安校区", dormitory_area="西苑",
+        building="6舍3栋", room="601B",
+        fault_category="electric", description="空调无法制冷，需要维修。",
+        preferred_start_at=NOW, preferred_end_at=datetime(2026, 7, 16, 18, tzinfo=UTC),
+        idempotency_key="tool-create-2", request_id="tool-request-1",
+        agent_run_id=UUID(int=44), approval_id=UUID(int=45), approval_verified=True,
+    ))
+    assert result.status_code == 201
+    session.begin.assert_not_called()
+    assert campuses.get_enabled_campus.await_args_list[-1].args == ("jiangan",)
+
+
+def test_tool_location_create_resolves_campus_code_case_insensitively() -> None:
+    service, _, campuses, _, _, _, _ = _service()
+    campus = SimpleNamespace(code="jiangan", name="江安校区")
+    campuses.get_enabled_campus = AsyncMock(return_value=campus)
+    result = asyncio.run(service.create_from_location_in_transaction(
+        actor=_actor(), campus="JiangAn", dormitory_area="西苑",
+        building="6舍3栋", room="601B",
+        fault_category="electric", description="空调无法制冷，需要维修。",
+        preferred_start_at=NOW, preferred_end_at=datetime(2026, 7, 16, 18, tzinfo=UTC),
+        idempotency_key="tool-create-3", request_id="tool-request-1",
+        agent_run_id=UUID(int=44), approval_id=UUID(int=45), approval_verified=True,
+    ))
+    assert result.status_code == 201
+    assert campuses.get_enabled_campus.await_args_list[0].args == ("jiangan",)
+
+
+def test_tool_location_create_rejects_unknown_campus_and_unverified_approval() -> None:
+    service, _, campuses, _, _, _, _ = _service()
+    campuses.get_enabled_campus = AsyncMock(return_value=None)
+    campuses.list_enabled_campuses = AsyncMock(
+        return_value=(SimpleNamespace(code="wangjiang", name="望江校区"),)
+    )
+    kwargs = dict(
+        actor=_actor(), campus="江安校区", dormitory_area="西苑",
+        building="6舍3栋", room="601B",
+        fault_category="electric", description="空调无法制冷，需要维修。",
+        preferred_start_at=NOW, preferred_end_at=datetime(2026, 7, 16, 18, tzinfo=UTC),
+        idempotency_key="tool-create-4", request_id="tool-request-1",
+        agent_run_id=UUID(int=44), approval_id=UUID(int=45), approval_verified=True,
+    )
+    with pytest.raises(CampusNotFound):
+        asyncio.run(service.create_from_location_in_transaction(**kwargs))
+    with pytest.raises(WorkOrderApprovalInvalid):
+        asyncio.run(service.create_from_location_in_transaction(
+            **{**kwargs, "approval_id": None, "approval_verified": False},
+        ))
 
 
 def test_tool_room_create_reuses_caller_transaction_and_persisted_location() -> None:

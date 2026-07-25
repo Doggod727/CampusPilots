@@ -91,7 +91,7 @@ def test_all_baseline_mock_handlers_return_frozen_output_models() -> None:
     assert outputs["electricity.get_balance"].currency == "CNY"
     assert outputs["electricity.get_balance"].source == "mock"
     assert outputs["electricity.get_balance"].is_simulated is True
-    assert outputs["electricity.create_topup_request"].notice == "模拟申请，不产生真实扣款或到账"
+    assert outputs["electricity.create_topup_request"].notice == "充值已到账，余额已更新"
 
     rendered = " ".join(
         str(output.model_dump(mode="json")) for output in outputs.values()

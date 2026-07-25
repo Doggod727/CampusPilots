@@ -300,8 +300,8 @@ def test_topup_without_approval_pauses_and_does_not_execute() -> None:
     assert len(done) == 0
 
 
-def test_topup_mock_handler_returns_simulated_notice() -> None:
-    """电费充值 mock handler 返回"模拟申请"提示，结果符合契约"""
+def test_topup_mock_handler_returns_credited_notice() -> None:
+    """电费充值 mock handler 返回"已到账"提示，结果符合契约"""
     arguments = {"room_id": ROOM_ID, "amount_cny": Decimal("30.00")}
     executor, verifier = _make_tool_executor()
 
@@ -324,8 +324,8 @@ def test_topup_mock_handler_returns_simulated_notice() -> None:
 
     assert result.status == "succeeded"
     assert result.data["amount"] == "30.00"
-    assert result.data["notice"] == "模拟申请，不产生真实扣款或到账"
-    assert result.data["status"] == "simulated"
+    assert result.data["notice"] == "充值已到账，余额已更新"
+    assert result.data["status"] == "credited"
 
 
 # ---------------------------------------------------------------------------

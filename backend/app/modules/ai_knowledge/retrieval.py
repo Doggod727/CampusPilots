@@ -60,7 +60,12 @@ class RetrievalService:
         vector = self.embeddings.embed([query])[0]
         scores = {}
         for knowledge_base_id in authorized:
-            for hit in self.vectors.query(knowledge_base_id, vector, top_k):
+            # 使用混合检索（如果向量存储支持）
+            if hasattr(self.vectors, 'hybrid_query'):
+                hits = self.vectors.hybrid_query(knowledge_base_id, vector, query, top_k)
+            else:
+                hits = self.vectors.query(knowledge_base_id, vector, top_k)
+            for hit in hits:
                 if hit.score >= self.threshold:
                     scores[hit.chunk_id] = max(scores.get(hit.chunk_id, 0.0), hit.score)
         if not scores:

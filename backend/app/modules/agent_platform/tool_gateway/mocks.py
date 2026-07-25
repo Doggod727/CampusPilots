@@ -181,7 +181,8 @@ async def _work_order_create(
     context: UserContext, payload: ToolModel, empty: bool
 ) -> ToolModel:
     data = WorkOrderCreateInput.model_validate(payload)
-    _require_room(context, data.room_id)
+    if data.room_id is not None:
+        _require_room(context, data.room_id)
     return WorkOrderCreateOutput(
         work_order_id=owned_work_order_id(context),
         status="submitted",
@@ -210,9 +211,10 @@ async def _electricity_balance(
     context: UserContext, payload: ToolModel, empty: bool
 ) -> ToolModel:
     data = ElectricityBalanceInput.model_validate(payload)
-    _require_room(context, data.room_id)
+    if data.room_id is not None:
+        _require_room(context, data.room_id)
     return ElectricityBalanceOutput(
-        room_id=data.room_id,
+        room_id=data.room_id or (context.room_ids[0] if context.room_ids else UUID(int=0)),
         balance=Decimal("42.50"),
         updated_at=FIXED_NOW,
     )
@@ -222,9 +224,11 @@ async def _electricity_topup(
     context: UserContext, payload: ToolModel, empty: bool
 ) -> ToolModel:
     data = ElectricityTopupInput.model_validate(payload)
-    _require_room(context, data.room_id)
+    if data.room_id is not None:
+        _require_room(context, data.room_id)
+    room_ref = data.room_id or (context.room_ids[0] if context.room_ids else UUID(int=0))
     return ElectricityTopupOutput(
-        topup_request_id=deterministic_id("topup", f"{context.user_id}:{data.room_id}:{data.amount_cny}"),
+        topup_request_id=deterministic_id("topup", f"{context.user_id}:{room_ref}:{data.amount_cny}"),
         amount=data.amount_cny,
     )
 

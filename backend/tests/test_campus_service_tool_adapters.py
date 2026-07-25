@@ -1,10 +1,12 @@
 import asyncio
 import inspect
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from app.modules.agent_platform import composition
 from app.modules.agent_platform.domain.contracts import ToolInvocationContext, UserContext
@@ -24,9 +26,17 @@ from app.modules.agent_platform.tool_gateway.errors import (
     ToolDependencyUnavailable,
     ToolForbidden,
 )
-from app.modules.campus_service.guides import GuidePageDTO, GuideSummaryDTO
+from app.modules.campus_service.guides import (
+    GuideApplicabilityDTO,
+    GuideDetailDTO,
+    GuideMaterialRawDTO,
+    GuideNotFound,
+    GuidePageDTO,
+    GuideStepDTO,
+    GuideSummaryDTO,
+)
 from app.modules.campus_service.reference import DepartmentDTO, GuideCategoryDTO
-from app.modules.campus_service.work_order_errors import WorkOrderNotFound
+from app.modules.campus_service.work_order_errors import CampusNotFound, WorkOrderNotFound
 from app.modules.campus_service.work_order_schemas import WorkOrderData, WorkOrderEventData
 from app.modules.campus_service.work_orders import WorkOrderMutationResult, WorkOrderToolView
 
@@ -75,14 +85,82 @@ def test_guide_adapter_calls_real_search_with_frozen_contract_filters() -> None:
         location="行政楼", service_hours=None, valid_until=None, updated_at=NOW, version=1,
     )
     service.search = AsyncMock(return_value=GuidePageDTO((summary,), 1, 10, 1, 1))
+    service.get_detail = AsyncMock(side_effect=GuideNotFound())
     output = asyncio.run(ServiceGuideToolHandler(service)(
         _invocation(), ServiceGuideInput(query="学生证", campus_id="main", student_type="undergraduate")
     ))
     assert output.items[0].guide_id == summary.id and output.items[0].steps == ()
+    assert output.items[0].department == "学生事务中心"
     assert service.search.await_args.kwargs == {
         "page": 1, "page_size": 10, "q": "学生证",
         "campus_code": "main", "student_type": "undergraduate",
     }
+
+
+def test_guide_adapter_enriches_top_hits_with_materials_and_steps() -> None:
+    service = MagicMock()
+    summary = GuideSummaryDTO(
+        id=UUID(int=9), code="enrollment_certificate", title="在读证明办理", summary="在读证明办理指南",
+        category=GuideCategoryDTO(UUID(int=10), "student", "学生事务", 1),
+        department=DepartmentDTO(UUID(int=11), "student_affairs", "学生事务中心", None),
+        location="行政楼101", service_hours="工作日 9:00-17:00", valid_until=None,
+        updated_at=NOW, version=1,
+    )
+    service.search = AsyncMock(return_value=GuidePageDTO((summary,), 1, 10, 1, 1))
+    detail = GuideDetailDTO(
+        summary=summary,
+        source_url=None,
+        applicability=GuideApplicabilityDTO(
+            campus_code="jiangan", student_type="undergraduate", applicable=True, notes=None,
+        ),
+        materials=(
+            GuideMaterialRawDTO(
+                id=UUID(int=20), name="学生证", description=None,
+                required=True, copies=1, condition={}, sort_order=1,
+            ),
+            GuideMaterialRawDTO(
+                id=UUID(int=21), name="身份证复印件", description=None,
+                required=True, copies=2, condition={}, sort_order=2,
+            ),
+        ),
+        steps=(
+            GuideStepDTO(step_no=1, title="提交申请", description="到学生事务中心提交", location=None, estimated_minutes=None),
+            GuideStepDTO(step_no=2, title="领取证明", description="当场领取", location=None, estimated_minutes=None),
+        ),
+        contacts=(),
+    )
+    service.get_detail = AsyncMock(return_value=detail)
+    output = asyncio.run(ServiceGuideToolHandler(service)(
+        _invocation(), ServiceGuideInput(query="在读证明", campus_id="jiangan")
+    ))
+    item = output.items[0]
+    assert item.department == "学生事务中心"
+    assert item.service_hours == "工作日 9:00-17:00"
+    assert item.materials == ("学生证", "身份证复印件（2份）")
+    assert item.steps == ("1. 提交申请：到学生事务中心提交", "2. 领取证明：当场领取")
+
+
+def test_guide_adapter_falls_back_to_enabled_campuses_for_detail() -> None:
+    service = MagicMock()
+    summary = GuideSummaryDTO(
+        id=UUID(int=9), code="enrollment_certificate", title="在读证明办理", summary="指南",
+        category=GuideCategoryDTO(UUID(int=10), "student", "学生事务", 1),
+        department=DepartmentDTO(UUID(int=11), "student_affairs", "学生事务中心", None),
+        location=None, service_hours=None, valid_until=None, updated_at=NOW, version=1,
+    )
+    service.search = AsyncMock(return_value=GuidePageDTO((summary,), 1, 10, 1, 1))
+    service.get_detail = AsyncMock(side_effect=[GuideNotFound(), GuideNotFound(), MagicMock(
+        materials=(), steps=(),
+    )])
+    campuses = MagicMock()
+    campuses.list_enabled_campuses = AsyncMock(
+        return_value=(SimpleNamespace(code="jiangan"), SimpleNamespace(code="wangjiang"))
+    )
+    handler = ServiceGuideToolHandler(service, campuses=campuses)
+    output = asyncio.run(handler(_invocation(), ServiceGuideInput(query="在读证明")))
+    codes = [call.kwargs["campus_code"] for call in service.get_detail.await_args_list]
+    assert codes == ["main", "jiangan", "wangjiang"]
+    assert output.items[0].guide_id == summary.id
 
 
 def test_create_adapter_maps_room_fault_time_and_trusted_facts() -> None:
@@ -132,6 +210,57 @@ def test_create_adapter_uses_default_window_and_rejects_lossy_inputs() -> None:
             asyncio.run(handler(_invocation(), payload))
     with pytest.raises(ToolApprovalInvalid):
         asyncio.run(handler(_invocation(approved=False), valid))
+
+
+def test_create_adapter_maps_natural_address_to_location_command() -> None:
+    service = MagicMock()
+    service.create_from_location_in_transaction = AsyncMock(return_value=WorkOrderMutationResult(
+        201, "tool-request-1", {"data": {"id": str(ORDER_ID), "status": "submitted", "created_at": NOW.isoformat()}}
+    ))
+    handler = WorkOrderCreateToolHandler(service, now=lambda: NOW)
+    output = asyncio.run(handler(
+        _invocation(),
+        WorkOrderCreateInput(
+            campus="江安校区", dormitory_area="西苑", building="6舍3栋", room="601B",
+            fault_type="electric", description="空调无法制冷，需要维修。",
+        ),
+    ))
+    assert output.work_order_id == ORDER_ID and output.status == "submitted"
+    call = service.create_from_location_in_transaction.await_args.kwargs
+    assert call["campus"] == "江安校区"
+    assert call["dormitory_area"] == "西苑"
+    assert call["building"] == "6舍3栋" and call["room"] == "601B"
+    assert call["fault_category"] == "electric"
+    assert call["approval_verified"] is True and call["approval_id"] == APPROVAL_ID
+
+
+def test_create_adapter_maps_unknown_campus_to_argument_error() -> None:
+    service = MagicMock()
+    service.create_from_location_in_transaction = AsyncMock(side_effect=CampusNotFound())
+    handler = WorkOrderCreateToolHandler(service, now=lambda: NOW)
+    with pytest.raises(ToolArgumentInvalid):
+        asyncio.run(handler(
+            _invocation(),
+            WorkOrderCreateInput(
+                campus="不存在校区", dormitory_area="西苑", building="6舍3栋", room="601B",
+                fault_type="electric", description="空调无法制冷，需要维修。",
+            ),
+        ))
+
+
+def test_create_input_requires_room_id_or_full_location() -> None:
+    base = {"fault_type": "electric", "description": "空调无法制冷，需要维修。"}
+    with pytest.raises(ValidationError):
+        WorkOrderCreateInput.model_validate(base)
+    with pytest.raises(ValidationError):
+        WorkOrderCreateInput.model_validate({**base, "campus": "江安校区", "dormitory_area": "西苑"})
+    with pytest.raises(ValidationError):
+        WorkOrderCreateInput.model_validate({**base, "room": "601B"})
+    parsed = WorkOrderCreateInput.model_validate({
+        **base, "campus": "江安校区", "dormitory_area": "西苑",
+        "building": "6舍3栋", "room": "601B",
+    })
+    assert parsed.room_id is None and parsed.campus == "江安校区"
 
 
 def test_get_adapter_uses_real_view_and_never_exposes_event_reason() -> None:

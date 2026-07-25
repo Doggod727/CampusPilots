@@ -66,7 +66,10 @@ def test_event_sequences_are_independent_per_run() -> None:
 def test_successful_tool_payloads_are_rendered_as_conversational_answers() -> None:
     topup = _tool_success_answer(
         "electricity.create_topup_request",
-        {"amount": "50.00", "status": "simulated", "topup_request_id": str(uuid4())},
+        {
+            "amount": "50.00", "status": "credited",
+            "balance_after": "247.68", "topup_request_id": str(uuid4()),
+        },
     )
     published = _tool_success_answer(
         "lost_found.publish",
@@ -80,7 +83,7 @@ def test_successful_tool_payloads_are_rendered_as_conversational_answers() -> No
         "event.create", {"event_id": str(uuid4()), "status": "pending_review"},
     )
 
-    assert topup == "已完成 50.00 元电费充值申请。这是模拟申请，不会产生真实扣款或到账。"
+    assert topup == "已成功充值 50.00 元电费，当前余额为 247.68 元。"
     assert published == "失物招领信息已发布成功。"
     assert community_summary == "当前社区主要在讨论选课与食堂。"
     assert "已创建并提交审核" in event_created
@@ -244,6 +247,58 @@ def test_needs_input_keeps_checkpoint_and_continues_original_task() -> None:
     assert asyncio.run(checkpoints.load(RUN)) is None
     router.route.assert_awaited_once()
     assert specialist.invoke.await_count == 2
+
+
+def test_guide_answer_renders_department_materials_and_steps() -> None:
+    answer = _tool_success_answer(
+        "service.get_guide",
+        {
+            "items": [
+                {
+                    "title": "在读证明办理", "summary": "在读证明办理指南",
+                    "department": "学生事务中心", "location": "行政楼101",
+                    "service_hours": "工作日 9:00-17:00",
+                    "materials": ["学生证", "身份证复印件（2份）"],
+                    "steps": ["1. 提交申请：到学生事务中心提交", "2. 领取证明：当场领取"],
+                },
+                {"title": "成绩单办理", "summary": "成绩单办理指南"},
+            ],
+        },
+    )
+    assert "【在读证明办理】在读证明办理指南" in answer
+    assert "办理部门：学生事务中心" in answer
+    assert "办理地点：行政楼101" in answer
+    assert "服务时间：工作日 9:00-17:00" in answer
+    assert "所需材料：学生证、身份证复印件（2份）" in answer
+    assert "办理步骤：1. 提交申请：到学生事务中心提交；2. 领取证明：当场领取" in answer
+    assert "【成绩单办理】" in answer
+
+
+def test_colloquial_topup_amount_phrase_resolves_topup_intent() -> None:
+    router, planner, trace, events, specialist = components()
+    runtime = BoundedGraphRuntime(
+        router=router, planner=planner,
+        specialists={"service_agent": specialist}, trace=trace, events=events,
+    )
+    asyncio.run(runtime.start(uuid4(), USER, "给江安校区西苑6舍3栋601B充50元电费", {}))
+    context = planner.plan.call_args.kwargs["structured_input"]
+    assert context["resolved_intent"] == "electricity.create_topup_request"
+
+
+def test_history_topup_does_not_leak_into_current_balance_query() -> None:
+    router, planner, trace, events, specialist = components()
+    runtime = BoundedGraphRuntime(
+        router=router, planner=planner,
+        specialists={"service_agent": specialist}, trace=trace, events=events,
+    )
+    objective = (
+        "以下是同一会话的最近上下文，仅用于理解指代和延续意图；请以当前用户消息为准。\n"
+        "用户：帮我充值50元电费\n助手：已成功充值 50.00 元电费。\n"
+        "当前用户消息：帮我查询江安校区西苑6舍3栋601B的电费"
+    )
+    asyncio.run(runtime.start(uuid4(), USER, objective, {}))
+    context = planner.plan.call_args.kwargs["structured_input"]
+    assert context.get("resolved_intent") == "electricity.get_balance"
 
 
 def test_electricity_continuation_binds_owned_uuid_to_room_id() -> None:

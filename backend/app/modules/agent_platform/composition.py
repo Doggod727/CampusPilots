@@ -76,8 +76,7 @@ from app.modules.ai_knowledge.tool_adapters import (
 )
 from app.modules.ai_knowledge.vectors import (
     BgeSmallZhEmbeddingProvider,
-    ChromaVectorStore,
-    LazyChromaClient,
+    create_vector_store,
 )
 
 
@@ -138,7 +137,10 @@ class RuntimeCompositionFactory:
         )
         authorization = M4ToolAuthorizationAdapter()
         electricity_repository = ElectricityRepository(session)
-        electricity = ElectricityService(electricity_repository)
+        electricity = ElectricityService(
+            electricity_repository,
+            campuses=CampusReferenceRepository(session),
+        )
         guides = ServiceGuideService(GuideRepository(session))
         work_orders = WorkOrderService(
             session=session,
@@ -198,7 +200,7 @@ class RuntimeCompositionFactory:
             session,
             knowledge,
             BgeSmallZhEmbeddingProvider(str(self.settings.knowledge_embedding_model_path)),
-            ChromaVectorStore(LazyChromaClient(str(self.settings.knowledge_chroma_path))),
+            create_vector_store(self.settings),
             self.settings.knowledge_score_threshold,
         )
         knowledge_gateway = gateway or self._deepseek_gateway()
@@ -206,7 +208,9 @@ class RuntimeCompositionFactory:
         handlers.update({
             "knowledge.search": KnowledgeSearchToolHandler(retrieval),
             "knowledge.answer": KnowledgeAnswerToolHandler(retrieval, knowledge_gateway),
-            "service.get_guide": ServiceGuideToolHandler(guides),
+            "service.get_guide": ServiceGuideToolHandler(
+                guides, campuses=CampusReferenceRepository(session)
+            ),
             "work_order.create": WorkOrderCreateToolHandler(work_orders),
             "work_order.get": WorkOrderGetToolHandler(work_orders),
             "electricity.get_balance": ElectricityBalanceToolHandler(electricity),

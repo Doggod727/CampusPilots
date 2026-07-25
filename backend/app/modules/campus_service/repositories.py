@@ -128,6 +128,22 @@ class CampusReferenceRepository:
         return (await self._session.execute(statement)).scalar_one_or_none()
 
 
+async def resolve_enabled_campus_code(
+    campuses: CampusReferenceRepository, value: str
+) -> str | None:
+    """按编码（大小写不敏感）或名称（可省略"校区"后缀）解析启用校区的编码。"""
+
+    text = value.strip()
+    direct = await campuses.get_enabled_campus(text.lower())
+    if direct is not None:
+        return direct.code
+    name = text.removesuffix("校区")
+    for item in await campuses.list_enabled_campuses():
+        if item.name == text or item.name.removesuffix("校区") == name:
+            return item.code
+    return None
+
+
 class DepartmentRepository:
     """Read-only department/contact persistence with validity filtering in SQL."""
 
@@ -537,6 +553,37 @@ class ElectricityRepository:
             )
         )
         return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_account_by_location(
+        self,
+        *,
+        campus_code: str,
+        dormitory_area: str,
+        building: str,
+        room: str,
+    ) -> ElectricityAccount | None:
+        statement = select(ElectricityAccount).where(
+            ElectricityAccount.campus_code == campus_code,
+            ElectricityAccount.dormitory_area == dormitory_area,
+            ElectricityAccount.building == building,
+            ElectricityAccount.room == room,
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_member(
+        self, room_id: UUID, user_id: UUID
+    ) -> ElectricityAccountMember | None:
+        statement = select(ElectricityAccountMember).where(
+            ElectricityAccountMember.room_id == room_id,
+            ElectricityAccountMember.user_id == user_id,
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    def add_account(self, account: ElectricityAccount) -> None:
+        self._session.add(account)
+
+    def add_member(self, member: ElectricityAccountMember) -> None:
+        self._session.add(member)
 
     async def get_topup_for_update(
         self, requested_by: UUID, idempotency_key: str

@@ -296,7 +296,6 @@ def build_local_evaluators(settings, sessions) -> dict[str, Any]:
 
     from contextlib import asynccontextmanager
 
-    import chromadb
     from sqlalchemy import text
 
     from app.modules.agent_platform.composition import RuntimeCompositionFactory
@@ -305,7 +304,7 @@ def build_local_evaluators(settings, sessions) -> dict[str, Any]:
     from app.modules.agent_platform.tool_gateway.catalog import TOOL_CONTRACTS
     from app.modules.ai_knowledge.knowledge import KnowledgeRepository, KnowledgeService
     from app.modules.ai_knowledge.retrieval import RetrievalService
-    from app.modules.ai_knowledge.vectors import BgeSmallZhEmbeddingProvider, ChromaVectorStore
+    from app.modules.ai_knowledge.vectors import BgeSmallZhEmbeddingProvider, create_vector_store
     from app.modules.platform.repositories import RbacRepository, UserRepository
 
     gateway = DeepSeekGateway(
@@ -323,7 +322,7 @@ def build_local_evaluators(settings, sessions) -> dict[str, Any]:
                 session,
                 knowledge,
                 BgeSmallZhEmbeddingProvider(str(settings.knowledge_embedding_model_path)),
-                ChromaVectorStore(chromadb.PersistentClient(path=str(settings.knowledge_chroma_path))),
+                create_vector_store(settings),
                 settings.knowledge_score_threshold,
             )
 

@@ -15,8 +15,8 @@ from app.modules.agent_platform.tool_gateway.catalog import (
 EXPECTED_SCHEMA_HASHES = {
     "community.post.publish": "d64c2c8051bf3ec9f6d3b3ada9bfbd4724f7ad4f7ef66c6ef433620f48f509b3",
     "community.topic.summarize": "8776c97473d2ba2daf975049eb96ddf545e621046001e3ef80a245ea9f4ee7e7",
-    "electricity.create_topup_request": "f005ecdcae0db0b7f78649afb38677845b40c1b42b4d0a966bf4bf7f3abf9c5d",
-    "electricity.get_balance": "4ea8a62594670530e1179dc02181b78167de5350e0b8c12cb093521aaeea1aeb",
+    "electricity.create_topup_request": "736886001683f7b4c0b3bf4010126625faa196733d3e40543662aecb242350e6",
+    "electricity.get_balance": "b982bec3f3197c8f60129103b4eeed3fdd4e3cf135d3d67c8331971746f6058e",
     "event.register": "e7991304a0533c447f1b0ab7a265733eb0402c78f97fa7932054d97eadb4c20b",
     "event.create": "a4b01e0711ed7a305e1acf45737c0dc103262b6b566cfa6834d6ad04db049868",
     "event.search": "434ebc5d31bd9dbd8322a0a2361db9733575feb6d34295691b7fae1aab4dd2ca",
@@ -27,8 +27,8 @@ EXPECTED_SCHEMA_HASHES = {
     "knowledge.search": "6c0493ffcc3b1dab3e7bcd68018a260e1584afb7ab11e4e79ec08e335ceecab3",
     "lost_found.publish": "9c669d7605411c9775031fc0cf447119f00ccf40d53bbc3e5ffa98308a2c5230",
     "lost_found.search_matches": "d6c7d15943f52419fd45c85a4737ccd05d3409f481a85a09e6adb913a6f05f88",
-    "service.get_guide": "dd09e1741bd7bf51ca88af93795f9dd994530b65d4b6752c31b80470179f036b",
-    "work_order.create": "c24fae2c045ccbc31dc04a348201709fbe04c5f5fbf1d15d53dcd020d6cbc993",
+    "service.get_guide": "22e301a93a7ff7d2f959aaa144803ab8e347d8e186e2832376a2115260f3d382",
+    "work_order.create": "2551612d699ca0accadfd12dc3ac190065a63278cf5351d2915ef4b83c6d08dd",
     "work_order.get": "dfdaa2328b73a6adb15876e3503f6787741833fe20f7ab6314e8efe59443b208",
 }
 

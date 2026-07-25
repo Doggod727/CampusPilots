@@ -90,7 +90,8 @@ def test_topup_adapter_passes_verified_approval_and_idempotency_to_m2() -> None:
     service.create_topup_request = AsyncMock(return_value=ElectricityTopupResult(
         request_id=TOPUP_ID, room_id=ROOM_ID, amount=Decimal("20.00"),
         currency="CNY", status="simulated", is_simulated=True,
-        source="mock", notice="internal wording", created_at=NOW, request_hash="c" * 64,
+        source="mock", notice="充值已到账，余额已更新", created_at=NOW, request_hash="c" * 64,
+        balance_after=Decimal("108.50"),
     ))
     executor, verifier = _executor(service)
     arguments = {"room_id": ROOM_ID, "amount_cny": Decimal("20.00")}
@@ -110,14 +111,82 @@ def test_topup_adapter_passes_verified_approval_and_idempotency_to_m2() -> None:
         agent_allowlist=("electricity.create_topup_request",),
     ))
     assert result.data == {
-        "topup_request_id": str(TOPUP_ID), "status": "simulated",
-        "amount": "20.00", "notice": "模拟申请，不产生真实扣款或到账",
+        "topup_request_id": str(TOPUP_ID), "status": "credited",
+        "amount": "20.00", "balance_after": "108.50",
+        "notice": "充值已到账，余额已更新",
     }
     service.create_topup_request.assert_awaited_once_with(
         user_id=USER_ID, room_ids=(ROOM_ID,), room_id=ROOM_ID,
         amount=Decimal("20.00"), idempotency_key="idem-topup",
         agent_run_id=RUN_ID, approval_id=APPROVAL_ID, approval_verified=True,
     )
+
+
+def test_balance_adapter_resolves_natural_address_via_provisioning() -> None:
+    service = MagicMock()
+    provisioned = MagicMock(room_id=ROOM_ID)
+    service.resolve_or_provision_account = AsyncMock(return_value=provisioned)
+    service.get_balance = AsyncMock(return_value=ElectricityBalance(
+        room_id=ROOM_ID, room_name="西苑 · 6舍3栋 · 601B", balance=Decimal("66.30"), currency="CNY",
+        source="mock", is_simulated=True, updated_at=NOW,
+    ))
+    executor, _ = _executor(service)
+    result = asyncio.run(executor.execute(
+        context=_context(),
+        request=ToolCallRequest(
+            agent_run_id=RUN_ID, step_id=STEP_ID, tool_name="electricity.get_balance",
+            tool_version="1.0.0",
+            arguments={
+                "campus": "江安校区", "dormitory_area": "西苑",
+                "building": "6舍3栋", "room": "601B",
+            },
+        ),
+        agent_allowlist=("electricity.get_balance",),
+    ))
+    assert result.data["balance"] == "66.30" and result.data["is_simulated"] is True
+    service.resolve_or_provision_account.assert_awaited_once_with(
+        user_id=USER_ID, campus="江安校区", dormitory_area="西苑",
+        building="6舍3栋", room="601B",
+    )
+    call = service.get_balance.await_args.kwargs
+    assert call["room_id"] == ROOM_ID
+    assert ROOM_ID in call["room_ids"]
+
+
+def test_topup_adapter_resolves_natural_address_via_provisioning() -> None:
+    service = MagicMock()
+    provisioned = MagicMock(room_id=ROOM_ID)
+    service.resolve_or_provision_account = AsyncMock(return_value=provisioned)
+    service.create_topup_request = AsyncMock(return_value=ElectricityTopupResult(
+        request_id=TOPUP_ID, room_id=ROOM_ID, amount=Decimal("20.00"),
+        currency="CNY", status="simulated", is_simulated=True,
+        source="mock", notice="充值已到账，余额已更新", created_at=NOW, request_hash="c" * 64,
+        balance_after=Decimal("217.68"),
+    ))
+    executor, verifier = _executor(service)
+    arguments = {
+        "campus": "江安校区", "dormitory_area": "西苑",
+        "building": "6舍3栋", "room": "601B", "amount_cny": Decimal("20.00"),
+    }
+    payload = TOOL_CONTRACTS["electricity.create_topup_request"].input_model.model_validate(arguments)
+    verifier.grant(
+        approval_id=APPROVAL_ID, user_id=USER_ID,
+        tool_name="electricity.create_topup_request", tool_version="1.0.0",
+        arguments_hash=canonical_arguments_hash(payload),
+    )
+    result = asyncio.run(executor.execute(
+        context=_context(),
+        request=ToolCallRequest(
+            agent_run_id=RUN_ID, step_id=STEP_ID,
+            tool_name="electricity.create_topup_request", tool_version="1.0.0",
+            arguments=arguments, idempotency_key="idem-topup-addr", approval_id=APPROVAL_ID,
+        ),
+        agent_allowlist=("electricity.create_topup_request",),
+    ))
+    assert result.data["status"] == "credited" and result.data["amount"] == "20.00"
+    assert result.data["balance_after"] == "217.68"
+    call = service.create_topup_request.await_args.kwargs
+    assert call["room_id"] == ROOM_ID and ROOM_ID in call["room_ids"]
 
 
 @pytest.mark.parametrize(

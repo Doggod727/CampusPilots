@@ -32,6 +32,7 @@ dev = [
 ai = [
     "chromadb>=0.6,<1.0",
     "sentence-transformers>=3.3,<4.0",
+    "opensearch-py>=2.4,<3.0",
 ]
 modelops = [
     "torch>=2.2",

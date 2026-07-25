@@ -83,19 +83,33 @@ async def probe_redis(settings: Settings) -> DependencyStatus:
 
 
 async def probe_chroma(settings: Settings) -> DependencyStatus:
-    """Probe the same local persistent Chroma store used by M1 retrieval."""
+    """Probe the configured vector store backend (Chroma or OpenSearch)."""
     started = perf_counter()
     try:
-        def heartbeat() -> None:
-            import chromadb
+        if settings.knowledge_search_backend == "opensearch":
+            from app.modules.ai_knowledge.vectors import LazyOpenSearchClient
 
-            client = chromadb.PersistentClient(path=str(settings.knowledge_chroma_path))
-            client.heartbeat()
+            def heartbeat() -> None:
+                client = LazyOpenSearchClient(
+                    url=settings.knowledge_opensearch_url,
+                    username=settings.knowledge_opensearch_username,
+                    password=settings.knowledge_opensearch_password.get_secret_value(),
+                )
+                client.cluster.health()
 
-        await asyncio.to_thread(heartbeat)
-        return _status(started, up=True)
+            await asyncio.to_thread(heartbeat)
+            return _status(started, up=True)
+        else:
+            def heartbeat() -> None:
+                import chromadb
+
+                client = chromadb.PersistentClient(path=str(settings.knowledge_chroma_path))
+                client.heartbeat()
+
+            await asyncio.to_thread(heartbeat)
+            return _status(started, up=True)
     except Exception:
-        return _status(started, up=False, message="chroma unavailable")
+        return _status(started, up=False, message="vector store unavailable")
 
 
 async def check_readiness(

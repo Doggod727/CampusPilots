@@ -201,10 +201,12 @@ def test_specialist_never_invents_a_missing_electricity_topup_amount():
     assert client.requests == []
 
 
-def test_reasoning_or_invalid_shape_is_safely_rejected():
+def test_reasoning_is_ignored_and_invalid_shape_is_safely_rejected():
     gateway = DeepSeekGateway(api_key="secret", client=FakeClient(_completion({"x": 1}, reasoning="hidden chain")))
+    assert asyncio.run(gateway.json_completion(({"role": "user", "content": "test"},))) == {"x": 1}
+    bad = DeepSeekGateway(api_key="secret", client=FakeClient(_completion(["not", "an", "object"])))
     with pytest.raises(DeepSeekUnavailable) as caught:
-        asyncio.run(gateway.json_completion(({"role": "user", "content": "test"},)))
+        asyncio.run(bad.json_completion(({"role": "user", "content": "test"},)))
     assert "hidden chain" not in str(caught.value)
 
 

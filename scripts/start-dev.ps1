@@ -19,14 +19,16 @@ $Backend = Join-Path $RepoRoot 'backend'
 $LogDir = Join-Path $RepoRoot 'logs'
 
 # 自动探测 conda Python 路径
-$condaInfo = conda info --json 2>$null | ConvertFrom-Json
-$envDirs = $condaInfo.envs_dirs
 $Python = $null
-foreach ($base in $envDirs) {
-    $candidate = Join-Path $base 'campuspilot\python.exe'
-    if (Test-Path $candidate) { $Python = $candidate; break }
+$candidates = @(
+    "D:\anaconda\envs\campuspilot\python.exe",
+    "$env:USERPROFILE\.conda\envs\campuspilot\python.exe",
+    "$env:LOCALAPPDATA\conda\conda\envs\campuspilot\python.exe"
+)
+foreach ($c in $candidates) {
+    if (Test-Path $c) { $Python = $c; break }
 }
-if (-not $Python) { throw "conda 环境 campuspilot 未找到（已扫描 envs_dirs）" }
+if (-not $Python) { throw "conda 环境 campuspilot 未找到" }
 Write-Host "[=] Python: $Python" -ForegroundColor DarkGray
 
 if (-not (Test-Path $Python)) { throw "conda 环境不存在: $Python" }

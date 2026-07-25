@@ -70,14 +70,35 @@ class GuideItem(ToolModel):
     location: str | None = None
     updated_at: datetime
     steps: tuple[str, ...] = ()
+    department: str | None = None
+    service_hours: str | None = None
+    materials: tuple[str, ...] = ()
 
 
 class ServiceGuideOutput(ToolModel):
     items: tuple[GuideItem, ...] = Field(max_length=10)
 
 
-class WorkOrderCreateInput(ToolModel):
-    room_id: UUID
+class RoomRefInput(ToolModel):
+    """房间引用：优先 room_id（本人已绑定房间），否则完整的自然语言宿舍地址。"""
+
+    room_id: UUID | None = None
+    campus: str | None = Field(default=None, min_length=1, max_length=100)
+    dormitory_area: str | None = Field(default=None, min_length=1, max_length=100)
+    building: str | None = Field(default=None, min_length=1, max_length=50)
+    room: str | None = Field(default=None, min_length=1, max_length=30)
+
+    @model_validator(mode="after")
+    def validate_room_reference(self) -> "RoomRefInput":
+        if self.room_id is not None:
+            return self
+        location = (self.campus, self.dormitory_area, self.building, self.room)
+        if all(value is not None and value.strip() for value in location):
+            return self
+        raise ValueError("必须提供 room_id，或完整的 campus/dormitory_area/building/room 宿舍地址")
+
+
+class WorkOrderCreateInput(RoomRefInput):
     fault_type: Literal["electric", "plumbing", "network", "furniture", "door_window", "other"]
     description: str = Field(min_length=10, max_length=1000)
     available_time: str | None = Field(default=None, max_length=200)
@@ -146,8 +167,8 @@ class WorkOrderGetOutput(ToolModel):
     events: tuple[WorkOrderEvent, ...] = ()
 
 
-class ElectricityBalanceInput(ToolModel):
-    room_id: UUID
+class ElectricityBalanceInput(RoomRefInput):
+    pass
 
 
 class ElectricityBalanceOutput(ToolModel):
@@ -159,16 +180,16 @@ class ElectricityBalanceOutput(ToolModel):
     is_simulated: Literal[True] = True
 
 
-class ElectricityTopupInput(ToolModel):
-    room_id: UUID
+class ElectricityTopupInput(RoomRefInput):
     amount_cny: Decimal = Field(ge=Decimal("1.00"), le=Decimal("500.00"), decimal_places=2)
 
 
 class ElectricityTopupOutput(ToolModel):
     topup_request_id: UUID
-    status: Literal["simulated"] = "simulated"
+    status: Literal["credited"] = "credited"
     amount: Decimal = Field(decimal_places=2)
-    notice: Literal["模拟申请，不产生真实扣款或到账"] = "模拟申请，不产生真实扣款或到账"
+    balance_after: Decimal | None = Field(default=None, decimal_places=2)
+    notice: Literal["充值已到账，余额已更新"] = "充值已到账，余额已更新"
 
 
 class EventSearchInput(ToolModel):
