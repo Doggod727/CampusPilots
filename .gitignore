@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+*.egg-info/
+dist/
+build/
+.env
+logs/
+
+# Compose 模型挂载目录：权重不入库
+deploy/models/*
+!deploy/models/README.md
+node_modules/
+DESIGN.md
+AGENTS.md
+答辩材料/

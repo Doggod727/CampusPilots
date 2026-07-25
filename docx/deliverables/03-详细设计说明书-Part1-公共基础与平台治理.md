@@ -1,0 +1,475 @@
+# 学生生活一站式社区 AI 助手
+
+## 详细设计说明书 Part 1：公共基础与平台治理（M4）
+
+**文档版本：** V0.12（M5 契约校正版）
+**编制日期：** 2026-07-15  
+**适用迭代：** 10 天 Scrum 演示版  
+**关联基线：**《需求分析说明书》V2.1、《概要设计说明书》V1.0  
+**接口契约：** 同目录当前 `openapi.yaml`（机器可读单一事实源）  
+**数据库脚本：** `sql/001_platform_schema.sql`、`sql/002_platform_seed.sql`
+
+| 版本 | 日期 | 说明 | 状态 |
+|---|---|---|---|
+| V0.9 | 2026-07-12 | 公共规范、认证授权、M4 平台治理详细设计及首版 API/SQL | 待小组评审 |
+| V0.10 | 2026-07-14 | 补充 M3 匿名身份专用权限、社区内容扫描动作和审核回写契约 | 已完成差距检查 |
+| V0.11 | 2026-07-15 | 补充 M5 Agent/Tool 授权、审计、内容扫描 scope 和模型工程角色兼容设计 | 已完成兼容性检查 |
+| V0.12 | 2026-07-15 | 以已实现 M4 契约校正响应信封、认证状态码、删除和审核冲突语义，并同步 M5 兼容枚举 | 已完成契约校正 |
+
+> 本文是分步详细设计的 Part 1。既有 M4 功能继续保留；V2.1 只降低完整用户/角色后台和运营看板的 Sprint 优先级，不要求删除已实现代码。M5 详细设计见 Part 5，接口字段、状态码和 Schema 以同目录 `openapi.yaml` 为机器可读单一事实源。
+
+---
+
+# 1. 设计目标与范围
+
+## 1.1 本篇目标
+
+本篇把概要设计中的公共能力和 M4 平台治理模块落到可编码粒度，供 4 人小组中的成员 D 独立实现，并为另外三名成员提供稳定的认证、权限、审计、审核和配置接口。核心目标如下：
+
+1. 固定前后端联调规则，减少字段、分页、错误处理方面的口头约定。
+2. 用 RBAC、资源范围与审计形成统一治理边界，各业务模块不自行复制用户和权限表。
+3. 对创建类操作支持幂等，对管理类更新支持乐观锁，避免演示联调中的重复提交和覆盖更新。
+4. 将审核设计为跨模块协议，通过 `target_module + target_type + target_id` 解耦，不建立跨 Schema 外键。
+5. 交付可生成客户端、Mock 和接口文档的 OpenAPI，以及可直接迁移的 PostgreSQL DDL/种子数据。
+
+## 1.2 范围
+
+**包含：** 健康检查、演示账号登录、JWT/Refresh Token、当前用户、用户管理、角色权限、敏感词、审核队列、审计日志、业务配置、运营看板基础指标、平台 Schema。
+
+**不包含：** 校园统一身份认证、生产级密钥托管、短信/邮件找回密码、审批工作流引擎、多租户、生产监控告警、对象存储权限；DeepSeek V4 Pro 的调用细节归入 Part 2。
+
+## 1.3 强制技术约束
+
+| 层次 | 选型与约束 |
+|---|---|
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router + Element Plus；API 类型由 OpenAPI 生成 |
+| 后端 | Python 3.12、FastAPI、Pydantic v2、SQLAlchemy 2.x async、Alembic |
+| 数据 | PostgreSQL 16；各模块独立 Schema；Redis 7 仅存缓存、限流和 Celery 数据 |
+| 认证 | Access Token 放 `Authorization: Bearer`；Refresh Token 放 HttpOnly Cookie |
+| 密码 | Argon2id；日志、审计和响应不得包含密码、Token、API Key |
+| 部署 | Docker Compose、本地演示；外部服务均可切换 Mock |
+| AI | 固定 DeepSeek V4 Pro，由用户提供 API Key；密钥只进环境变量，不进数据库和仓库 |
+
+# 2. 模块边界与依赖规则
+
+## 2.1 代码目录建议
+
+```text
+backend/app/
+├── main.py
+├── core/                 # config、security、errors、logging、middleware
+├── shared/               # 分页、幂等、事件协议、通用 DTO
+├── modules/
+│   ├── platform/         # 本篇：auth、users、rbac、moderation、audit、config
+│   ├── ai_knowledge/     # Part 2
+│   ├── campus_service/   # Part 3
+│   ├── community/        # Part 4
+│   └── agent_platform/   # Part 5：M5 编排、Tool、模型工程；只调用 M4 公开服务
+└── infrastructure/       # db、redis、external adapters
+
+frontend/src/
+├── api/generated/        # OpenAPI 生成，禁止手改
+├── api/http.ts           # Token 刷新、Request-Id、错误归一化
+├── stores/auth.ts
+├── router/guards.ts
+├── views/platform/
+└── components/common/
+```
+
+## 2.2 依赖方向
+
+- 路由层只做协议转换、权限声明和响应封装，不直接执行 SQL。
+- 应用服务编排事务、领域规则和审计；仓储封装持久化。
+- M1/M2/M3/M5 可依赖 `shared` 与 M4 暴露的协议，不得直接导入 M4 的 ORM 模型。
+- 跨模块只通过应用服务接口或领域事件交互；不得跨 Schema 级联删除。
+- `moderation_cases.target_id` 是逻辑引用。审核完成后由处理器注册表调用目标模块，例如 `community.post` 对应社区审核处理器。
+
+# 3. 公共 API 契约
+
+## 3.1 URL、媒体类型与标识
+
+- 业务前缀：`/api/v1`；健康检查为 `/health/live`、`/health/ready`。
+- JSON 使用 UTF-8；字段统一 `snake_case`；时间统一 ISO 8601 UTC，例如 `2026-07-12T08:30:00Z`。
+- 实体 ID 使用 UUID v4；前端一律按字符串处理。
+- 每个操作必须具有稳定 `operationId`，供 TypeScript 客户端代码生成。
+- 删除操作以 OpenAPI 的逐接口声明为准：M4 角色和敏感词删除返回 `200` 统一空数据信封；明确声明为 `204 No Content` 的业务接口不返回响应体。
+
+## 3.2 请求头
+
+| 请求头 | 必填条件 | 规则 |
+|---|---|---|
+| `Authorization` | 除登录、刷新、健康检查外 | `Bearer <access_token>` |
+| `X-Request-Id` | 可选 | 客户端可传 UUID/短 ID；缺失时服务端生成，并回写响应头 |
+| `Idempotency-Key` | OpenAPI 标注的创建/决策请求 | 1～128 字符；同用户、端点、Key 唯一 |
+| `If-Match` | OpenAPI 标注的更新请求 | 值为资源整数版本，例如 `"3"`；不一致返回 409 |
+| `Content-Type` | 有 JSON 请求体时 | `application/json` |
+
+## 3.3 统一响应
+
+成功：
+
+```json
+{
+  "code": "OK",
+  "message": "success",
+  "data": {"id": "5db0..."},
+  "request_id": "req_01",
+  "timestamp": "2026-07-12T08:30:00Z"
+}
+```
+
+失败：
+
+```json
+{
+  "code": "RESOURCE_VERSION_CONFLICT",
+  "message": "资源已被其他操作更新",
+  "details": [{"field": "version", "reason": "expected=2, actual=3"}],
+  "request_id": "req_01",
+  "timestamp": "2026-07-12T08:30:01Z"
+}
+```
+
+列表返回 `data.items`，并携带 `page`、`page_size`、`total`、`total_pages`。MVP 默认 `page=1`、`page_size=20`，最大 100。查询参数无效返回 422，而不是静默纠正。
+
+## 3.4 HTTP 状态与错误码
+
+| HTTP | 典型错误码 | 客户端行为 |
+|---|---|---|
+| 400 | `BAD_REQUEST`、`ILLEGAL_STATE_TRANSITION` | 展示业务提示，不重试 |
+| 401 | `INVALID_CREDENTIALS`、`AUTH_UNAUTHORIZED`、`INVALID_REFRESH_TOKEN` | Access 无效时仅刷新一次；失败则退出 |
+| 403 | `ACCOUNT_DISABLED`、`AUTH_FORBIDDEN`、`CONFIG_NOT_EDITABLE` | 跳转 403 或隐藏操作入口 |
+| 404 | `USER_NOT_FOUND`、`ROLE_NOT_FOUND`、`MODERATION_CASE_NOT_FOUND` | 展示资源不存在 |
+| 409 | `RESOURCE_VERSION_CONFLICT`、`DUPLICATE_RESOURCE`、`IDEMPOTENCY_CONFLICT` | 刷新资源；不得自动覆盖 |
+| 422 | `VALIDATION_ERROR` | 将 `details.field` 映射到表单项 |
+| 423 | `ACCOUNT_LOCKED` | 读取 `Retry-After` 后再试 |
+| 429 | `RATE_LIMITED` | 按通用限流策略等待后重试 |
+| 500 | `INTERNAL_ERROR` | 展示 Request-Id，禁止展示堆栈 |
+| 503 | `SERVICE_NOT_READY` | 健康页或稍后重试 |
+
+## 3.5 幂等规则
+
+1. 应用服务以 `(user_id, endpoint, idempotency_key)` 查询记录。
+2. 首次请求在事务中写入请求体 SHA-256；业务完成后保存状态码和响应体。
+3. 相同 Key、相同哈希：原样重放结果，不重复创建。
+4. 相同 Key、不同哈希：返回 409 `IDEMPOTENCY_CONFLICT`。
+5. 默认保留 24 小时，由定时任务清理过期记录。
+6. 数据库唯一约束承担并发下的最终防线。
+
+## 3.6 乐观锁规则
+
+可编辑实体包含从 1 开始的 `version`。更新 SQL 必须包含 `WHERE id=:id AND version=:expected_version`，并原子执行 `version=version+1`。影响行数为 0 时重新查询：不存在返回 404，存在则返回 409。前端获取详情后保存版本；发生冲突时提示用户刷新，不进行“最后写入获胜”。
+
+# 4. 认证与授权详细设计
+
+## 4.1 Token 策略
+
+| 项目 | 设计 |
+|---|---|
+| Access Token | JWT，默认 15 分钟；Claims：`sub`、`username`、`roles`、`permissions`、`iat`、`exp`、`jti` |
+| Refresh Token | 随机高熵值，默认 7 天；HttpOnly、SameSite=Lax；演示 HTTP 下 `Secure=false`，生产必须 true |
+| 服务端存储 | 只保存 Refresh Token 的 SHA-256；Access Token 不落库 |
+| 轮换 | 每次刷新撤销旧 Token 并签发新 Token；记录 `replaced_by_jti` |
+| 登出 | 撤销当前 Refresh Token，清除 Cookie；重复登出按幂等成功处理 |
+
+## 4.2 登录流程
+
+1. 按大小写不敏感用户名查询未软删用户。
+2. 若 `disabled` 返回 403 `ACCOUNT_DISABLED`；若 `locked_until > now()` 返回 423 `ACCOUNT_LOCKED` 并通过 `Retry-After` 给出剩余秒数。429 仅用于通用限流。
+3. 使用 Argon2id 恒定成本校验密码；失败则原子增加 `failed_login_count`。
+4. 连续失败达到 `auth.max_failed_logins=5` 时设置 `locked_until=now()+15min`，状态可标记为 `locked`。
+5. 成功后清零失败计数、解除过期锁、更新 `last_login_at`。
+6. 加载角色权限，生成 Access/Refresh Token，Refresh 哈希入库。
+7. 写 `auth.login` 成功或失败审计；审计不保存密码、完整 Token。
+
+## 4.3 刷新复用检测
+
+Refresh Token 必须先校验哈希、到期时间、撤销状态和用户状态。若收到已轮换的旧 Token，视为可能泄露：撤销该用户仍有效的所有 Refresh Token，返回 401 `REFRESH_TOKEN_REUSED`，要求重新登录。轮换过程在单事务中对旧记录加行锁。
+
+## 4.4 RBAC 权限字典
+
+| 模块 | 权限码 |
+|---|---|
+| platform | `user:read`、`user:write`、`user:role:assign`、`role:read`、`role:write`、`role:permission:assign` |
+| platform | `sensitive_word:read`、`sensitive_word:write`、`moderation:read`、`moderation:decide` |
+| platform | `audit:read`、`config:read`、`config:write`、`dashboard:read` |
+| ai_knowledge | `knowledge:read`、`knowledge:write`、`knowledge:publish` |
+| campus_service | `work_order:read`、`work_order:create`、`work_order:transition` |
+| community | `community:read`、`community:write`、`community:moderate`、`community:anonymous_identity:read` |
+| agent_platform | `agent:run`、`agent:run:read_own`、`agent:run:read_all`、`agent:catalog:read`、`tool:catalog:read`、`tool:catalog:write` |
+| modelops | `dataset:read`、`dataset:write`、`training:run`、`training:read`、`model:read`、`model:write`、`model:activate`、`evaluation:run`、`evaluation:read` |
+| campus_service | `service:read`、`electricity:read_own`、`electricity:topup_request:create` |
+
+系统角色为 `super_admin`、`knowledge_admin`、`service_staff`、`community_operator`、`student`，M5 增加 `model_engineer`。系统角色不能删除，权限可按种子策略重建。权限检查采用“默认拒绝”；前端路由守卫只改善体验，后端依赖项 `require_permissions(...)` 才是安全边界。旧 Access Token 不会自动包含新增权限，执行增量种子后用户必须刷新或重新登录。
+
+# 5. M4 数据设计
+
+![M4 平台治理概要 ERD](assets/detail-platform-erd.png)
+
+## 5.1 表设计摘要
+
+| 表 | 关键字段 | 约束/索引 | 责任 |
+|---|---|---|---|
+| `platform.users` | username、password_hash、status、version、locked_until | username 唯一；有效 email 部分唯一；状态/部门索引 | 演示账号与登录状态 |
+| `platform.roles` | code、name、is_system、version | code 唯一；系统角色禁止删除 | 角色定义 |
+| `platform.permissions` | code、module | code 唯一；module+code 索引 | 权限字典，只由迁移维护 |
+| `platform.user_roles` | user_id、role_id、assigned_by | 联合主键；角色反查索引 | 用户角色多对多 |
+| `platform.role_permissions` | role_id、permission_id | 联合主键；权限反查索引 | 角色权限多对多 |
+| `platform.refresh_tokens` | jti、token_hash、expires_at、revoked_at | jti/hash 唯一；有效 Token 部分索引 | Refresh 轮换与撤销 |
+| `platform.sensitive_words` | word、match_type、action、scope | 规则组合唯一；scope/enabled 索引 | 输入/输出/社区治理规则 |
+| `platform.moderation_cases` | target_*、risk_level、status、rule_hits、version | 队列/目标索引；rule_hits GIN | 跨模块人工审核队列 |
+| `platform.audit_logs` | actor、action、resource、request_id、before/after | 时间、操作者、资源、Request-Id 索引 | 只增不删的脱敏审计 |
+| `platform.app_configs` | key、namespace、value、editable、version | key 主键；namespace 索引 | 非敏感业务配置 |
+| `platform.idempotency_records` | user、endpoint、key、request_hash、response | 三元唯一；到期索引 | 幂等重放与冲突检测 |
+
+## 5.2 数据一致性
+
+- 用户采用软删除；禁用用户时撤销其全部 Refresh Token。
+- 用户角色全量替换和角色权限全量替换均在单事务完成，并写 before/after 审计。
+- 审计日志无修改、删除 API；写入失败不得掩盖原业务失败，但安全关键操作应在同事务或可靠 Outbox 中保障。10 天 MVP 采用同事务写审计。
+- 审核案件不跨 Schema 建外键。目标模块删除资源前检查未结审核案件，或将案件保留为可追溯快照。
+- 配置表禁止保存 DeepSeek API Key、JWT Secret、数据库密码；此类值只从环境变量读取。
+
+## 5.3 状态机
+
+**用户状态：** `active → disabled`（管理员禁用）；`active → locked`（登录失败阈值）；`locked → active`（锁定到期并成功登录或管理员解锁）；`disabled → active`（管理员启用）。禁用状态优先级高于锁定。
+
+**Refresh Token：** `active → rotated`（刷新成功并填写 replaced_by_jti）；`active → revoked`（登出/用户禁用）；`active → expired`（时间到期）。所有终态不可恢复。
+
+**审核案件：** `pending → approved | rejected | escalated`。MVP 不允许终态再次决策；需要修改时创建新案件。审批与目标资源状态回写应在应用服务中编排，回写失败则事务回滚，案件保持 pending。
+
+# 6. 后端对象与职责
+
+| 对象/协议 | 主要方法 | 说明 |
+|---|---|---|
+| `AuthService` | login、refresh、logout、get_current_user | 认证用例与事务边界 |
+| `PasswordHasher` | hash、verify、needs_rehash | Argon2id 适配器 |
+| `TokenService` | issue_access、issue_refresh、decode_access | JWT 与高熵 Refresh 生成 |
+| `UserRepository` | get_by_username、list、create、update_if_version | 不返回密码给路由层 |
+| `RbacService` | permissions_for_user、replace_user_roles、replace_role_permissions | 默认拒绝、事务化全量替换 |
+| `IdempotencyService` | begin、replay_or_conflict、complete | 请求哈希、并发唯一约束处理 |
+| `ModerationService` | scan、submit_case、decide | 敏感词命中、案件决策和回调 |
+| `ModerationTargetHandler` | approve、reject、escalate | 各业务模块注册的解耦协议 |
+| `AuditService` | record_success、record_failure、redact | 统一脱敏策略 |
+| `ConfigService` | list、update_if_version、typed_value | 只允许更新 editable 配置 |
+| `DashboardQueryService` | get_metrics | 只读聚合查询，允许短缓存 |
+
+建议异常映射：领域异常只携带稳定错误码和安全上下文，由全局 FastAPI handler 转换成 HTTP 信封；不得在路由中捕获通用 `Exception` 后返回 200。
+
+## 6.1 M3 内容治理专用契约
+
+M3 调用 `ModerationService.scan(scope="community", text)`，M4 返回
+`risk_level/action/hits/policy_version/sanitized_text`。动作语义固定如下：
+
+| 扫描结果 | M3 初始可见状态 | M4 行为 |
+|---|---|---|
+| 未命中或 `allow` | `published` | 不创建审核案件；记录策略版本 |
+| `mask` | `published` | 使用 `sanitized_text`，保留命中规则编号，不向前端返回原词 |
+| `review` | `pending_review` | 创建一个 pending `ModerationCase` |
+| `block` | `rejected` | 不公开；创建案件/审计快照用于解释和追踪 |
+
+M3 为 `post/comment/event/lost_found` 注册 `ModerationTargetHandler`。M4 决策时只通过
+Handler 调用 M3 应用服务：`approved→published`、`rejected→rejected`、
+`escalated→pending_review`；Handler 校验案件 ID、当前状态和版本，重复回调必须幂等。
+M4 不直接更新 M3 表。
+
+匿名身份反查不复用 `community:moderate`。调用者必须单独拥有
+`community:anonymous_identity:read`，提交 2–500 字反查事由，并产生
+`community.anonymous_identity.read` 审计事件。系统种子仅把该权限自动授予
+`super_admin`；`community_operator` 如确有需要，应由角色权限管理显式增加。
+
+## 6.2 M5 Agent/Tool 治理适配契约
+
+M5 不复制 M4 的 RBAC、内容安全和审计逻辑，只通过以下应用服务适配器调用：
+
+| 适配器 | 输入 | 输出/行为 |
+|---|---|---|
+| `ToolAuthorizationAdapter.authorize` | UserContext、tool_name、permissions、risk_level、resource_ref | `allowed/reason_code`；默认拒绝；资源级规则仍由领域 Service 二次校验 |
+| `AgentContentSafetyAdapter.scan` | scope=`tool_input/tool_output/agent_context`、脱敏文本、policy_version? | risk_level、action、hits、sanitized_text；高风险可创建 agent_platform 审核案件 |
+| `AgentAuditAdapter.record` | request_id、agent_run_id、tool_call_id/approval_id、action、result、脱敏 before/after | 写现有 `platform.audit_logs`；M5 完整轨迹存 `agent_platform` 自有表 |
+| `AgentConfigAdapter.get` | `agent.*`/`modelops.*` 非密钥配置键 | 类型化配置；DeepSeek Key、JWT Secret、模型私有凭据仍只从环境变量读取 |
+
+兼容性要求：
+
+1. 扩展 `sensitive_words.scope` CHECK，增加 `tool_input/tool_output/agent_context`，保留旧值。
+2. 扩展 `moderation_cases.target_module` CHECK，增加 `agent_platform`，保留旧值。
+3. 审计 action/resource 字段已为 varchar，无需改表；Agent/Tool 关联 ID 放入脱敏 after_data，详细轨迹不塞入审计表。
+4. 写 Tool 的 `approval_id` 和参数哈希由 M5 管理；M4 只负责权限和安全审计，不承担完整工作流引擎。
+5. M4 用户管理、角色管理和看板即使已经实现也继续可用，只是不作为当前 Sprint 的重点，不删除路由、表或迁移。
+
+# 7. 接口清单与关键行为
+
+## 7.1 操作清单
+
+| 资源 | 方法与路径 | operationId | 权限/说明 |
+|---|---|---|---|
+| 健康 | GET `/health/live` | getLiveness | 进程存活 |
+| 健康 | GET `/health/ready` | getReadiness | DB/Redis 就绪 |
+| 认证 | POST `/api/v1/auth/login` | login | 匿名；限流 |
+| 认证 | POST `/api/v1/auth/refresh` | refreshAccessToken | Refresh Cookie |
+| 认证 | POST `/api/v1/auth/logout` | logout | 登录用户 |
+| 认证 | GET `/api/v1/auth/me` | getCurrentUser | 登录用户 |
+| 用户 | GET/POST `/api/v1/users` | listUsers/createUser | `user:read`/`user:write` |
+| 用户 | GET/PATCH `/api/v1/users/{user_id}` | getUser/updateUser | `user:read`/`user:write` |
+| 用户角色 | PUT `/api/v1/users/{user_id}/roles` | replaceUserRoles | `user:role:assign` |
+| 角色 | GET/POST `/api/v1/roles` | listRoles/createRole | `role:read`/`role:write` |
+| 角色 | GET/PATCH/DELETE `/api/v1/roles/{role_id}` | getRole/updateRole/deleteRole | 读/写角色 |
+| 角色权限 | PUT `/api/v1/roles/{role_id}/permissions` | replaceRolePermissions | `role:permission:assign` |
+| 权限 | GET `/api/v1/permissions` | listPermissions | `role:read` |
+| 敏感词 | GET/POST `/api/v1/sensitive-words` | listSensitiveWords/createSensitiveWord | 敏感词读/写 |
+| 敏感词 | DELETE `/api/v1/sensitive-words/{word_id}` | deleteSensitiveWord | `sensitive_word:write` |
+| 审核 | GET `/api/v1/moderation/cases` | listModerationCases | `moderation:read` |
+| 审核 | GET `/api/v1/moderation/cases/{case_id}` | getModerationCase | `moderation:read` |
+| 审核 | POST `/api/v1/moderation/cases/{case_id}/decision` | decideModerationCase | `moderation:decide`，幂等 |
+| 审计 | GET `/api/v1/audit-logs` | listAuditLogs | `audit:read` |
+| 审计 | GET `/api/v1/audit-logs/{audit_id}` | getAuditLog | `audit:read` |
+| 配置 | GET `/api/v1/configs` | listConfigs | `config:read` |
+| 配置 | PATCH `/api/v1/configs/{config_key}` | updateConfig | `config:write`，乐观锁 |
+| 看板 | GET `/api/v1/dashboard/metrics` | getDashboardMetrics | `dashboard:read` |
+
+## 7.2 关键接口伪代码
+
+**用户更新：**
+
+```text
+authorize(user:write)
+expected = parse_if_match()
+with transaction:
+  before = user_repo.get(user_id) or 404
+  ensure requester cannot disable the last active super_admin
+  updated = user_repo.update_if_version(user_id, expected, patch)
+  if not updated: raise RESOURCE_VERSION_CONFLICT
+  if status changed to disabled: token_repo.revoke_all(user_id)
+  audit.record(before, updated)
+return UserEnvelope(updated)
+```
+
+**审核决策：**
+
+```text
+authorize(moderation:decide)
+idem.replay_or_begin()
+with transaction:
+  case = case_repo.lock(case_id) or 404
+  require case.status == pending and case.version == request.version
+  handler = registry.resolve(case.target_module, case.target_type)
+  handler.apply(decision, case.target_id, reason)
+  case.finish(decision, reviewer=current_user)
+  audit.record(...)
+idem.complete(response)
+return response
+```
+
+## 7.3 联调约定
+
+- 前端只调用生成客户端；临时 Mock 也必须由同一 `openapi.yaml` 生成。
+- 修改 API 必须先改 OpenAPI、运行 lint 和契约测试，再改两端代码。
+- 后端对未声明字段使用 `extra="forbid"`；前端不得依赖未进入 Schema 的字段。
+- 401 刷新采用单飞锁：多个并发请求只触发一次刷新，其余等待；刷新后的原请求最多重放一次。
+- 服务端响应始终返回 `X-Request-Id`；前端错误提示可复制该 ID。
+
+# 8. 前端详细设计
+
+| 页面/组件 | 路由 | 数据与行为 |
+|---|---|---|
+| 登录页 | `/login` | 登录、锁定倒计时、统一错误提示 |
+| 用户管理 | `/admin/users` | 筛选分页、创建、启停、分配角色；冲突时刷新 |
+| 角色权限 | `/admin/roles` | 角色 CRUD、权限树全量保存；系统角色禁止删除 |
+| 敏感词 | `/admin/sensitive-words` | 按 scope/action 查询，新增与删除确认 |
+| 审核队列 | `/admin/moderation` | 风险/状态筛选、详情抽屉、批准/拒绝/升级 |
+| 审计日志 | `/admin/audit-logs` | 只读筛选、before/after 差异展示、Request-Id 搜索 |
+| 系统配置 | `/admin/configs` | 按 namespace 分组；不可编辑项禁用；版本冲突处理 |
+| 运营看板 | `/admin/dashboard` | 指标卡；按日期范围查询；加载失败不影响其他页面 |
+
+`authStore` 只在内存保存 Access Token 和用户权限；Refresh Cookie 不可被 JavaScript 读取。路由 `meta.permissions` 用于守卫，按钮使用 `v-permission` 指令隐藏；即使隐藏，后端仍必须校验。
+
+# 9. 安全、审计与可观测性
+
+## 9.1 安全控制
+
+- 登录按 `IP + username` 限流；默认 5 次/分钟，超限返回 429。
+- CORS 仅允许配置的前端 Origin；使用 Cookie 的刷新接口开启凭据并进行 Origin 校验。
+- 所有 SQL 参数化；正则敏感词在创建时编译校验并限制长度，避免灾难性回溯。
+- 审计脱敏键至少覆盖 `password`、`token`、`authorization`、`cookie`、`api_key`、`secret`。
+- 不在错误信息中区分“用户名不存在”和“密码错误”。
+- OpenAPI 文档在演示环境可开放；若暴露到非本机必须加管理员认证。
+
+## 9.2 日志字段
+
+结构化日志至少包含 `timestamp`、`level`、`request_id`、`method`、`path_template`、`status_code`、`duration_ms`、`user_id`、`error_code`。日志不得记录完整请求体；必要业务字段采用白名单。
+
+## 9.3 健康检查
+
+- live：不访问依赖，只证明进程事件循环可响应。
+- ready：对 PostgreSQL 执行轻量查询；Redis 为功能依赖时同时检查。单个检查设置短超时，失败返回 503 和不含凭据的依赖状态。
+
+# 10. 测试设计
+
+| 层级 | 必测项 | 通过标准 |
+|---|---|---|
+| 单元 | 密码校验、JWT 过期、权限并集、状态迁移、脱敏、请求哈希 | 核心服务分支覆盖率 ≥80% |
+| 仓储 | 唯一约束、乐观锁、部分索引条件、全量替换事务 | PostgreSQL 测试库通过 |
+| API | 29 个 operationId 正常/无权限/校验失败路径 | 响应与 OpenAPI Schema 一致 |
+| 契约 | OpenAPI lint、Schema 引用、生成 TypeScript 客户端 | CI 无错误；operationId 唯一 |
+| 安全 | 5 次失败锁定、Refresh 轮换/复用、禁用撤销、敏感字段不落日志 | 用例全部通过 |
+| 并发 | 同 Idempotency-Key 双请求、同版本双更新、同案件双决策 | 只产生一个结果，另一请求重放或 409 |
+
+重点验收用例：系统角色删除返回 409；不可编辑配置更新返回 403；已结束案件再次决策返回 409 `MODERATION_CASE_ALREADY_DECIDED`；非法 UUID/分页返回 422；普通学生访问 `/users` 返回 403；审计 before/after 中敏感字段被替换为 `***`。
+
+# 11. 成员 D 的 10 天 Scrum 实施包
+
+| 天 | 可独立交付 | 联调点 |
+|---|---|---|
+| D1 | 项目骨架、配置、异常信封、Request-Id、数据库迁移 | 将 OpenAPI 和 `.env.example` 发给全组 |
+| D2 | users/roles/permissions ORM、仓储、种子脚本 | 提供演示账号创建命令 |
+| D3 | 登录、JWT、Refresh Cookie、轮换与锁定 | 前端完成登录和 401 刷新 |
+| D4 | 用户/角色/权限 API，权限依赖 | 三模块接入统一权限码 |
+| D5 | 敏感词扫描与规则管理 API | M1/M3 调用扫描服务 |
+| D6 | 审核案件与处理器注册协议 | M1/M3 各接入一个 handler |
+| D7 | 审计、配置、看板查询 | 全模块接入 Request-Id 和审计 |
+| D8 | 管理端页面、OpenAPI 生成客户端 | 前后端全量契约联调 |
+| D9 | 并发、权限、安全和回归测试；修复 | 集成环境缺陷清零 |
+| D10 | 演示数据、Compose 启动、演示脚本和答辩材料 | 冻结接口，仅修阻塞问题 |
+
+每日站会同步：昨天完成、今天计划、阻塞项；D1/D4/D7/D9 晚上进行接口冻结检查。若后续必须变更字段，先提交 OpenAPI diff 并通知受影响成员。
+
+# 12. Vibe Coding 任务模板与完成定义
+
+## 12.1 单任务提示词模板
+
+```text
+实现 operationId=<name>。严格以 deliverables/openapi.yaml 的请求、响应和错误 Schema 为准；
+使用 FastAPI + Pydantic v2 + SQLAlchemy async；路由只做协议转换，规则进入 Service，SQL 进入 Repository；
+权限使用 x-permissions；写操作补审计，标注幂等或乐观锁的接口必须实现对应机制；
+生成 pytest：成功、401/403、422、404/409 与至少一个并发用例；
+不得新增未进入 OpenAPI 的响应字段，不得记录密码/Token/API Key。
+```
+
+## 12.2 Definition of Done
+
+- OpenAPI lint 与引用检查通过，operationId 唯一。
+- Alembic upgrade/downgrade 在空库成功；种子脚本可重复执行。
+- 生成客户端可编译；Mock 与真实服务的响应结构一致。
+- 权限、幂等、乐观锁、审计和脱敏用例通过。
+- Docker Compose 一条命令启动；`/health/ready` 返回成功。
+- README 写明环境变量、迁移、种子、测试和演示账号生成方式。
+- 不提交 `.env`、API Key、JWT Secret、明文密码或运行日志。
+
+# 13. 环境依赖与配置清单
+
+最低开发依赖：Docker Desktop/Engine、Compose v2、Python 3.12、Node.js 22 LTS、pnpm、Git。建议后端依赖包括 FastAPI、uvicorn、pydantic-settings、SQLAlchemy、asyncpg、Alembic、PyJWT、argon2-cffi、redis、httpx、structlog、pytest、pytest-asyncio、testcontainers；前端包括 Vue、Vite、TypeScript、Pinia、Vue Router、Element Plus、openapi-typescript 或 Orval、Vitest、Playwright。
+
+必须提供 `.env.example`：`DATABASE_URL`、`REDIS_URL`、`JWT_SECRET`、`ACCESS_TOKEN_MINUTES`、`REFRESH_TOKEN_DAYS`、`FRONTEND_ORIGIN`、`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL=deepseek-v4-pro`、`USE_MOCK_CAMPUS_ADAPTERS=true`。真实值由各开发者本机注入。
+
+# 14. 需求追踪与后续设计入口
+
+| 需求能力 | 本篇设计落点 | 验证材料 |
+|---|---|---|
+| 统一账号与权限 | 第 4、6、7 章 | Auth/RBAC API 测试 |
+| 内容安全与人工审核 | 第 5、6、7 章 | 敏感词与审核状态测试 |
+| 系统配置与审计 | 第 5、7、9 章 | 配置冲突、审计脱敏测试 |
+| 前后端可联调 | 第 3、7、8 章 | OpenAPI 生成客户端与契约测试 |
+| 五模块低耦合 | 第 2、5、6.2 章 | Schema 边界、处理器与 Agent 治理适配协议 |
+| M5 Agent/Tool 治理 | 第 4、6.2、9 章 | 新权限、Tool 授权、确认审计、scope/target_module 增量迁移测试 |
+
+M1–M3 与 M5 均复用本篇的用户、权限、幂等、审计与审核协议。M5 的 Agent、Tool、确认、模型工程和轨迹详见 Part 5；开始编码前，本篇公共 API 基础规范和 6.2 适配契约视为全组冻结基线。

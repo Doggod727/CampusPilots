@@ -1,0 +1,102 @@
+# ============================================================
+# 覃焓 · 个人提交过滤（四人代码量统计用）
+# 负责：M4 平台治理（全部）+ M5 运行时/安全/审批（Worker/Checkpoint/
+#       Trace/Approval/限流/幂等）+ 数据库迁移 + 基础设施与集成
+# 用法（克隆仓库后执行一次，Git Bash）：
+#   cp qinhan.gitignore .git/info/exclude
+# 之后 git add -A 只会暂存本人负责的文件。
+# ============================================================
+
+# ---------- 张讯毓：Tool 网关（契约/执行引擎）+ M2 校园服务 ----------
+/backend/app/modules/campus_service/
+/backend/app/modules/agent_platform/internal_tools.py
+/backend/app/modules/agent_platform/internal_auth.py
+/backend/app/modules/agent_platform/tool_gateway/*
+!/backend/app/modules/agent_platform/tool_gateway/governance_adapters.py
+
+# ---------- 王一林：M1 知识库 + ModelOps + 模型网关 ----------
+/backend/app/modules/ai_knowledge/
+/backend/app/modules/agent_platform/deepseek.py
+/backend/app/modules/agent_platform/datasets.py
+/backend/app/modules/agent_platform/dataset_routes.py
+/backend/app/modules/agent_platform/artifact_store.py
+/backend/app/modules/agent_platform/evaluations.py
+/backend/app/modules/agent_platform/evaluation_routes.py
+/backend/app/modules/agent_platform/evaluation_providers.py
+/backend/app/modules/agent_platform/evaluation_worker.py
+/backend/app/modules/agent_platform/model_registry.py
+/backend/app/modules/agent_platform/training.py
+/backend/app/modules/agent_platform/training_worker.py
+/backend/app/scripts/seed_ai_knowledge.py
+/backend/app/scripts/ingestion_worker.py
+/backend/app/scripts/evaluation_worker.py
+/backend/app/scripts/training_worker.py
+/backend/app/scripts/modelops_integration_probe.py
+/backend/app/scripts/deepseek_provider_fault_probe.py
+/install-opensearch-wsl.sh
+/install-opensearch-wsl-single.sh
+
+# ---------- 李欢：M3 社区 + M5 编排/API + 整体框架 + 前端 + 文档 ----------
+/backend/app/modules/community/
+/backend/app/modules/agent_platform/orchestration/
+/backend/app/modules/agent_platform/domain/
+/backend/app/modules/agent_platform/composition.py
+/backend/app/modules/agent_platform/run_routes.py
+/backend/app/modules/agent_platform/run_service.py
+/backend/app/modules/agent_platform/run_queries.py
+/backend/app/modules/agent_platform/event_stream.py
+/backend/app/modules/agent_platform/catalog_routes.py
+/backend/app/modules/agent_platform/tool_gateway/community_adapters.py
+/backend/app/main.py
+/backend/app/core/
+/backend/app/shared/
+/backend/pyproject.toml
+/backend/alembic.ini
+/frontend/
+/docx/
+/README.md
+/todo.md
+/lihuan.md
+/lihuan.gitignore
+/qinhan.gitignore
+/zhangxunyu.gitignore
+/wangyilin.gitignore
+
+# ---------- 测试：张讯毓 ----------
+/backend/tests/test_tool_*.py
+/backend/tests/test_internal_*.py
+/backend/tests/test_mock_tool_handlers.py
+/backend/tests/test_agent_tool_contracts.py
+/backend/tests/test_campus_service_*.py
+/backend/tests/test_electricity_*.py
+/backend/tests/test_work_order_*.py
+/backend/tests/test_guide_*.py
+/backend/tests/test_service_guide_queries.py
+/backend/tests/test_service_progress*.py
+/backend/tests/test_material_checklist.py
+/backend/tests/test_department_routes.py
+/backend/tests/test_m2_final_acceptance.py
+/backend/tests/test_m5_contract_completion.py
+
+# ---------- 测试：王一林 ----------
+/backend/tests/test_m1_*.py
+/backend/tests/test_conversation_agent_counts.py
+/backend/tests/test_dataset*.py
+/backend/tests/test_evaluation*.py
+/backend/tests/test_model_*.py
+/backend/tests/test_training*.py
+/backend/tests/test_deepseek_*.py
+/backend/tests/fake_evaluators.py
+/backend/tests/fixtures/
+
+# ---------- 测试：李欢 ----------
+/backend/tests/test_community_*.py
+/backend/tests/test_agent_registry.py
+/backend/tests/test_agent_router.py
+/backend/tests/test_supervisor_planner.py
+/backend/tests/test_bounded_graph_runtime.py
+/backend/tests/test_agent_runtime_integration.py
+/backend/tests/test_agent_run_*.py
+/backend/tests/test_agent_event_stream.py
+/backend/tests/test_agent_catalog_routes.py
+/backend/tests/test_m3_final_acceptance.py

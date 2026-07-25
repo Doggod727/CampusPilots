@@ -1,0 +1,1 @@
+"""CampusPilot backend application."""

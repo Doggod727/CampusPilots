@@ -1,0 +1,120 @@
+# ============================================================
+# 李欢 · 个人提交过滤（四人代码量统计用）
+# 负责：M3 校园社区 + M5 编排（AgentRegistry/Router/Supervisor/GraphRuntime）
+#       + M5 AgentRun/Catalog API + 整体框架 + 前端 + 文档
+# 用法（克隆仓库后执行一次，Git Bash）：
+#   cp lihuan.gitignore .git/info/exclude
+# 之后 git add -A 只会暂存本人负责的文件。
+# 注意：本文件只过滤"他人负责的路径"，仓库级 .gitignore 的垃圾文件
+#       规则（.env/logs/node_modules 等）依然生效，无需重复。
+# ============================================================
+
+# ---------- 覃焓：M4 平台治理 + M5 运行时/安全/审批 + 迁移与基础设施 ----------
+/backend/app/modules/platform/
+/backend/app/modules/agent_platform/approvals.py
+/backend/app/modules/agent_platform/approval_decision.py
+/backend/app/modules/agent_platform/approval_expiry.py
+/backend/app/modules/agent_platform/models.py
+/backend/app/modules/agent_platform/catalog_persistence.py
+/backend/app/modules/agent_platform/traces.py
+/backend/app/modules/agent_platform/runtime_persistence.py
+/backend/app/modules/agent_platform/runtime_worker.py
+/backend/app/modules/agent_platform/checkpointing.py
+/backend/app/modules/agent_platform/rate_limit.py
+/backend/app/modules/agent_platform/tool_gateway/governance_adapters.py
+/backend/migrations/
+/backend/Dockerfile
+/backend/.dockerignore
+/scripts/
+/deploy/
+/docker-compose.yml
+/.env.example
+
+# ---------- 张讯毓：Tool 网关（契约/执行引擎）+ M2 校园服务 ----------
+/backend/app/modules/campus_service/
+/backend/app/modules/agent_platform/internal_tools.py
+/backend/app/modules/agent_platform/internal_auth.py
+/backend/app/modules/agent_platform/tool_gateway/*
+!/backend/app/modules/agent_platform/tool_gateway/community_adapters.py
+
+# ---------- 王一林：M1 知识库 + ModelOps + 模型网关 ----------
+/backend/app/modules/ai_knowledge/
+/backend/app/modules/agent_platform/deepseek.py
+/backend/app/modules/agent_platform/datasets.py
+/backend/app/modules/agent_platform/dataset_routes.py
+/backend/app/modules/agent_platform/artifact_store.py
+/backend/app/modules/agent_platform/evaluations.py
+/backend/app/modules/agent_platform/evaluation_routes.py
+/backend/app/modules/agent_platform/evaluation_providers.py
+/backend/app/modules/agent_platform/evaluation_worker.py
+/backend/app/modules/agent_platform/model_registry.py
+/backend/app/modules/agent_platform/training.py
+/backend/app/modules/agent_platform/training_worker.py
+/install-opensearch-wsl.sh
+/install-opensearch-wsl-single.sh
+
+# ---------- 全部后端脚本（覃焓：运行时/种子；王一林：知识/ModelOps）----------
+/backend/app/scripts/
+
+# ---------- 测试：覃焓 ----------
+/backend/tests/test_auth_*.py
+/backend/tests/test_rbac_*.py
+/backend/tests/test_user_*.py
+/backend/tests/test_sensitive_word_*.py
+/backend/tests/test_moderation_*.py
+/backend/tests/test_audit_*.py
+/backend/tests/test_config*.py
+/backend/tests/test_dashboard.py
+/backend/tests/test_health.py
+/backend/tests/test_readiness.py
+/backend/tests/test_platform_models.py
+/backend/tests/test_passwords.py
+/backend/tests/test_tokens.py
+/backend/tests/test_permission_dependencies.py
+/backend/tests/test_cors.py
+/backend/tests/test_database.py
+/backend/tests/test_errors.py
+/backend/tests/test_idempotency_*.py
+/backend/tests/test_runtime_*.py
+/backend/tests/test_checkpointing.py
+/backend/tests/test_persistent_*.py
+/backend/tests/test_approval_expiry.py
+/backend/tests/test_agent_approval_decision.py
+/backend/tests/test_agent_platform_models.py
+/backend/tests/test_agent_rate_limit.py
+/backend/tests/test_catalog_persistence.py
+/backend/tests/test_m5_acceptance_probe.py
+/backend/tests/test_m5_platform_compat.py
+/backend/tests/test_m5_governance_adapters.py
+/backend/tests/test_migrations.py
+/backend/tests/test_seed_demo.py
+/backend/tests/test_seed_agent_platform.py
+/backend/tests/test_scu_snapshot.py
+/backend/tests/test_openapi_contract_audit.py
+
+# ---------- 测试：张讯毓 ----------
+/backend/tests/test_tool_*.py
+/backend/tests/test_internal_*.py
+/backend/tests/test_mock_tool_handlers.py
+/backend/tests/test_agent_tool_contracts.py
+/backend/tests/test_campus_service_*.py
+/backend/tests/test_electricity_*.py
+/backend/tests/test_work_order_*.py
+/backend/tests/test_guide_*.py
+/backend/tests/test_service_guide_queries.py
+/backend/tests/test_service_progress*.py
+/backend/tests/test_material_checklist.py
+/backend/tests/test_department_routes.py
+/backend/tests/test_m2_final_acceptance.py
+/backend/tests/test_m5_contract_completion.py
+
+# ---------- 测试：王一林 ----------
+/backend/tests/test_m1_*.py
+/backend/tests/test_conversation_agent_counts.py
+/backend/tests/test_dataset*.py
+/backend/tests/test_evaluation*.py
+/backend/tests/test_model_*.py
+/backend/tests/test_training*.py
+/backend/tests/test_deepseek_*.py
+/backend/tests/fake_evaluators.py
+/backend/tests/fixtures/
